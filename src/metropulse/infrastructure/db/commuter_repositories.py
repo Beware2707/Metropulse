@@ -23,6 +23,7 @@ from metropulse.infrastructure.db.commuter_models import (
     Journey,
     JourneyEvent,
     LastTrainReminder,
+    LeaveHomeReminder,
     Notification,
     ServiceAlert,
     StationExit,
@@ -180,6 +181,50 @@ class LastTrainReminderRepository:
         result = await self._session.execute(
             delete(LastTrainReminder).where(
                 LastTrainReminder.id == reminder_id, LastTrainReminder.user_id == user_id
+            )
+        )
+        return bool(result.rowcount)
+
+
+class LeaveHomeReminderRepository:
+    """One-shot leave-home reminders."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    def add(self, reminder: LeaveHomeReminder) -> None:
+        """Stage a new reminder."""
+        self._session.add(reminder)
+
+    async def get(self, reminder_id: int) -> LeaveHomeReminder | None:
+        """Reminder by primary key."""
+        return await self._session.get(LeaveHomeReminder, reminder_id)
+
+    async def list_for_user(self, user_id: str) -> Sequence[LeaveHomeReminder]:
+        """A user's reminders, soonest first."""
+        result = await self._session.execute(
+            select(LeaveHomeReminder)
+            .where(LeaveHomeReminder.user_id == user_id)
+            .order_by(LeaveHomeReminder.notify_at)
+        )
+        return result.scalars().all()
+
+    async def list_due(self, now: datetime) -> Sequence[LeaveHomeReminder]:
+        """Pending reminders whose notify time has arrived."""
+        result = await self._session.execute(
+            select(LeaveHomeReminder).where(
+                LeaveHomeReminder.status == "pending",
+                LeaveHomeReminder.notify_at <= now,
+            )
+        )
+        return result.scalars().all()
+
+    async def delete(self, user_id: str, reminder_id: int) -> bool:
+        """Delete a user's reminder; returns whether a row was removed."""
+        result = await self._session.execute(
+            delete(LeaveHomeReminder).where(
+                LeaveHomeReminder.id == reminder_id,
+                LeaveHomeReminder.user_id == user_id,
             )
         )
         return bool(result.rowcount)

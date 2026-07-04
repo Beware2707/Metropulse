@@ -82,10 +82,16 @@ class TrainOut(BaseModel):
     at_station: bool
     distance_along_m: float | None
     shape_offset_m: float | None
+    remaining_stations: list[StationRefOut]
 
     @classmethod
     def from_domain(cls, state: TrainState) -> "TrainOut":
         """Build from the domain entity."""
+        remaining = [
+            ref
+            for ref in (StationRefOut.from_domain(s) for s in state.remaining_stations)
+            if ref is not None
+        ]
         return cls(
             vehicle=VehicleOut.from_domain(state.vehicle),
             resolved=state.resolved,
@@ -102,6 +108,7 @@ class TrainOut(BaseModel):
             at_station=state.at_station,
             distance_along_m=state.distance_along_m,
             shape_offset_m=state.shape_offset_m,
+            remaining_stations=remaining,
         )
 
 
@@ -203,6 +210,9 @@ class VehicleEtaOut(BaseModel):
     speed_mps_used: float
     speed_source: str
     confidence: str
+    next_station: StationEtaOut | None
+    delay_seconds: float | None
+    dwell_seconds_used: float
     stations: list[StationEtaOut]
 
     @classmethod
@@ -215,6 +225,11 @@ class VehicleEtaOut(BaseModel):
             speed_mps_used=eta.speed_mps_used,
             speed_source=eta.speed_source,
             confidence=eta.confidence,
+            next_station=(
+                StationEtaOut.from_domain(eta.next_station) if eta.next_station else None
+            ),
+            delay_seconds=eta.delay_seconds,
+            dwell_seconds_used=eta.dwell_seconds_used,
             stations=[StationEtaOut.from_domain(s) for s in eta.stations],
         )
 

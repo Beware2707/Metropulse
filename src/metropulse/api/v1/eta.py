@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from metropulse.api.deps import get_eta_engine, get_resolver, get_vehicle_store
+from metropulse.api.deps import get_eta_service, get_resolver, get_vehicle_store
 from metropulse.api.schemas import VehicleEtaOut
-from metropulse.application.eta_engine import EtaEngine
+from metropulse.application.eta_service import CachedEtaService
 from metropulse.application.route_resolver import RouteResolver
 from metropulse.infrastructure.redis.vehicle_store import RedisVehicleStore
 
@@ -18,7 +18,7 @@ async def get_eta(
     vehicle_id: str,
     store: RedisVehicleStore = Depends(get_vehicle_store),
     resolver: RouteResolver = Depends(get_resolver),
-    engine: EtaEngine = Depends(get_eta_engine),
+    engine: CachedEtaService = Depends(get_eta_service),
 ) -> VehicleEtaOut:
     """ETAs to every remaining station on the vehicle's current trip."""
     vehicle = await store.get(vehicle_id)

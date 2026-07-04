@@ -13,6 +13,7 @@ from sqlalchemy.pool import NullPool
 
 from gtfs_fixture import write_gtfs_zip
 from metropulse.application.eta_engine import EtaEngine, EtaParameters
+from metropulse.application.eta_service import CachedEtaService
 from metropulse.application.live_hub import ConnectionManager, LiveHub, ReplayBuffer
 from metropulse.application.route_resolver import IdMapper, RouteResolver
 from metropulse.application.static_loader import GtfsStaticLoader
@@ -20,6 +21,7 @@ from metropulse.application.train_service import TrainService
 from metropulse.config import Settings
 from metropulse.infrastructure.db.base import SessionFactory
 from metropulse.infrastructure.db.models import Base
+from metropulse.infrastructure.redis.eta_cache import RedisEtaCache
 from metropulse.infrastructure.redis.vehicle_store import RedisVehicleStore
 from metropulse.main import create_app
 from metropulse.wiring import AppResources, build_commuter_services
@@ -104,6 +106,7 @@ def resources(
     """A full object graph over SQLite + fake Redis."""
     store = RedisVehicleStore(fake_redis)
     resolver = RouteResolver(loaded_session_factory, IdMapper(), station_radius_m=75.0)
+    eta_engine = EtaEngine(loaded_session_factory, EtaParameters())
     return AppResources(
         settings=settings,
         engine=None,
@@ -112,7 +115,8 @@ def resources(
         vehicle_store=store,
         resolver=resolver,
         train_service=TrainService(store, resolver, settings.stale_after_seconds),
-        eta_engine=EtaEngine(loaded_session_factory, EtaParameters()),
+        eta_engine=eta_engine,
+        eta_service=CachedEtaService(eta_engine, RedisEtaCache(fake_redis)),
         live_hub=LiveHub(ConnectionManager(), ReplayBuffer(64)),
         commuter=build_commuter_services(
             settings, loaded_session_factory, fake_redis, store

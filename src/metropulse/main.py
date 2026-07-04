@@ -50,6 +50,7 @@ def create_app(
         app.state.resolver = res.resolver
         app.state.train_service = res.train_service
         app.state.eta_engine = res.eta_engine
+        app.state.eta_service = res.eta_service
         app.state.live_hub = res.live_hub
         app.state.commuter = res.commuter
 

@@ -34,3 +34,7 @@ class UnknownEntityError(MetroPulseError):
 
 class NotTrackedError(MetroPulseError):
     """Raised when an operation requires a vehicle that is not currently tracked."""
+
+
+class NoRouteError(MetroPulseError):
+    """Raised when no path exists between two stations in the network graph."""

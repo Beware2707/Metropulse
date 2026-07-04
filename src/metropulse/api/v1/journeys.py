@@ -30,6 +30,7 @@ async def start_journey(
             body.destination_stop_id,
             vehicle_id=body.vehicle_id,
             route_id=body.route_id,
+            interchange_stop_ids=body.interchange_stop_ids,
         )
     except UnknownEntityError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

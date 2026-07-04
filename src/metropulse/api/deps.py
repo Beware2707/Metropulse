@@ -8,7 +8,7 @@ from typing import AsyncIterator
 from fastapi import Header, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from metropulse.application.eta_engine import EtaEngine
+from metropulse.application.eta_service import CachedEtaService
 from metropulse.application.route_resolver import RouteResolver
 from metropulse.application.train_service import TrainService
 from metropulse.infrastructure.db.commuter_models import User
@@ -41,10 +41,10 @@ def get_train_service(request: Request) -> TrainService:
     return service
 
 
-def get_eta_engine(request: Request) -> EtaEngine:
-    """The shared ETA engine."""
-    engine: EtaEngine = request.app.state.eta_engine
-    return engine
+def get_eta_service(request: Request) -> CachedEtaService:
+    """The Redis-cached ETA service (API-facing interface)."""
+    service: CachedEtaService = request.app.state.eta_service
+    return service
 
 
 def get_commuter(request: Request) -> CommuterServices:

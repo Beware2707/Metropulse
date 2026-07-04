@@ -13,6 +13,7 @@ from metropulse.domain.commuter import (
     LastTrainInfo,
     OfflineManifest,
 )
+from metropulse.domain.journey import JourneyPlan, RideLeg
 
 
 # --- Users -------------------------------------------------------------------
@@ -197,6 +198,8 @@ class JourneyIn(BaseModel):
     destination_stop_id: str = Field(min_length=1, max_length=64)
     vehicle_id: str | None = Field(default=None, max_length=64)
     route_id: str | None = Field(default=None, max_length=64)
+    # Usually copied from a journey plan; drives interchange reminders.
+    interchange_stop_ids: list[str] = Field(default_factory=list, max_length=8)
 
 
 class JourneyOut(BaseModel):
@@ -219,6 +222,134 @@ class JourneyListOut(BaseModel):
 
     count: int
     journeys: list[JourneyOut]
+
+
+# --- Journey planning ----------------------------------------------------------
+
+
+class JourneyStopOut(BaseModel):
+    """A station in a journey plan."""
+
+    stop_id: str
+    name: str
+
+
+class JourneyLegOut(BaseModel):
+    """One leg of a journey plan (ride or walk)."""
+
+    kind: str
+    board: JourneyStopOut
+    alight: JourneyStopOut
+    seconds: float
+    # ride-only fields
+    route_id: str | None = None
+    route_short_name: str | None = None
+    route_long_name: str | None = None
+    route_color: str | None = None
+    direction_id: int | None = None
+    platform_hint: str | None = None
+    wait_seconds: float | None = None
+    stations: list[JourneyStopOut] | None = None
+    # walk-only fields
+    distance_m: float | None = None
+
+
+class JourneyPlanOut(BaseModel):
+    """A complete journey plan."""
+
+    origin: JourneyStopOut
+    destination: JourneyStopOut
+    departure_at: datetime
+    expected_arrival_at: datetime
+    expected_travel_seconds: float
+    interchange_count: int
+    interchange_stop_ids: list[str]
+    walking_distance_m: float
+    remaining_stations: list[JourneyStopOut]
+    legs: list[JourneyLegOut]
+
+    @classmethod
+    def from_domain(cls, plan: JourneyPlan) -> "JourneyPlanOut":
+        """Build from the domain value."""
+        legs: list[JourneyLegOut] = []
+        for leg in plan.legs:
+            if isinstance(leg, RideLeg):
+                legs.append(
+                    JourneyLegOut(
+                        kind="ride",
+                        board=JourneyStopOut(stop_id=leg.board.stop_id, name=leg.board.name),
+                        alight=JourneyStopOut(
+                            stop_id=leg.alight.stop_id, name=leg.alight.name
+                        ),
+                        seconds=leg.ride_seconds,
+                        route_id=leg.route_id,
+                        route_short_name=leg.route_short_name,
+                        route_long_name=leg.route_long_name,
+                        route_color=leg.route_color,
+                        direction_id=leg.direction_id,
+                        platform_hint=leg.platform_hint,
+                        wait_seconds=leg.wait_seconds,
+                        stations=[
+                            JourneyStopOut(stop_id=s.stop_id, name=s.name)
+                            for s in leg.stations
+                        ],
+                    )
+                )
+            else:
+                legs.append(
+                    JourneyLegOut(
+                        kind="walk",
+                        board=JourneyStopOut(stop_id=leg.board.stop_id, name=leg.board.name),
+                        alight=JourneyStopOut(
+                            stop_id=leg.alight.stop_id, name=leg.alight.name
+                        ),
+                        seconds=leg.walk_seconds,
+                        distance_m=leg.distance_m,
+                    )
+                )
+        return cls(
+            origin=JourneyStopOut(stop_id=plan.origin.stop_id, name=plan.origin.name),
+            destination=JourneyStopOut(
+                stop_id=plan.destination.stop_id, name=plan.destination.name
+            ),
+            departure_at=plan.departure_at,
+            expected_arrival_at=plan.expected_arrival_at,
+            expected_travel_seconds=plan.expected_travel_seconds,
+            interchange_count=plan.interchange_count,
+            interchange_stop_ids=[s.stop_id for s in plan.interchange_stops],
+            walking_distance_m=plan.walking_distance_m,
+            remaining_stations=[
+                JourneyStopOut(stop_id=s.stop_id, name=s.name)
+                for s in plan.remaining_stations
+            ],
+            legs=legs,
+        )
+
+
+# --- Leave-home reminders --------------------------------------------------------
+
+
+class LeaveHomeReminderIn(BaseModel):
+    """Create body for a leave-home reminder."""
+
+    stop_id: str = Field(min_length=1, max_length=64)
+    train_departure_at: datetime
+    walking_minutes: int = Field(ge=0, le=120)
+    buffer_minutes: int = Field(default=10, ge=0, le=60)
+
+
+class LeaveHomeReminderOut(BaseModel):
+    """A leave-home reminder."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    stop_id: str
+    train_departure_at: datetime
+    walking_minutes: int
+    buffer_minutes: int
+    notify_at: datetime
+    status: str
 
 
 # --- Recommendations ---------------------------------------------------------

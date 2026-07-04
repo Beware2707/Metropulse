@@ -7,7 +7,8 @@ import json
 from datetime import UTC, datetime, timedelta
 
 from factories import build_feed_payload, make_vehicle
-from metropulse.application.realtime_engine import RealtimeEngine
+from metropulse.application.events import FEED_UPDATED, EventBus
+from metropulse.application.realtime_engine import PollResult, RealtimeEngine
 from metropulse.application.route_resolver import RouteResolver
 from metropulse.application.train_service import TrainService
 from metropulse.domain.entities import VehiclePosition
@@ -61,10 +62,15 @@ async def test_first_poll_stores_and_persists_everything(
     result = await engine.poll_once()
 
     assert result.total == 2
-    assert result.updated == ("v1", "v2")
+    assert result.added == ("v1", "v2")
+    assert result.moved == ()
     assert result.removed == ()
     snapshot = await store.get_all()
     assert set(snapshot) == {"v1", "v2"}
+    # Resolution results are cached in Redis for API replicas.
+    cached = await store.get_all_train_states()
+    assert set(cached) == {"v1", "v2"}
+    assert cached["v1"].route_long_name == "Red Line"
     async with loaded_session_factory() as session:
         rows = await VehicleHistoryRepository(session).recent_for_vehicle("v1")
         assert len(rows) == 1
@@ -88,7 +94,9 @@ async def test_second_poll_reports_only_changes(
     await engine.poll_once()
     result = await engine.poll_once()
 
-    assert result.updated == ("v2", "v3")
+    assert result.added == ("v3",)
+    assert result.moved == ("v2",)
+    assert result.changed == ("v3", "v2")
     assert result.removed == ()
     assert result.sequence == 2
 
@@ -109,6 +117,9 @@ async def test_removed_vehicles_are_detected_and_evicted(
     assert result.removed == ("v2",)
     snapshot = await store.get_all()
     assert set(snapshot) == {"v1"}
+    # The cached resolution is evicted alongside the vehicle.
+    cached = await store.get_all_train_states()
+    assert set(cached) == {"v1"}
 
 
 async def test_stale_vehicles_are_flagged(
@@ -151,13 +162,40 @@ async def test_diff_message_is_published_with_enrichment(
     assert message["type"] == "update"
     assert message["seq"] == 1
     assert message["removed"] == []
-    train = message["updated"][0]
+    assert message["moved"] == []
+    train = message["added"][0]
     assert train["vehicle"]["vehicle_id"] == "v1"
     assert train["resolved"] is True
     assert train["route_long_name"] == "Red Line"
     assert train["current_station"]["stop_id"] == "S2"
     assert train["next_station"]["stop_id"] == "S3"
     assert train["destination"]["stop_id"] == "S4"
+    assert [s["stop_id"] for s in train["remaining_stations"]] == ["S3", "S4"]
+
+
+async def test_poll_publishes_feed_updated_event(
+    store: RedisVehicleStore,
+    loaded_session_factory: SessionFactory,
+    resolver: RouteResolver,
+) -> None:
+    received: list[PollResult] = []
+    bus = EventBus()
+
+    async def handler(result: PollResult) -> None:
+        received.append(result)
+
+    bus.subscribe(FEED_UPDATED, handler)
+
+    feed = StubFeed()
+    feed.queue([make_vehicle("v1")])
+    train_service = TrainService(store, resolver, 90.0)
+    engine = RealtimeEngine(
+        feed, store, loaded_session_factory, train_service, event_bus=bus
+    )
+    result = await engine.poll_once()
+
+    assert received == [result]
+    assert received[0].added == ("v1",)
 
 
 async def test_poll_safe_swallows_and_counts_failures(
@@ -178,3 +216,16 @@ async def test_poll_safe_swallows_and_counts_failures(
     result = await engine.poll_safe()
     assert result is not None
     assert engine.stats.consecutive_failures == 0
+
+
+async def test_poll_safe_survives_unexpected_errors(
+    store: RedisVehicleStore,
+    loaded_session_factory: SessionFactory,
+    resolver: RouteResolver,
+) -> None:
+    feed = StubFeed()
+    feed.queue_error(RuntimeError("something entirely unexpected"))
+    engine = _engine(feed, store, loaded_session_factory, resolver)
+
+    assert await engine.poll_safe() is None
+    assert engine.stats.failures == 1

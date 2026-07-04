@@ -66,6 +66,37 @@ DEFAULT_FILES: dict[str, str] = {
 }
 
 
+# A second line ("Blue") running north-south along lon 77.01. X2 sits ~100 m
+# north of Red-line stop S2, creating a walking interchange between the lines.
+MULTILINE_OVERRIDES: dict[str, str] = {
+    "routes.txt": (
+        "route_id,agency_id,route_short_name,route_long_name,route_type,route_color\n"
+        "R1,DMRC,RED,Red Line,1,EE1C25\n"
+        "B1,DMRC,BLUE,Blue Line,1,0000FF\n"
+    ),
+    "stops.txt": (
+        DEFAULT_FILES["stops.txt"]
+        + "X1,BLU01,North Gate,28.6100,77.0100,0,\n"
+        + "X2,BLU02,Bravo North,28.6009,77.0100,0,\n"
+        + "X3,BLU03,South Gate,28.5900,77.0100,0,\n"
+    ),
+    "trips.txt": (
+        DEFAULT_FILES["trips.txt"]
+        + "TB1,B1,WK,Towards South Gate,0,\n"
+        + "TB2,B1,WK,Towards North Gate,1,\n"
+    ),
+    "stop_times.txt": (
+        DEFAULT_FILES["stop_times.txt"]
+        + "TB1,08:00:00,08:00:30,X1,1\n"
+        + "TB1,08:02:00,08:02:30,X2,2\n"
+        + "TB1,08:05:00,08:05:00,X3,3\n"
+        + "TB2,09:00:00,09:00:30,X3,1\n"
+        + "TB2,09:03:00,09:03:30,X2,2\n"
+        + "TB2,09:05:00,09:05:00,X1,3\n"
+    ),
+}
+
+
 def write_gtfs_zip(
     path: Path,
     overrides: dict[str, str] | None = None,
@@ -79,3 +110,8 @@ def write_gtfs_zip(
         for filename, content in files.items():
             archive.writestr(filename, content)
     return path
+
+
+def write_multiline_gtfs_zip(path: Path) -> Path:
+    """Write the two-line fixture (Red + Blue with a walking interchange)."""
+    return write_gtfs_zip(path, overrides=MULTILINE_OVERRIDES)

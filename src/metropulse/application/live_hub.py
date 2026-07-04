@@ -82,19 +82,32 @@ class ConnectionManager:
         return len(self._connections)
 
     async def broadcast(self, message: str) -> None:
-        """Send a message to every connection, dropping any that fail."""
+        """Send a message to every connection concurrently.
+
+        Sends are gathered rather than serialized so one slow client cannot
+        delay the rest — essential at thousands of concurrent connections.
+        Connections whose send fails are dropped.
+        """
         async with self._lock:
             targets = list(self._connections)
-        dead: list[WsConnection] = []
-        for connection in targets:
-            try:
-                await connection.send_text(message)
-            except Exception:
-                dead.append(connection)
+        if not targets:
+            return
+        results = await asyncio.gather(
+            *(self._send_one(connection, message) for connection in targets)
+        )
+        dead = [connection for connection, ok in zip(targets, results) if not ok]
         for connection in dead:
             await self.disconnect(connection)
         if dead:
             logger.info("dropped %d dead websocket connection(s)", len(dead))
+
+    @staticmethod
+    async def _send_one(connection: WsConnection, message: str) -> bool:
+        try:
+            await connection.send_text(message)
+        except Exception:
+            return False
+        return True
 
 
 class LiveHub:

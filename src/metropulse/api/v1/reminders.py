@@ -2,17 +2,28 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from metropulse.api.deps import get_commuter, get_current_user, get_session
-from metropulse.api.schemas_commuter import LastTrainOut, ReminderIn, ReminderOut
+from metropulse.api.schemas_commuter import (
+    LastTrainOut,
+    LeaveHomeReminderIn,
+    LeaveHomeReminderOut,
+    ReminderIn,
+    ReminderOut,
+)
 from metropulse.domain.entities import utcnow
-from metropulse.infrastructure.db.commuter_models import LastTrainReminder, User
+from metropulse.infrastructure.db.commuter_models import (
+    LastTrainReminder,
+    LeaveHomeReminder,
+    User,
+)
 from metropulse.infrastructure.db.commuter_repositories import (
     LastTrainReminderRepository,
+    LeaveHomeReminderRepository,
 )
 from metropulse.infrastructure.db.repositories import StopRepository
 from metropulse.wiring import CommuterServices
@@ -96,6 +107,70 @@ async def delete_reminder(
 ) -> None:
     """Delete one of the user's reminders."""
     removed = await LastTrainReminderRepository(session).delete(user.id, reminder_id)
+    if not removed:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="reminder not found")
+    await session.commit()
+
+
+@router.post(
+    "/me/reminders/leave-home",
+    response_model=LeaveHomeReminderOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_leave_home_reminder(
+    body: LeaveHomeReminderIn,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> LeaveHomeReminderOut:
+    """'Tell me when to leave to catch my train' — a one-shot reminder."""
+    if await StopRepository(session).get(body.stop_id) is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail=f"station '{body.stop_id}' not found"
+        )
+    notify_at = body.train_departure_at - timedelta(
+        minutes=body.walking_minutes + body.buffer_minutes
+    )
+    now = utcnow()
+    if notify_at <= now:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="the leave time is already in the past",
+        )
+    reminder = LeaveHomeReminder(
+        user_id=user.id,
+        stop_id=body.stop_id,
+        train_departure_at=body.train_departure_at,
+        walking_minutes=body.walking_minutes,
+        buffer_minutes=body.buffer_minutes,
+        notify_at=notify_at,
+        status="pending",
+        created_at=now,
+    )
+    LeaveHomeReminderRepository(session).add(reminder)
+    await session.commit()
+    return LeaveHomeReminderOut.model_validate(reminder)
+
+
+@router.get("/me/reminders/leave-home", response_model=list[LeaveHomeReminderOut])
+async def list_leave_home_reminders(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> list[LeaveHomeReminderOut]:
+    """The user's leave-home reminders, soonest first."""
+    rows = await LeaveHomeReminderRepository(session).list_for_user(user.id)
+    return [LeaveHomeReminderOut.model_validate(r) for r in rows]
+
+
+@router.delete(
+    "/me/reminders/leave-home/{reminder_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+async def delete_leave_home_reminder(
+    reminder_id: int,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    """Delete one of the user's leave-home reminders."""
+    removed = await LeaveHomeReminderRepository(session).delete(user.id, reminder_id)
     if not removed:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="reminder not found")
     await session.commit()

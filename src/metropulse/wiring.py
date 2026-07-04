@@ -33,6 +33,8 @@ from metropulse.application.commuter.notifications import (
 from metropulse.application.commuter.offline import OfflineBundleService
 from metropulse.application.commuter.users import UserService
 from metropulse.application.eta_engine import EtaEngine, EtaParameters
+from metropulse.application.eta_service import CachedEtaService
+from metropulse.application.journey_planner import JourneyPlanner
 from metropulse.application.live_hub import ConnectionManager, LiveHub, ReplayBuffer
 from metropulse.application.route_resolver import IdMapper, MappingRule, RouteResolver
 from metropulse.application.train_service import TrainService
@@ -42,6 +44,7 @@ from metropulse.infrastructure.db.base import (
     create_engine,
     create_session_factory,
 )
+from metropulse.infrastructure.redis.eta_cache import RedisEtaCache
 from metropulse.infrastructure.redis.vehicle_store import RedisVehicleStore
 
 
@@ -60,6 +63,7 @@ class CommuterServices:
     exits: ExitService
     offline: OfflineBundleService
     analytics: AnalyticsService
+    planner: JourneyPlanner
 
 
 @dataclass
@@ -74,6 +78,7 @@ class AppResources:
     resolver: RouteResolver
     train_service: TrainService
     eta_engine: EtaEngine
+    eta_service: CachedEtaService
     live_hub: LiveHub
     commuter: CommuterServices
     owns_connections: bool = True
@@ -123,6 +128,7 @@ def build_commuter_services(
         exits=ExitService(),
         offline=OfflineBundleService(session_factory, redis),
         analytics=AnalyticsService(max_batch=settings.analytics_max_batch),
+        planner=JourneyPlanner(session_factory),
     )
 
 
@@ -146,7 +152,11 @@ def build_resources(settings: Settings) -> AppResources:
             max_speed_mps=settings.max_speed_mps,
             dwell_time_seconds=settings.dwell_time_seconds,
             station_radius_m=settings.station_radius_m,
+            timezone=settings.timezone,
         ),
+    )
+    eta_service = CachedEtaService(
+        eta_engine, RedisEtaCache(redis, ttl_seconds=settings.poll_interval_seconds * 6)
     )
     live_hub = LiveHub(ConnectionManager(), ReplayBuffer(settings.ws_replay_buffer_size))
     return AppResources(
@@ -158,6 +168,7 @@ def build_resources(settings: Settings) -> AppResources:
         resolver=resolver,
         train_service=train_service,
         eta_engine=eta_engine,
+        eta_service=eta_service,
         live_hub=live_hub,
         commuter=build_commuter_services(settings, session_factory, redis, vehicle_store),
     )

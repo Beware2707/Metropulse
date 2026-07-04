@@ -31,8 +31,13 @@ class JourneyService:
         vehicle_id: str | None = None,
         route_id: str | None = None,
         trip_id: str | None = None,
+        interchange_stop_ids: Sequence[str] = (),
     ) -> Journey:
         """Start a journey, superseding any active one.
+
+        ``interchange_stop_ids`` (usually taken from a journey plan) makes
+        the worker raise interchange reminders as the train approaches each
+        of those stations.
 
         Raises :class:`UnknownEntityError` for unknown stops and
         ``ValueError`` when origin equals destination.
@@ -40,7 +45,7 @@ class JourneyService:
         if origin_stop_id == destination_stop_id:
             raise ValueError("origin and destination must differ")
         stops = StopRepository(session)
-        for stop_id in (origin_stop_id, destination_stop_id):
+        for stop_id in (origin_stop_id, destination_stop_id, *interchange_stop_ids):
             if await stops.get(stop_id) is None:
                 raise UnknownEntityError(f"stop '{stop_id}' not found")
 
@@ -61,6 +66,11 @@ class JourneyService:
             trip_id=trip_id,
             status="active",
             started_at=now,
+            payload=(
+                {"interchange_stop_ids": list(interchange_stop_ids)}
+                if interchange_stop_ids
+                else None
+            ),
         )
         repo.add(journey)
         await session.flush()

@@ -217,6 +217,7 @@ class RouteResolver:
                 at_station=at_station,
                 distance_along_m=distance,
                 shape_offset_m=projection.offset_m,
+                remaining_stations=_remaining(context.stops, next_stop),
             )
 
         nearest = min(
@@ -234,6 +235,7 @@ class RouteResolver:
             at_station=gap <= self._station_radius_m,
             distance_along_m=nearest.distance_along_shape_m,
             shape_offset_m=None,
+            remaining_stations=_remaining(context.stops, next_stop),
         )
 
 
@@ -299,3 +301,13 @@ def _build_stop_sequence(
 
 def _ref(stop: StopOnTrip) -> StationRef:
     return StationRef(stop_id=stop.stop_id, name=stop.stop_name, sequence=stop.sequence)
+
+
+def _remaining(
+    stops: tuple[StopOnTrip, ...], next_stop: StopOnTrip | None
+) -> tuple[StationRef, ...]:
+    """All stations still ahead, starting from the next one."""
+    if next_stop is None:
+        return ()
+    index = stops.index(next_stop)
+    return tuple(_ref(stop) for stop in stops[index:])

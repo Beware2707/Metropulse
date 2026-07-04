@@ -1,7 +1,14 @@
-"""Assembly of presentation-ready train states from raw vehicle positions."""
+"""Assembly of presentation-ready train states from raw vehicle positions.
+
+Resolution results are cached in Redis by the worker (one resolve per poll,
+network-wide); API reads use the cached state when it matches the vehicle's
+current feed timestamp and only recompute on a miss, re-deriving staleness
+at read time since it depends on the wall clock.
+"""
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import datetime
 
 from metropulse.application.route_resolver import RouteResolver
@@ -21,6 +28,16 @@ class TrainService:
         self._store = store
         self._resolver = resolver
         self._stale_after = stale_after_seconds
+
+    def _cached_if_fresh(
+        self, cached: TrainState | None, vehicle: VehiclePosition, now: datetime
+    ) -> TrainState | None:
+        """Reuse a cached state only if it was built from this exact position."""
+        if cached is None or cached.vehicle.timestamp != vehicle.timestamp:
+            return None
+        return dataclasses.replace(
+            cached, vehicle=vehicle, is_stale=vehicle.is_stale(now, self._stale_after)
+        )
 
     async def assemble(
         self, vehicle: VehiclePosition, now: datetime | None = None
@@ -51,6 +68,7 @@ class TrainService:
                 at_station=location.at_station,
                 distance_along_m=location.distance_along_m,
                 shape_offset_m=location.shape_offset_m,
+                remaining_stations=location.remaining_stations,
             )
 
         # Trip unknown: fall back to route-level context so clients can at
@@ -69,16 +87,28 @@ class TrainService:
         )
 
     async def list_trains(self) -> list[TrainState]:
-        """Enriched states for every vehicle in the latest snapshot."""
+        """Enriched states for every vehicle, preferring the Redis cache."""
         snapshot = await self._store.get_all()
+        cached = await self._store.get_all_train_states()
         now = utcnow()
-        states = [await self.assemble(vehicle, now) for vehicle in snapshot.values()]
+        states: list[TrainState] = []
+        for vehicle_id, vehicle in snapshot.items():
+            state = self._cached_if_fresh(cached.get(vehicle_id), vehicle, now)
+            if state is None:
+                state = await self.assemble(vehicle, now)
+            states.append(state)
         states.sort(key=lambda s: s.vehicle.vehicle_id)
         return states
 
     async def get_train(self, vehicle_id: str) -> TrainState | None:
-        """Enriched state for one vehicle, or None if unknown."""
+        """Enriched state for one vehicle (cache-first), or None if unknown."""
         vehicle = await self._store.get(vehicle_id)
         if vehicle is None:
             return None
-        return await self.assemble(vehicle)
+        now = utcnow()
+        cached = self._cached_if_fresh(
+            await self._store.get_train_state(vehicle_id), vehicle, now
+        )
+        if cached is not None:
+            return cached
+        return await self.assemble(vehicle, now)

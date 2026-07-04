@@ -115,6 +115,29 @@ class LastTrainReminder(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class LeaveHomeReminder(Base):
+    """'Tell me when to leave to catch the HH:MM train from station X'.
+
+    One-shot: notify_at = train departure - walking time - buffer, computed
+    at creation so the worker's reminder pass is a single indexed range scan.
+    """
+
+    __tablename__ = "leave_home_reminders"
+
+    id: Mapped[int] = mapped_column(BigIntPk, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    stop_id: Mapped[str] = mapped_column(String(64))
+    train_departure_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    walking_minutes: Mapped[int] = mapped_column(Integer)
+    buffer_minutes: Mapped[int] = mapped_column(Integer)
+    notify_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    status: Mapped[str] = mapped_column(String(16))  # pending|sent|cancelled
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class ServiceAlert(Base):
     """A service disruption/advisory, admin-created or feed-ingested."""
 

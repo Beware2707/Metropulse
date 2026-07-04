@@ -20,7 +20,12 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from metropulse.application.commuter.analytics import purge_analytics
 from metropulse.application.commuter.rule_engine import CommuterRuleEngine
-from metropulse.application.realtime_engine import RealtimeEngine, cleanup_history
+from metropulse.application.events import FEED_UPDATED, EventBus
+from metropulse.application.realtime_engine import (
+    PollResult,
+    RealtimeEngine,
+    cleanup_history,
+)
 from metropulse.application.static_loader import GtfsStaticLoader
 from metropulse.config import Settings, get_settings
 from metropulse.domain.exceptions import GtfsValidationError
@@ -85,13 +90,6 @@ async def run_worker(settings: Settings) -> int:
             settings.dmrc_api_key,
             max_attempts=settings.fetch_max_attempts,
         )
-        engine = RealtimeEngine(
-            client,
-            resources.vehicle_store,
-            resources.session_factory,
-            resources.train_service,
-            stale_after_seconds=settings.stale_after_seconds,
-        )
 
         rule_engine = CommuterRuleEngine(
             resources.vehicle_store,
@@ -104,6 +102,24 @@ async def run_worker(settings: Settings) -> int:
             journey_max_age_hours=settings.journey_max_age_hours,
         )
 
+        # Event-driven notifications: commuter rules run exactly when a feed
+        # poll lands, not on an unrelated polling timer.
+        event_bus = EventBus()
+
+        async def _on_feed_updated(_result: PollResult) -> None:
+            await rule_engine.evaluate_realtime_safe()
+
+        event_bus.subscribe(FEED_UPDATED, _on_feed_updated)
+
+        engine = RealtimeEngine(
+            client,
+            resources.vehicle_store,
+            resources.session_factory,
+            resources.train_service,
+            stale_after_seconds=settings.stale_after_seconds,
+            event_bus=event_bus,
+        )
+
         scheduler = AsyncIOScheduler()
         scheduler.add_job(
             engine.poll_safe,
@@ -112,14 +128,6 @@ async def run_worker(settings: Settings) -> int:
             max_instances=1,
             coalesce=True,
             id="realtime-poll",
-        )
-        scheduler.add_job(
-            rule_engine.evaluate_realtime_safe,
-            "interval",
-            seconds=settings.alert_eval_interval_seconds,
-            max_instances=1,
-            coalesce=True,
-            id="commuter-rules",
         )
         scheduler.add_job(
             rule_engine.evaluate_reminders_safe,

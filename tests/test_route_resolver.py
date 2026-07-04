@@ -98,6 +98,20 @@ async def test_locate_between_stations(resolver: RouteResolver) -> None:
     assert location.shape_offset_m < 10
 
 
+async def test_locate_reports_remaining_stations(resolver: RouteResolver) -> None:
+    context = await resolver.resolve_trip("T1")
+    assert context is not None
+    # Between S2 and S3: everything from S3 onward remains.
+    mid = resolver.locate(make_vehicle(longitude=77.015), context)
+    assert [s.stop_id for s in mid.remaining_stations] == ["S3", "S4"]
+    # At the origin: everything after S1 remains.
+    start = resolver.locate(make_vehicle(longitude=77.0), context)
+    assert [s.stop_id for s in start.remaining_stations] == ["S2", "S3", "S4"]
+    # At the terminus: nothing remains.
+    end = resolver.locate(make_vehicle(longitude=77.03), context)
+    assert end.remaining_stations == ()
+
+
 async def test_locate_at_terminus_has_no_next(resolver: RouteResolver) -> None:
     context = await resolver.resolve_trip("T1")
     assert context is not None

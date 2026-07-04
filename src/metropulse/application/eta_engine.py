@@ -5,8 +5,11 @@ Speed selection, in order of preference:
 2. an estimate from recent position history (median of segment speeds),
 3. a configured default network speed.
 
-ETAs add a fixed dwell time for every intermediate station between the
-vehicle and the target station.
+Dwell time is estimated per vehicle from its recent history (median duration
+of stationary bouts) with the configured default as fallback. Arrival delay
+compares the predicted arrival at the next station against the scheduled
+stop_times entry, resolved to the nearest plausible service day so trips past
+midnight compute correctly.
 """
 
 from __future__ import annotations
@@ -14,7 +17,8 @@ from __future__ import annotations
 import logging
 import statistics
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 from metropulse.application.ports import TravelTimePredictor
 from metropulse.domain.entities import (
@@ -35,6 +39,12 @@ logger = logging.getLogger(__name__)
 # the ETA) is unreliable — typically a wrong trip mapping or GPS glitch.
 _MAX_TRUSTED_OFFSET_M = 150.0
 _HISTORY_WINDOW_SECONDS = 300.0
+# Dwell bouts outside this range are noise (GPS jitter) or terminal layovers.
+_DWELL_MIN_S, _DWELL_MAX_S = 10.0, 300.0
+_DWELL_MOVEMENT_THRESHOLD_M = 20.0
+# A computed "delay" beyond this window means we matched the wrong service
+# day or the vehicle is on a different run — report no delay instead.
+_MAX_PLAUSIBLE_DELAY_S = 6 * 3600.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +56,7 @@ class EtaParameters:
     max_speed_mps: float = 25.0
     dwell_time_seconds: float = 25.0
     station_radius_m: float = 75.0
+    timezone: str = "Asia/Kolkata"
 
 
 class EtaEngine:
@@ -102,6 +113,8 @@ class EtaEngine:
             speed, source = 0.0, "model"
         else:
             speed, source = await self._select_speed(vehicle)
+        dwell = await self._estimate_dwell(vehicle.vehicle_id)
+        dwell_used = dwell if dwell is not None else params.dwell_time_seconds
 
         stations: list[StationEta] = []
         for index, stop in enumerate(remaining):
@@ -111,7 +124,7 @@ class EtaEngine:
             else:
                 # Physics heuristic: travel at the selected speed, plus one
                 # dwell for every station strictly before this one.
-                eta_seconds = distance_left / speed + params.dwell_time_seconds * index
+                eta_seconds = distance_left / speed + dwell_used * index
             stations.append(
                 StationEta(
                     stop_id=stop.stop_id,
@@ -123,6 +136,8 @@ class EtaEngine:
                 )
             )
 
+        next_station = stations[0] if stations else None
+        delay = self._arrival_delay(next_station, remaining[0] if remaining else None)
         confidence = _confidence(source, offset)
         return VehicleEta(
             vehicle_id=vehicle.vehicle_id,
@@ -132,7 +147,73 @@ class EtaEngine:
             speed_source=source,
             confidence=confidence,
             stations=tuple(stations),
+            next_station=next_station,
+            delay_seconds=delay,
+            dwell_seconds_used=dwell_used,
         )
+
+    def _arrival_delay(
+        self, next_eta: StationEta | None, next_stop: StopOnTrip | None
+    ) -> float | None:
+        """Predicted-minus-scheduled arrival at the next station, in seconds.
+
+        The schedule is anchored to the service day (today or yesterday in
+        the network's timezone) whose scheduled arrival is closest to the
+        prediction, which handles past-midnight trips. Positive = late.
+        """
+        if next_eta is None or next_stop is None:
+            return None
+        tz = ZoneInfo(self._params.timezone)
+        local_today = next_eta.eta_time.astimezone(tz).date()
+        candidates = []
+        for day_offset in (0, 1):
+            service_date = local_today - timedelta(days=day_offset)
+            midnight = datetime.combine(service_date, time(0), tzinfo=tz)
+            scheduled = midnight + timedelta(seconds=next_stop.arrival_seconds)
+            candidates.append((next_eta.eta_time - scheduled).total_seconds())
+        delay = min(candidates, key=abs)
+        return delay if abs(delay) <= _MAX_PLAUSIBLE_DELAY_S else None
+
+    async def _estimate_dwell(self, vehicle_id: str) -> float | None:
+        """Median stationary-bout duration from recent history, or None.
+
+        A bout is a maximal run of consecutive history samples that moved
+        less than ~20 m — the vehicle sitting at a platform. Bouts shorter
+        than GPS-jitter scale or longer than a plausible dwell are discarded.
+        """
+        async with self._session_factory() as session:
+            records = await VehicleHistoryRepository(session).recent_for_vehicle(
+                vehicle_id, limit=12
+            )
+        if len(records) < 3:
+            return None
+        ordered = list(reversed(records))  # oldest -> newest
+        bouts: list[float] = []
+        bout_start: datetime | None = None
+        for previous, current in zip(ordered, ordered[1:]):
+            moved = haversine_m(
+                previous.latitude, previous.longitude, current.latitude, current.longitude
+            )
+            if moved < _DWELL_MOVEMENT_THRESHOLD_M:
+                if bout_start is None:
+                    bout_start = _ensure_utc(previous.feed_timestamp)
+            else:
+                if bout_start is not None:
+                    duration = (
+                        _ensure_utc(previous.feed_timestamp) - bout_start
+                    ).total_seconds()
+                    if _DWELL_MIN_S <= duration <= _DWELL_MAX_S:
+                        bouts.append(duration)
+                    bout_start = None
+        if bout_start is not None:
+            duration = (
+                _ensure_utc(ordered[-1].feed_timestamp) - bout_start
+            ).total_seconds()
+            if _DWELL_MIN_S <= duration <= _DWELL_MAX_S:
+                bouts.append(duration)
+        if not bouts:
+            return None
+        return statistics.median(bouts)
 
     async def _predict(
         self,

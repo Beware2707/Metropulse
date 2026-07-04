@@ -8,7 +8,9 @@ Protocol (all frames are JSON text):
 
   server -> client
     {"type": "snapshot", "seq": N, "trains": [...]}  full state on (re)connect
-    {"type": "update",  "seq": N, "updated": [...], "removed": [...], "stale": [...]}
+    {"type": "update", "seq": N, "added": [...], "moved": [...],
+     "removed": [...], "stale": [...]}               changed trains only
+    {"type": "alert", "alert": {...}}                service disruption alerts
     {"type": "heartbeat", "ts": "..."}               liveness signal
 
 Reconnect: a client that sends its last seen ``last_seq`` receives only the

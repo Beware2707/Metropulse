@@ -25,12 +25,13 @@ from metropulse.application.commuter.last_train import LastTrainService
 from metropulse.application.commuter.notifications import NotificationService
 from metropulse.application.eta_engine import EtaEngine
 from metropulse.application.route_resolver import RouteResolver
-from metropulse.domain.entities import VehiclePosition, utcnow
+from metropulse.domain.entities import TrainLocation, VehiclePosition, utcnow
 from metropulse.infrastructure.db.base import SessionFactory
 from metropulse.infrastructure.db.commuter_models import DestinationAlert, Journey
 from metropulse.infrastructure.db.commuter_repositories import (
     DestinationAlertRepository,
     JourneyRepository,
+    LeaveHomeReminderRepository,
 )
 from metropulse.infrastructure.redis.vehicle_store import RedisVehicleStore
 
@@ -45,6 +46,7 @@ class RuleEvaluationResult:
     alerts_expired: int
     journeys_completed: int
     journeys_abandoned: int
+    interchange_reminders: int = 0
 
 
 class CommuterRuleEngine:
@@ -90,7 +92,7 @@ class CommuterRuleEngine:
     async def evaluate_realtime(self) -> RuleEvaluationResult:
         """One evaluation cycle for destination alerts and journeys."""
         snapshot = await self._store.get_all()
-        triggered = expired = completed = abandoned = 0
+        triggered = expired = completed = abandoned = interchanges = 0
         async with self._session_factory() as session:
             async with session.begin():
                 for alert in await DestinationAlertRepository(session).list_active():
@@ -105,12 +107,16 @@ class CommuterRuleEngine:
                         completed += 1
                     elif outcome == "abandoned":
                         abandoned += 1
-        result = RuleEvaluationResult(triggered, expired, completed, abandoned)
-        if triggered or expired or completed or abandoned:
+                    elif outcome == "interchange":
+                        interchanges += 1
+        result = RuleEvaluationResult(
+            triggered, expired, completed, abandoned, interchanges
+        )
+        if triggered or expired or completed or abandoned or interchanges:
             logger.info(
                 "rules: %d alert(s) triggered, %d expired, %d journey(s) completed, "
-                "%d abandoned",
-                triggered, expired, completed, abandoned,
+                "%d abandoned, %d interchange reminder(s)",
+                triggered, expired, completed, abandoned, interchanges,
             )
         return result
 
@@ -189,7 +195,7 @@ class CommuterRuleEngine:
         location = self._resolver.locate(vehicle, context)
         current = location.current_station
         if current is None or current.stop_id != journey.destination_stop_id:
-            return None
+            return await self._maybe_remind_interchange(session, journey, location)
 
         finished = await self._journeys.complete(
             session, journey.user_id, journey.id, auto=True
@@ -206,16 +212,46 @@ class CommuterRuleEngine:
         )
         return "completed"
 
-    async def evaluate_reminders(self, now: datetime | None = None) -> int:
-        """One evaluation cycle for last-train reminders; returns count sent.
+    async def _maybe_remind_interchange(
+        self, session: AsyncSession, journey: Journey, location: TrainLocation
+    ) -> str | None:
+        """Notify once per planned interchange as the train approaches it."""
+        payload = journey.payload or {}
+        planned: list[str] = payload.get("interchange_stop_ids") or []
+        notified: list[str] = payload.get("notified_interchanges") or []
+        next_station = location.next_station
+        if (
+            next_station is None
+            or next_station.stop_id not in planned
+            or next_station.stop_id in notified
+        ):
+            return None
+        await self._notifications.create(
+            session,
+            journey.user_id,
+            kind="interchange_reminder",
+            title=f"Interchange ahead: {next_station.name}",
+            body=(
+                f"Get ready to change trains at {next_station.name}, "
+                "the next station."
+            ),
+            payload={"journey_id": journey.id, "stop_id": next_station.stop_id},
+        )
+        # Reassign (not mutate) so SQLAlchemy detects the JSON change.
+        journey.payload = {**payload, "notified_interchanges": [*notified, next_station.stop_id]}
+        return "interchange"
 
-        ``now`` is injectable for deterministic tests; production runs use
-        the current time.
+    async def evaluate_reminders(self, now: datetime | None = None) -> int:
+        """One clock-driven cycle: last-train and leave-home reminders.
+
+        Returns the number of notifications sent. ``now`` is injectable for
+        deterministic tests; production runs use the current time.
         """
         now = now or utcnow()
         sent = 0
         async with self._session_factory() as session:
             async with session.begin():
+                sent += await self._evaluate_leave_home(session, now)
                 due = await self._last_train.due_reminders(session, now)
                 for reminder, info in due:
                     reminder.last_notified_service_date = info.service_date
@@ -242,5 +278,33 @@ class CommuterRuleEngine:
                     )
                     sent += 1
         if sent:
-            logger.info("sent %d last-train reminder(s)", sent)
+            logger.info("sent %d reminder notification(s)", sent)
+        return sent
+
+    async def _evaluate_leave_home(self, session: AsyncSession, now: datetime) -> int:
+        """Fire pending leave-home reminders whose notify time has arrived."""
+        sent = 0
+        for reminder in await LeaveHomeReminderRepository(session).list_due(now):
+            departure = reminder.train_departure_at
+            if departure.tzinfo is None:  # SQLite returns naive datetimes
+                departure = departure.replace(tzinfo=now.tzinfo)
+            minutes_to_leave = reminder.walking_minutes + reminder.buffer_minutes
+            await self._notifications.create(
+                session,
+                reminder.user_id,
+                kind="leave_home",
+                title="Time to leave",
+                body=(
+                    f"Leave now to catch your {departure.strftime('%H:%M')} train — "
+                    f"about {minutes_to_leave} minute(s) including the walk."
+                ),
+                payload={
+                    "reminder_id": reminder.id,
+                    "stop_id": reminder.stop_id,
+                    "train_departure_at": departure.isoformat(),
+                },
+            )
+            reminder.status = "sent"
+            reminder.sent_at = now
+            sent += 1
         return sent

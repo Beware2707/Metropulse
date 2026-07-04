@@ -126,7 +126,9 @@ require `Authorization: Bearer <token>`. Admin endpoints require the
 | `POST/GET/DELETE /api/v1/me/reminders/last-train[/{id}]` | Last-train reminders |
 | `GET /api/v1/alerts` | Active service alerts (route/stop scoped) |
 | `POST/DELETE /api/v1/admin/alerts[/{id}]` | Create / revoke service alerts (admin) |
-| `POST /api/v1/me/journeys`, `.../current`, `.../{id}/complete\|abandon` | Journey tracking (auto-completed on arrival) |
+| `GET /api/v1/journey/plan?origin&destination` | Journey planning: legs, interchanges, walking, timing, platform hints |
+| `POST /api/v1/me/journeys`, `.../current`, `.../{id}/complete\|abandon` | Journey tracking (auto-completed on arrival; pass `interchange_stop_ids` from a plan to get interchange reminders) |
+| `POST/GET/DELETE /api/v1/me/reminders/leave-home[/{id}]` | "Time to leave home" one-shot reminders |
 | `GET /api/v1/recommendations/coach?origin&destination` | Which coach to board (crowding + exit alignment) |
 | `GET /api/v1/recommendations/exit?station&landmark` | Which exit to take |
 | `POST /api/v1/crowd/reports` | Crowd-sourced occupancy reports |
@@ -147,8 +149,11 @@ All frames are JSON text. The first client frame must be:
 - Reconnecting clients send their last seen `seq`; the server replays only the
   missed `update` frames from its replay buffer, or a fresh `snapshot` when
   the gap is too old.
-- `update` frames carry **only changed trains** plus `removed` and `stale`
-  vehicle IDs.
+- `update` frames carry **only changed trains** — `added` (new to the feed)
+  and `moved` (position changed) as fully resolved train states, plus
+  `removed` and `stale` vehicle IDs. Broadcast fan-out is concurrent
+  (one slow client never delays the rest).
+- `alert` frames carry service disruption alerts as they are published.
 - The server broadcasts `{"type": "heartbeat", "ts": ...}` every
   `WS_HEARTBEAT_SECONDS`; dead connections are dropped on send failure.
   Clients may reply `{"type": "pong"}` (any client frame is absorbed).
@@ -176,10 +181,17 @@ All frames are JSON text. The first client frame must be:
 2. Speed: reported feed speed if plausibly moving → otherwise the median
    segment speed from recent history → otherwise `DEFAULT_SPEED_MPS`. Always
    clamped to `[MIN_SPEED_MPS, MAX_SPEED_MPS]`.
-3. ETA per remaining station = remaining distance / speed + one
-   `DWELL_TIME_SECONDS` per intermediate stop.
-4. Every result carries a `confidence` (`high`/`medium`/`low`) and the speed
+3. Dwell time: estimated per vehicle from stationary bouts in recent
+   history, falling back to `DWELL_TIME_SECONDS`.
+4. ETA per remaining station = remaining distance / speed + one dwell per
+   intermediate stop; the response also carries the next station block and
+   `delay_seconds` vs the scheduled stop_times arrival (service-day aware,
+   including past-midnight trips).
+5. Every result carries a `confidence` (`high`/`medium`/`low`) and the speed
    source, degraded when the vehicle is far off its shape.
+6. ETAs are cached in Redis keyed by (vehicle, feed timestamp) with a short
+   TTL; route resolution results are likewise cached in Redis by the worker
+   so API replicas never re-resolve unchanged trains.
 
 ## Testing
 

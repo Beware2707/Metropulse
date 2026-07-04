@@ -63,7 +63,6 @@ class Settings(BaseSettings):
     # Commuter features
     admin_api_key: str = ""  # empty disables all admin endpoints
     timezone: str = "Asia/Kolkata"
-    alert_eval_interval_seconds: float = Field(default=5.0, gt=0)
     reminder_eval_interval_seconds: float = Field(default=60.0, gt=0)
     journey_max_age_hours: float = Field(default=6.0, gt=0)
     analytics_retention_days: float = Field(default=90.0, gt=0)

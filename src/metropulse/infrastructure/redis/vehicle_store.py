@@ -1,23 +1,34 @@
-"""Redis-backed store for the latest vehicle positions.
+"""Redis-backed store for the latest vehicle positions and resolved states.
 
 Layout:
   - ``mp:vehicles``  HASH   vehicle_id -> VehiclePosition JSON
+  - ``mp:trains``    HASH   vehicle_id -> resolved TrainState JSON (worker-written)
   - ``mp:seq``       STRING monotonically increasing diff sequence
-  - ``mp:updates``   PUBSUB channel carrying diff messages for WS fan-out
+  - ``mp:updates``   STREAM diff/alert events (durable; consumer groups for
+                     notify/ETA/analytics, plain reads for WS gateways)
+
+The worker is the single writer of ``mp:trains``: it resolves every changed
+vehicle once per poll and caches the result, so API replicas serve resolution
+(route, direction, stations, line colour) without recomputing it per request.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
-from typing import AsyncIterator, Iterable, Mapping
+from typing import Any, AsyncIterator, Iterable, Mapping
 
 from redis.asyncio import Redis
 
-from metropulse.domain.entities import VehiclePosition
+from metropulse.domain.entities import TrainState, VehiclePosition
 
 VEHICLES_KEY = "mp:vehicles"
+TRAINS_KEY = "mp:trains"
 SEQUENCE_KEY = "mp:seq"
-UPDATES_CHANNEL = "mp:updates"
+UPDATES_STREAM = "mp:updates"
+# Bounds stream memory (~a few MB at DMRC scale) while giving consumers and
+# reconnecting gateways minutes of replayable history.
+STREAM_MAXLEN = 4096
 
 
 class RedisVehicleStore:
@@ -56,7 +67,40 @@ class RedisVehicleStore:
             )
         if removed:
             pipe.hdel(VEHICLES_KEY, *removed)
+            pipe.hdel(TRAINS_KEY, *removed)
         await pipe.execute()
+
+    async def cache_train_states(
+        self, states: Mapping[str, dict[str, Any]], removed_ids: Iterable[str] = ()
+    ) -> None:
+        """Cache resolved train states (worker-side, once per poll)."""
+        removed = list(removed_ids)
+        if not states and not removed:
+            return
+        pipe = self._redis.pipeline(transaction=True)
+        if states:
+            pipe.hset(
+                TRAINS_KEY,
+                mapping={vid: json.dumps(state) for vid, state in states.items()},
+            )
+        if removed:
+            pipe.hdel(TRAINS_KEY, *removed)
+        await pipe.execute()
+
+    async def get_train_state(self, vehicle_id: str) -> TrainState | None:
+        """One cached resolved train state, or None."""
+        payload = await self._redis.hget(TRAINS_KEY, vehicle_id)
+        if payload is None:
+            return None
+        return TrainState.from_dict(json.loads(_as_str(payload)))
+
+    async def get_all_train_states(self) -> dict[str, TrainState]:
+        """All cached resolved train states keyed by vehicle id."""
+        raw = await self._redis.hgetall(TRAINS_KEY)
+        return {
+            _as_str(vehicle_id): TrainState.from_dict(json.loads(_as_str(payload)))
+            for vehicle_id, payload in raw.items()
+        }
 
     async def next_sequence(self) -> int:
         """Increment and return the global diff sequence number."""
