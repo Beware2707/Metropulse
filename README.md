@@ -1,9 +1,14 @@
 # MetroPulse
 
-Production-grade GTFS platform powering a real-time Delhi Metro application:
-static GTFS ingestion into PostgreSQL, a 5-second GTFS-Realtime polling engine
-backed by Redis, route/station resolution, per-station ETAs, a REST API and a
-diff-based WebSocket stream.
+Production-grade, commuter-first GTFS platform for Delhi Metro: static GTFS
+ingestion into PostgreSQL, a 5-second GTFS-Realtime polling engine backed by
+Redis, route/station resolution, per-station ETAs, a REST API, a diff-based
+WebSocket stream — plus commuter features: favourites, destination alerts,
+last-train reminders, service alerts, journey tracking, coach & exit
+recommendations, offline bundles and analytics.
+
+Commuter architecture details (and how AI crowd/ETA prediction plugs in with
+no schema changes): see [docs/COMMUTER_DESIGN.md](docs/COMMUTER_DESIGN.md).
 
 ## Architecture
 
@@ -103,6 +108,32 @@ Interactive docs at `/docs` (OpenAPI).
 | `GET /api/v1/routes` | All routes |
 | `GET /api/v1/eta/{vehicleId}` | ETA to every remaining station (409 when the trip cannot be resolved) |
 | `GET /health` | Database + Redis connectivity |
+
+### Commuter API
+
+Authentication: `POST /api/v1/users {device_id}` returns a bearer token
+(shown once; re-registering the device rotates it). Endpoints under `/me/*`
+require `Authorization: Bearer <token>`. Admin endpoints require the
+`X-Admin-Key` header (`ADMIN_API_KEY`; empty disables them).
+
+| Endpoint | Description |
+|---|---|
+| `POST /api/v1/users`, `GET /api/v1/me` | Device registration / profile |
+| `GET/PUT/DELETE /api/v1/me/favourites/stations[/{stopId}]` | Favourite stations (label + order) |
+| `GET/PUT/DELETE /api/v1/me/favourites/routes[/{routeId}]` | Favourite routes |
+| `POST/GET/DELETE /api/v1/me/alerts/destination[/{id}]` | "Wake me near station X" alerts |
+| `GET /api/v1/stations/{stopId}/last-train` | Last boardable departure (route/direction/date filters) |
+| `POST/GET/DELETE /api/v1/me/reminders/last-train[/{id}]` | Last-train reminders |
+| `GET /api/v1/alerts` | Active service alerts (route/stop scoped) |
+| `POST/DELETE /api/v1/admin/alerts[/{id}]` | Create / revoke service alerts (admin) |
+| `POST /api/v1/me/journeys`, `.../current`, `.../{id}/complete\|abandon` | Journey tracking (auto-completed on arrival) |
+| `GET /api/v1/recommendations/coach?origin&destination` | Which coach to board (crowding + exit alignment) |
+| `GET /api/v1/recommendations/exit?station&landmark` | Which exit to take |
+| `POST /api/v1/crowd/reports` | Crowd-sourced occupancy reports |
+| `GET /api/v1/stations/{stopId}/exits`, `POST /api/v1/admin/stations/{stopId}/exits`, `POST /api/v1/admin/coach-exit-hints` | Exit curation |
+| `GET /api/v1/offline/manifest`, `GET /api/v1/offline/bundle` | Versioned offline data (ETag / If-None-Match) |
+| `POST /api/v1/analytics/events`, `GET /api/v1/admin/analytics/summary` | Analytics ingestion / summary |
+| `GET /api/v1/me/notifications`, `POST .../{id}/read` | Notification inbox |
 
 ## WebSocket `/ws/live`
 

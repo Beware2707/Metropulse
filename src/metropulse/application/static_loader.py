@@ -8,6 +8,7 @@ comfortably in memory, so we parse fully before touching the database.
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import logging
 import zipfile
@@ -20,8 +21,11 @@ from metropulse.application.validation import (
     ValidationReport,
     validate_dataset,
 )
+from metropulse.domain.entities import utcnow
 from metropulse.domain.gtfs_time import parse_gtfs_date, parse_gtfs_time
 from metropulse.infrastructure.db.base import SessionFactory
+from metropulse.infrastructure.db.commuter_models import DatasetVersion
+from metropulse.infrastructure.db.commuter_repositories import DatasetVersionRepository
 from metropulse.infrastructure.db.models import (
     Agency,
     Calendar,
@@ -50,15 +54,19 @@ GTFS_FILES = (
 
 @dataclass
 class LoadResult:
-    """Outcome of a static load: per-table row counts and the report."""
+    """Outcome of a static load: per-table row counts, version, and report."""
 
     counts: dict[str, int] = field(default_factory=dict)
     report: ValidationReport = field(default_factory=ValidationReport)
+    version: str | None = None
 
     def summary(self) -> str:
         """One-line human summary of what was loaded."""
         parts = ", ".join(f"{table}={count}" for table, count in sorted(self.counts.items()))
-        return f"loaded {parts}; {len(self.report.warnings)} warning(s)"
+        return (
+            f"loaded {parts}; dataset version {self.version}; "
+            f"{len(self.report.warnings)} warning(s)"
+        )
 
 
 def read_gtfs_zip(zip_path: Path) -> dict[str, list[dict[str, str]]]:
@@ -106,7 +114,9 @@ class GtfsStaticLoader:
             logger.warning("%s", warning.render())
         report.raise_for_errors()
 
-        result = LoadResult(report=report)
+        # Content-addressed dataset version: drives offline bundle sync.
+        checksum = hashlib.sha256(zip_path.read_bytes()).hexdigest()
+        result = LoadResult(report=report, version=checksum[:16])
         async with self._session_factory() as session:
             async with session.begin():
                 repo = StaticLoadRepository(session, batch_size=self._batch_size)
@@ -125,6 +135,14 @@ class GtfsStaticLoader:
                     count = await repo.bulk_insert(model, rows)
                     result.counts[model.__tablename__] = count
                     logger.info("inserted %d rows into %s", count, model.__tablename__)
+                DatasetVersionRepository(session).add(
+                    DatasetVersion(
+                        kind="gtfs_static",
+                        version=result.version or "",
+                        checksum=checksum,
+                        created_at=utcnow(),
+                    )
+                )
         logger.info("static load complete: %s", result.summary())
         return result
 

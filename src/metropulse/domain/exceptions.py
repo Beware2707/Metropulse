@@ -26,3 +26,11 @@ class FeedFetchError(MetroPulseError):
 
 class FeedDecodeError(MetroPulseError):
     """Raised when the realtime protobuf payload cannot be decoded."""
+
+
+class UnknownEntityError(MetroPulseError):
+    """Raised when a referenced GTFS entity (stop, route, exit) does not exist."""
+
+
+class NotTrackedError(MetroPulseError):
+    """Raised when an operation requires a vehicle that is not currently tracked."""

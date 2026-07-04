@@ -30,7 +30,7 @@ from metropulse.infrastructure.db.base import SessionFactory
 from metropulse.infrastructure.db.models import Base
 from metropulse.infrastructure.redis.vehicle_store import RedisVehicleStore
 from metropulse.main import create_app
-from metropulse.wiring import AppResources
+from metropulse.wiring import AppResources, build_commuter_services
 
 
 def _prepare_database(tmp_path: Path) -> SessionFactory:
@@ -68,6 +68,7 @@ def _make_app(
         train_service=TrainService(store, resolver, settings.stale_after_seconds),
         eta_engine=EtaEngine(session_factory, EtaParameters()),
         live_hub=LiveHub(ConnectionManager(), ReplayBuffer(replay_size)),
+        commuter=build_commuter_services(settings, session_factory, redis, store),
         owns_connections=False,
     )
     return create_app(settings, resources)

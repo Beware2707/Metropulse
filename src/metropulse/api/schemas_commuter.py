@@ -1,0 +1,431 @@
+"""Pydantic request/response schemas for commuter endpoints."""
+
+from __future__ import annotations
+
+from datetime import date, datetime
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from metropulse.domain.commuter import (
+    CoachRecommendation,
+    ExitRecommendation,
+    LastTrainInfo,
+    OfflineManifest,
+)
+
+
+# --- Users -------------------------------------------------------------------
+
+
+class RegisterIn(BaseModel):
+    """Device registration request."""
+
+    device_id: str = Field(min_length=1, max_length=128)
+    platform: str | None = Field(default=None, max_length=32)
+
+
+class RegisterOut(BaseModel):
+    """Registration result: keep the token safe, it is shown once."""
+
+    user_id: str
+    token: str
+    created: bool
+
+
+class MeOut(BaseModel):
+    """The authenticated user's profile."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    device_id: str
+    platform: str | None
+    created_at: datetime
+
+
+# --- Favourites --------------------------------------------------------------
+
+
+class FavouriteStationIn(BaseModel):
+    """Upsert body for a favourite station."""
+
+    label: str | None = Field(default=None, max_length=64)
+    position: int = Field(default=0, ge=0, le=1000)
+
+
+class FavouriteStationOut(BaseModel):
+    """A favourite station."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    stop_id: str
+    label: str | None
+    position: int
+    created_at: datetime
+
+
+class FavouriteRouteOut(BaseModel):
+    """A favourite route."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    route_id: str
+    created_at: datetime
+
+
+# --- Destination alerts ------------------------------------------------------
+
+
+class DestinationAlertIn(BaseModel):
+    """Create body for a destination alert."""
+
+    vehicle_id: str = Field(min_length=1, max_length=64)
+    target_stop_id: str = Field(min_length=1, max_length=64)
+    threshold_seconds: int = Field(default=120, ge=30, le=3600)
+
+
+class DestinationAlertOut(BaseModel):
+    """A destination alert."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    vehicle_id: str
+    target_stop_id: str
+    threshold_seconds: int
+    status: str
+    created_at: datetime
+    triggered_at: datetime | None
+
+
+# --- Last train --------------------------------------------------------------
+
+
+class LastTrainOut(BaseModel):
+    """Last boardable departure info."""
+
+    stop_id: str
+    route_id: str
+    trip_id: str
+    direction_id: int | None
+    headsign: str | None
+    service_date: date
+    departure_at: datetime
+
+    @classmethod
+    def from_domain(cls, info: LastTrainInfo) -> "LastTrainOut":
+        """Build from the domain value."""
+        return cls(
+            stop_id=info.stop_id,
+            route_id=info.route_id,
+            trip_id=info.trip_id,
+            direction_id=info.direction_id,
+            headsign=info.headsign,
+            service_date=info.service_date,
+            departure_at=info.departure_at,
+        )
+
+
+class ReminderIn(BaseModel):
+    """Create body for a last-train reminder."""
+
+    stop_id: str = Field(min_length=1, max_length=64)
+    route_id: str | None = Field(default=None, max_length=64)
+    direction_id: int | None = Field(default=None, ge=0, le=1)
+    lead_minutes: int = Field(default=30, ge=5, le=180)
+
+
+class ReminderOut(BaseModel):
+    """A last-train reminder."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    stop_id: str
+    route_id: str | None
+    direction_id: int | None
+    lead_minutes: int
+    enabled: bool
+
+
+# --- Service alerts ----------------------------------------------------------
+
+
+class ServiceAlertIn(BaseModel):
+    """Admin create body for a service alert."""
+
+    title: str = Field(min_length=1, max_length=255)
+    description: str = Field(min_length=1)
+    severity: str = Field(pattern="^(info|warning|severe)$")
+    route_id: str | None = None
+    stop_id: str | None = None
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+
+
+class ServiceAlertOut(BaseModel):
+    """A service alert."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    source: str
+    severity: str
+    title: str
+    description: str
+    route_id: str | None
+    stop_id: str | None
+    starts_at: datetime
+    ends_at: datetime | None
+
+
+class ServiceAlertListOut(BaseModel):
+    """Envelope for active service alerts."""
+
+    count: int
+    alerts: list[ServiceAlertOut]
+
+
+# --- Journeys ----------------------------------------------------------------
+
+
+class JourneyIn(BaseModel):
+    """Start body for a journey."""
+
+    origin_stop_id: str = Field(min_length=1, max_length=64)
+    destination_stop_id: str = Field(min_length=1, max_length=64)
+    vehicle_id: str | None = Field(default=None, max_length=64)
+    route_id: str | None = Field(default=None, max_length=64)
+
+
+class JourneyOut(BaseModel):
+    """A journey."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    origin_stop_id: str
+    destination_stop_id: str
+    route_id: str | None
+    vehicle_id: str | None
+    status: str
+    started_at: datetime
+    ended_at: datetime | None
+
+
+class JourneyListOut(BaseModel):
+    """Envelope for journey history."""
+
+    count: int
+    journeys: list[JourneyOut]
+
+
+# --- Recommendations ---------------------------------------------------------
+
+
+class CoachScoreOut(BaseModel):
+    """One coach in a recommendation."""
+
+    coach_index: int
+    occupancy: float
+    exit_alignment: float
+    score: float
+    reasons: list[str]
+
+
+class CoachRecommendationOut(BaseModel):
+    """Coach recommendation result."""
+
+    origin_stop_id: str
+    destination_stop_id: str
+    coach_count: int
+    crowd_source: str
+    model_version: str | None
+    recommended_coach: int
+    coaches: list[CoachScoreOut]
+
+    @classmethod
+    def from_domain(cls, rec: CoachRecommendation) -> "CoachRecommendationOut":
+        """Build from the domain value."""
+        return cls(
+            origin_stop_id=rec.origin_stop_id,
+            destination_stop_id=rec.destination_stop_id,
+            coach_count=rec.coach_count,
+            crowd_source=rec.crowd_source,
+            model_version=rec.model_version,
+            recommended_coach=rec.recommended_coach,
+            coaches=[
+                CoachScoreOut(
+                    coach_index=c.coach_index,
+                    occupancy=c.occupancy,
+                    exit_alignment=c.exit_alignment,
+                    score=c.score,
+                    reasons=list(c.reasons),
+                )
+                for c in rec.coaches
+            ],
+        )
+
+
+class ExitOptionOut(BaseModel):
+    """One exit in a recommendation."""
+
+    exit_id: int
+    name: str
+    description: str | None
+    landmarks: list[str]
+    matched_landmark: str | None
+    nearest_coach_index: int | None
+    score: float
+
+
+class ExitRecommendationOut(BaseModel):
+    """Exit recommendation result."""
+
+    stop_id: str
+    query_landmark: str | None
+    exits: list[ExitOptionOut]
+
+    @classmethod
+    def from_domain(cls, rec: ExitRecommendation) -> "ExitRecommendationOut":
+        """Build from the domain value."""
+        return cls(
+            stop_id=rec.stop_id,
+            query_landmark=rec.query_landmark,
+            exits=[
+                ExitOptionOut(
+                    exit_id=e.exit_id,
+                    name=e.name,
+                    description=e.description,
+                    landmarks=list(e.landmarks),
+                    matched_landmark=e.matched_landmark,
+                    nearest_coach_index=e.nearest_coach_index,
+                    score=e.score,
+                )
+                for e in rec.exits
+            ],
+        )
+
+
+class CrowdReportIn(BaseModel):
+    """User-submitted crowding report."""
+
+    level: int = Field(ge=1, le=5, description="1 = empty .. 5 = crushed")
+    route_id: str | None = None
+    direction_id: int | None = Field(default=None, ge=0, le=1)
+    stop_id: str | None = None
+    vehicle_id: str | None = None
+    coach_index: int | None = Field(default=None, ge=0, le=15)
+
+
+class StationExitIn(BaseModel):
+    """Admin create body for a station exit."""
+
+    name: str = Field(min_length=1, max_length=128)
+    description: str | None = None
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    landmarks: list[str] = Field(default_factory=list)
+
+
+class StationExitOut(BaseModel):
+    """A station exit."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    stop_id: str
+    name: str
+    description: str | None
+    landmarks: list[str] | None
+
+
+class CoachExitHintIn(BaseModel):
+    """Admin create body for a coach-exit alignment hint."""
+
+    stop_id: str = Field(min_length=1, max_length=64)
+    exit_id: int
+    coach_index: int = Field(ge=0, le=15)
+    route_id: str | None = None
+    direction_id: int | None = Field(default=None, ge=0, le=1)
+
+
+# --- Offline -----------------------------------------------------------------
+
+
+class OfflineManifestOut(BaseModel):
+    """Offline bundle manifest."""
+
+    version: str
+    checksum: str
+    generated_at: datetime
+    station_count: int
+    route_count: int
+
+    @classmethod
+    def from_domain(cls, manifest: OfflineManifest) -> "OfflineManifestOut":
+        """Build from the domain value."""
+        return cls(
+            version=manifest.version,
+            checksum=manifest.checksum,
+            generated_at=manifest.generated_at,
+            station_count=manifest.station_count,
+            route_count=manifest.route_count,
+        )
+
+
+# --- Analytics ---------------------------------------------------------------
+
+
+class AnalyticsEventIn(BaseModel):
+    """One analytics event in a batch upload."""
+
+    event_type: str = Field(min_length=1, max_length=64)
+    occurred_at: datetime | None = None
+    session_id: str | None = Field(default=None, max_length=64)
+    payload: dict[str, Any] | None = None
+
+
+class AnalyticsBatchIn(BaseModel):
+    """Batch analytics upload."""
+
+    events: list[AnalyticsEventIn] = Field(min_length=1)
+
+
+class AnalyticsAcceptedOut(BaseModel):
+    """Ingestion acknowledgement."""
+
+    accepted: int
+
+
+class AnalyticsSummaryOut(BaseModel):
+    """Event counts by type."""
+
+    since: datetime
+    counts: dict[str, int]
+
+
+# --- Notifications -----------------------------------------------------------
+
+
+class NotificationOut(BaseModel):
+    """A user notification."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    kind: str
+    title: str
+    body: str
+    payload: dict[str, Any] | None
+    created_at: datetime
+    delivered_at: datetime | None
+    read_at: datetime | None
+
+
+class NotificationListOut(BaseModel):
+    """Envelope for a user's notifications."""
+
+    count: int
+    notifications: list[NotificationOut]

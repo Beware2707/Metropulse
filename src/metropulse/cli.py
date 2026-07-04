@@ -18,6 +18,8 @@ from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+from metropulse.application.commuter.analytics import purge_analytics
+from metropulse.application.commuter.rule_engine import CommuterRuleEngine
 from metropulse.application.realtime_engine import RealtimeEngine, cleanup_history
 from metropulse.application.static_loader import GtfsStaticLoader
 from metropulse.config import Settings, get_settings
@@ -91,6 +93,17 @@ async def run_worker(settings: Settings) -> int:
             stale_after_seconds=settings.stale_after_seconds,
         )
 
+        rule_engine = CommuterRuleEngine(
+            resources.vehicle_store,
+            resources.resolver,
+            resources.eta_engine,
+            resources.session_factory,
+            resources.commuter.notifications,
+            resources.commuter.last_train,
+            resources.commuter.journeys,
+            journey_max_age_hours=settings.journey_max_age_hours,
+        )
+
         scheduler = AsyncIOScheduler()
         scheduler.add_job(
             engine.poll_safe,
@@ -101,11 +114,34 @@ async def run_worker(settings: Settings) -> int:
             id="realtime-poll",
         )
         scheduler.add_job(
+            rule_engine.evaluate_realtime_safe,
+            "interval",
+            seconds=settings.alert_eval_interval_seconds,
+            max_instances=1,
+            coalesce=True,
+            id="commuter-rules",
+        )
+        scheduler.add_job(
+            rule_engine.evaluate_reminders_safe,
+            "interval",
+            seconds=settings.reminder_eval_interval_seconds,
+            max_instances=1,
+            coalesce=True,
+            id="last-train-reminders",
+        )
+        scheduler.add_job(
             cleanup_history,
             "interval",
             hours=1,
             args=[resources.session_factory, settings.history_retention_hours],
             id="history-retention",
+        )
+        scheduler.add_job(
+            purge_analytics,
+            "interval",
+            hours=24,
+            args=[resources.session_factory, settings.analytics_retention_days],
+            id="analytics-retention",
         )
         scheduler.start()
         logger.info(

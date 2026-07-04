@@ -1,57 +1,15 @@
-"""REST API tests over the full app (in-process ASGI, real lifespan)."""
+"""REST API tests over the full app (in-process ASGI, real lifespan).
+
+The ``resources``/``api_client`` fixtures live in conftest and are shared by
+all API-level test modules.
+"""
 
 from __future__ import annotations
 
-from typing import AsyncIterator
-
-import fakeredis.aioredis
 import httpx
-import pytest
 
 from factories import make_vehicle
-from metropulse.application.eta_engine import EtaEngine, EtaParameters
-from metropulse.application.live_hub import ConnectionManager, LiveHub, ReplayBuffer
-from metropulse.application.route_resolver import IdMapper, RouteResolver
-from metropulse.application.train_service import TrainService
-from metropulse.config import Settings
-from metropulse.infrastructure.db.base import SessionFactory
-from metropulse.infrastructure.redis.vehicle_store import RedisVehicleStore
-from metropulse.main import create_app
 from metropulse.wiring import AppResources
-
-
-@pytest.fixture
-def resources(
-    loaded_session_factory: SessionFactory,
-    fake_redis: fakeredis.aioredis.FakeRedis,
-    settings: Settings,
-) -> AppResources:
-    """A full object graph over SQLite + fake Redis."""
-    store = RedisVehicleStore(fake_redis)
-    resolver = RouteResolver(loaded_session_factory, IdMapper(), station_radius_m=75.0)
-    return AppResources(
-        settings=settings,
-        engine=None,
-        session_factory=loaded_session_factory,
-        redis=fake_redis,
-        vehicle_store=store,
-        resolver=resolver,
-        train_service=TrainService(store, resolver, settings.stale_after_seconds),
-        eta_engine=EtaEngine(loaded_session_factory, EtaParameters()),
-        live_hub=LiveHub(ConnectionManager(), ReplayBuffer(64)),
-        owns_connections=False,
-    )
-
-
-@pytest.fixture
-async def api_client(
-    resources: AppResources, settings: Settings
-) -> AsyncIterator[httpx.AsyncClient]:
-    app = create_app(settings, resources)
-    async with app.router.lifespan_context(app):
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            yield client
 
 
 async def test_health(api_client: httpx.AsyncClient) -> None:

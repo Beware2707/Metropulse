@@ -13,6 +13,25 @@ import httpx
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from metropulse.application.commuter.alerts import (
+    DestinationAlertService,
+    ServiceAlertService,
+)
+from metropulse.application.commuter.analytics import AnalyticsService
+from metropulse.application.commuter.coach import (
+    CoachRecommendationService,
+    HistoricalCrowdPredictor,
+)
+from metropulse.application.commuter.exits import ExitService
+from metropulse.application.commuter.favourites import FavouritesService
+from metropulse.application.commuter.journeys import JourneyService
+from metropulse.application.commuter.last_train import LastTrainService
+from metropulse.application.commuter.notifications import (
+    LoggingNotificationChannel,
+    NotificationService,
+)
+from metropulse.application.commuter.offline import OfflineBundleService
+from metropulse.application.commuter.users import UserService
 from metropulse.application.eta_engine import EtaEngine, EtaParameters
 from metropulse.application.live_hub import ConnectionManager, LiveHub, ReplayBuffer
 from metropulse.application.route_resolver import IdMapper, MappingRule, RouteResolver
@@ -24,6 +43,23 @@ from metropulse.infrastructure.db.base import (
     create_session_factory,
 )
 from metropulse.infrastructure.redis.vehicle_store import RedisVehicleStore
+
+
+@dataclass
+class CommuterServices:
+    """The commuter feature service bundle, built once per process."""
+
+    users: UserService
+    favourites: FavouritesService
+    notifications: NotificationService
+    destination_alerts: DestinationAlertService
+    service_alerts: ServiceAlertService
+    last_train: LastTrainService
+    journeys: JourneyService
+    coach: CoachRecommendationService
+    exits: ExitService
+    offline: OfflineBundleService
+    analytics: AnalyticsService
 
 
 @dataclass
@@ -39,6 +75,7 @@ class AppResources:
     train_service: TrainService
     eta_engine: EtaEngine
     live_hub: LiveHub
+    commuter: CommuterServices
     owns_connections: bool = True
 
     async def close(self) -> None:
@@ -58,6 +95,35 @@ def build_id_mapper(settings: Settings) -> IdMapper:
         for rule in settings.id_mapping_rules
     ]
     return IdMapper(rules=rules, trip_id_map=trip_map, route_id_map=route_map)
+
+
+def build_commuter_services(
+    settings: Settings,
+    session_factory: SessionFactory,
+    redis: Redis,
+    vehicle_store: RedisVehicleStore,
+) -> CommuterServices:
+    """Assemble the commuter service bundle over shared infrastructure."""
+    predictor = HistoricalCrowdPredictor(
+        session_factory,
+        lookback_days=settings.crowd_lookback_days,
+        hour_window=settings.crowd_hour_window,
+    )
+    return CommuterServices(
+        users=UserService(),
+        favourites=FavouritesService(),
+        notifications=NotificationService(channels=(LoggingNotificationChannel(),)),
+        destination_alerts=DestinationAlertService(vehicle_store),
+        service_alerts=ServiceAlertService(publish=vehicle_store.publish_diff),
+        last_train=LastTrainService(timezone=settings.timezone),
+        journeys=JourneyService(),
+        coach=CoachRecommendationService(
+            predictor, default_coach_count=settings.default_coach_count
+        ),
+        exits=ExitService(),
+        offline=OfflineBundleService(session_factory, redis),
+        analytics=AnalyticsService(max_batch=settings.analytics_max_batch),
+    )
 
 
 def build_resources(settings: Settings) -> AppResources:
@@ -93,6 +159,7 @@ def build_resources(settings: Settings) -> AppResources:
         train_service=train_service,
         eta_engine=eta_engine,
         live_hub=live_hub,
+        commuter=build_commuter_services(settings, session_factory, redis, vehicle_store),
     )
 
 

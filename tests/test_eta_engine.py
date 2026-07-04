@@ -133,6 +133,55 @@ async def test_reported_speed_is_clamped_to_max(
     assert eta.speed_mps_used == pytest.approx(25.0)
 
 
+class StubTravelTimePredictor:
+    """A fake ML predictor returning fixed per-stop travel times."""
+
+    def __init__(self, predictions: list[float] | None) -> None:
+        self.predictions = predictions
+        self.calls = 0
+
+    async def predict_travel_seconds(
+        self, vehicle: object, context: object, remaining_stops: object
+    ) -> list[float] | None:
+        self.calls += 1
+        return self.predictions
+
+
+async def test_travel_time_predictor_overrides_heuristic(
+    loaded_session_factory: SessionFactory, resolver: RouteResolver
+) -> None:
+    predictor = StubTravelTimePredictor([42.0, 99.0])
+    engine = EtaEngine(loaded_session_factory, PARAMS, travel_time_predictor=predictor)
+    context = await resolver.resolve_trip("T1")
+    assert context is not None
+
+    eta = await engine.compute(make_vehicle(longitude=77.015, speed_mps=10.0), context)
+
+    assert eta is not None
+    assert predictor.calls == 1
+    assert eta.speed_source == "model"
+    assert eta.confidence == "high"
+    assert [s.eta_seconds for s in eta.stations] == [42.0, 99.0]
+
+
+async def test_invalid_predictor_output_falls_back_to_heuristic(
+    loaded_session_factory: SessionFactory, resolver: RouteResolver
+) -> None:
+    # Wrong length and None both fall back to the physics heuristic.
+    for bad in ([1.0], None, [10.0, -5.0]):
+        predictor = StubTravelTimePredictor(bad)
+        engine = EtaEngine(
+            loaded_session_factory, PARAMS, travel_time_predictor=predictor
+        )
+        context = await resolver.resolve_trip("T1")
+        assert context is not None
+        eta = await engine.compute(
+            make_vehicle(longitude=77.015, speed_mps=10.0), context
+        )
+        assert eta is not None
+        assert eta.speed_source == "reported"
+
+
 async def test_far_from_shape_lowers_confidence(
     eta_engine: EtaEngine, resolver: RouteResolver
 ) -> None:
