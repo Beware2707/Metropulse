@@ -1,0 +1,172 @@
+# MetroPulse
+
+Production-grade GTFS platform powering a real-time Delhi Metro application:
+static GTFS ingestion into PostgreSQL, a 5-second GTFS-Realtime polling engine
+backed by Redis, route/station resolution, per-station ETAs, a REST API and a
+diff-based WebSocket stream.
+
+## Architecture
+
+Clean Architecture, dependencies point inward only:
+
+```
+src/metropulse/
+├── domain/            entities, geometry, GTFS time parsing — pure, no I/O
+├── application/       use-cases: static loader, validation, realtime engine,
+│                      route resolver, ETA engine, train service, live hub
+├── infrastructure/    adapters: SQLAlchemy models/repositories, Redis store,
+│                      GTFS-RT HTTP client + protobuf decoder
+├── api/               FastAPI REST routers, WebSocket endpoint, schemas
+├── config.py          pydantic-settings (env-driven)
+├── wiring.py          composition root (object graph construction)
+├── main.py            API process entry point
+└── cli.py             loader + realtime worker entry points
+```
+
+Two processes share PostgreSQL and Redis:
+
+- **API** (`uvicorn metropulse.main:app`): serves REST + WebSocket. Subscribes
+  to the Redis `mp:updates` channel and fans diffs out to WebSocket clients.
+- **Worker** (`python -m metropulse.cli run-worker`): polls the DMRC
+  VehiclePositions feed every 5 s (APScheduler), diffs against the Redis
+  snapshot, persists history to PostgreSQL, and publishes enriched diffs.
+
+This split scales horizontally: run N API replicas behind a load balancer and
+exactly one worker; Redis pub/sub delivers diffs to every replica.
+
+### Key design decisions
+
+- **Diff-based realtime**: only changed vehicles are written, persisted and
+  broadcast. Unchanged positions cost nothing downstream.
+- **Configurable ID resolution**: realtime `trip_id`/`route_id` values are
+  mapped to static GTFS IDs through an ordered candidate chain — exact match,
+  explicit JSON map (`ID_MAPPING_FILE`), then regex rewrite rules
+  (`ID_MAPPING_RULES`). No feed-specific assumptions are hardcoded.
+- **Monotonic shape projection**: stops are projected onto the shape polyline
+  with a non-decreasing distance floor, so out-and-back shapes cannot fold a
+  trip's station sequence back on itself.
+- **Natural composite keys** for `stop_times`, `shape_points` and
+  `calendar_dates`: the primary index is exactly the hot lookup path.
+- **GTFS times as integer seconds**: `25:10:00` (past-midnight trips) is legal
+  GTFS and cannot be stored in a `TIME` column.
+
+## Getting started
+
+### 1. Configure
+
+```bash
+cp .env.example .env
+# set DMRC_API_KEY (required); everything else has sane defaults
+```
+
+### 2. Run the stack
+
+```bash
+docker compose up --build
+```
+
+This starts PostgreSQL 16, Redis 7, runs Alembic migrations, then starts the
+API on `http://localhost:8000` and the realtime worker.
+
+### 3. Load the static GTFS
+
+```bash
+docker compose run --rm api python -m metropulse.cli load-static /path/to/DMRC_GTFS.zip
+# or validate without loading:
+docker compose run --rm api python -m metropulse.cli validate-static /path/to/DMRC_GTFS.zip
+```
+
+The loader validates all eight GTFS files (structure, field formats,
+cross-file referential integrity) and replaces the static tables inside a
+single transaction — a bad feed can never leave the database half-loaded.
+
+### Local development (without Docker)
+
+```bash
+python -m venv .venv && .venv/Scripts/activate    # Windows
+pip install -e .[dev]
+alembic upgrade head                              # needs DATABASE_URL
+uvicorn metropulse.main:app --reload --ws websockets
+python -m metropulse.cli run-worker               # separate terminal
+```
+
+## REST API
+
+Interactive docs at `/docs` (OpenAPI).
+
+| Endpoint | Description |
+|---|---|
+| `GET /api/v1/trains` | All tracked trains, enriched with route, current/next/destination station, staleness |
+| `GET /api/v1/trains/{vehicleId}` | One train (404 if not tracked) |
+| `GET /api/v1/stations?limit=&offset=` | Stations, paginated, ordered by name |
+| `GET /api/v1/stations/{stationId}` | Station detail incl. routes serving it |
+| `GET /api/v1/routes` | All routes |
+| `GET /api/v1/eta/{vehicleId}` | ETA to every remaining station (409 when the trip cannot be resolved) |
+| `GET /health` | Database + Redis connectivity |
+
+## WebSocket `/ws/live`
+
+All frames are JSON text. The first client frame must be:
+
+```json
+{"type": "subscribe", "last_seq": null}
+```
+
+- Fresh clients (`last_seq: null`) receive `{"type": "snapshot", "seq": N, "trains": [...]}`.
+- Reconnecting clients send their last seen `seq`; the server replays only the
+  missed `update` frames from its replay buffer, or a fresh `snapshot` when
+  the gap is too old.
+- `update` frames carry **only changed trains** plus `removed` and `stale`
+  vehicle IDs.
+- The server broadcasts `{"type": "heartbeat", "ts": ...}` every
+  `WS_HEARTBEAT_SECONDS`; dead connections are dropped on send failure.
+  Clients may reply `{"type": "pong"}` (any client frame is absorbed).
+- Compression: permessage-deflate is negotiated automatically (uvicorn runs
+  with `--ws websockets`).
+
+## Realtime engine behaviour
+
+- Polls every `POLL_INTERVAL_SECONDS` (default 5 s); overlapping runs are
+  prevented (`max_instances=1`, coalescing).
+- Each fetch retries up to `FETCH_MAX_ATTEMPTS` with exponential backoff; all
+  failures are logged, and a failed cycle never corrupts state.
+- **Stale detection**: vehicles whose feed timestamp is older than
+  `STALE_AFTER_SECONDS` are flagged in diffs and in REST responses.
+- **Removed detection**: vehicles present in the previous snapshot but absent
+  from the feed are evicted from Redis and announced in the diff.
+- History is retained in `vehicle_position_history` for
+  `HISTORY_RETENTION_HOURS` (hourly cleanup job) and feeds the ETA engine's
+  speed estimator.
+
+## ETA computation
+
+1. Project the vehicle onto its trip's shape polyline (equirectangular
+   segment projection, haversine distances).
+2. Speed: reported feed speed if plausibly moving → otherwise the median
+   segment speed from recent history → otherwise `DEFAULT_SPEED_MPS`. Always
+   clamped to `[MIN_SPEED_MPS, MAX_SPEED_MPS]`.
+3. ETA per remaining station = remaining distance / speed + one
+   `DWELL_TIME_SECONDS` per intermediate stop.
+4. Every result carries a `confidence` (`high`/`medium`/`low`) and the speed
+   source, degraded when the vehicle is far off its shape.
+
+## Testing
+
+```bash
+pip install -e .[dev]
+pytest
+```
+
+The suite covers every module: validation, loading, repositories, geometry,
+the protobuf decoder, HTTP retry behaviour, the realtime diff engine
+(fakeredis + SQLite), route resolution, ETAs, the REST API and the WebSocket
+protocol (snapshot/replay/heartbeat) — no live services required.
+
+## Operations notes
+
+- Migrations: `alembic upgrade head` (the compose `migrate` service runs this
+  automatically before API/worker start).
+- After loading a new static GTFS, restart API and worker (or call
+  `RouteResolver.clear_cache()` if you wire up an admin hook): trip contexts
+  are cached for the process lifetime by design.
+- Scale reads by adding API replicas; keep exactly one worker per feed.

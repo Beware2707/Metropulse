@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(python --version)",
+      "PowerShell(python -m venv C:\\\\Users\\\\riddl\\\\Downloads\\\\Metro\\\\.venv)",
+      "PowerShell(C:\\\\Users\\\\riddl\\\\Downloads\\\\Metro\\\\.venv\\\\Scripts\\\\python.exe -m pip install --quiet --upgrade pip)",
+      "PowerShell(Set-Location C:\\\\Users\\\\riddl\\\\Downloads\\\\Metro; .\\\\.venv\\\\Scripts\\\\python.exe -c \"import sys; sys.path.insert\\(0, 'tests'\\); from pathlib import Path; from gtfs_fixture import write_gtfs_zip; write_gtfs_zip\\(Path\\('$env:TEMP/smoke_gtfs.zip'\\)\\); print\\('zip written'\\)\"; .\\\\.venv\\\\Scripts\\\\python.exe -m metropulse.cli validate-static \"$env:TEMP\\\\smoke_gtfs.zip\")",
+      "PowerShell(Set-Location C:\\\\Users\\\\riddl\\\\Downloads\\\\Metro; $zip = Join-Path $env:TEMP \"smoke_gtfs.zip\"; .\\\\.venv\\\\Scripts\\\\python.exe \"C:\\\\Users\\\\riddl\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-riddl-Downloads-Metro\\\\2fc3ed17-50c8-49e0-b4f4-16d10e109083\\\\scratchpad\\\\make_smoke_zip.py\" $zip; .\\\\.venv\\\\Scripts\\\\python.exe -m metropulse.cli validate-static $zip; Write-Host \"exit=$LASTEXITCODE\"; .\\\\.venv\\\\Scripts\\\\python.exe -m metropulse.cli validate-static \"C:\\\\does\\\\not\\\\exist.zip\"; Write-Host \"missing-file exit=$LASTEXITCODE\")"
+    ]
+  }
+}
