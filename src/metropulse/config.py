@@ -81,6 +81,13 @@ class Settings(BaseSettings):
     commute_prediction_lookback_days: float = Field(default=90.0, gt=0)
     delay_prediction_lookback_days: float = Field(default=60.0, gt=0)
 
+    # Metro Intelligence: proactive "time to leave" nudges, derived from
+    # CommutePredictionService rather than a user-created reminder (see
+    # application/intelligence/proactive_scheduler.py).
+    proactive_commute_eval_interval_seconds: float = Field(default=300.0, gt=0)
+    proactive_commute_lead_minutes: float = Field(default=15.0, gt=0)
+    proactive_commute_min_confidence: float = Field(default=0.5, ge=0, le=1)
+
     # Ops: rate limiting is per-replica defence in depth (0 disables); real
     # deployments should still enforce global limits at the edge/gateway.
     rate_limit_per_minute: int = Field(default=600, ge=0)

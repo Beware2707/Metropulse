@@ -45,7 +45,21 @@
       "Bash(find 'C:\\\\Users\\\\riddl/AppData/Local/Pub/Cache/hosted/pub.dev' -maxdepth 1 -iname maplibre_gl-*)",
       "Bash(curl -s http://localhost:8000/api/v1/routes)",
       "Bash(python3 -c ' *)",
-      "Bash(.venv/Scripts/python.exe -c \"from metropulse.main import app; print\\('OK', len\\(app.routes\\)\\)\")"
+      "Bash(.venv/Scripts/python.exe -c \"from metropulse.main import app; print\\('OK', len\\(app.routes\\)\\)\")",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/test_intelligence.py -x -q)",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/test_intelligence.py -q)",
+      "Bash(dart run *)",
+      "Bash(tee test_output.log)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(python3 -c \"print\\([hex\\(ord\\(c\\)\\) for c in 'voice_intent_test.dart']\\)\")",
+      "Bash(node -e \"console.log\\([...'voice_intent_test.dart'].map\\(c=>c.charCodeAt\\(0\\)\\)\\)\")",
+      "Bash(powershell -Command 'Get-Process | Where-Object {$_.ProcessName -match '\\\\''dart|flutter'\\\\''} | Select-Object ProcessName, Id, CPU, WorkingSet64 | Format-Table -AutoSize')",
+      "Bash(powershell -Command \"Get-Process -Id 40616 | Select-Object ProcessName, Id, CPU, WorkingSet64\")",
+      "Bash(powershell -Command 'Get-Process | Where-Object {$_.ProcessName -match '\\\\''chrome|msedge'\\\\''} | Select-Object ProcessName, Id, CPU, WorkingSet64 | Sort-Object CPU -Descending | Select-Object -First 15 | Format-Table -AutoSize')",
+      "Bash(grep -v \"//.*\\\\.show\")",
+      "Bash(xargs grep -l \"notification\")",
+      "Bash(.venv/Scripts/python.exe -c ' *)",
+      "Bash(xargs grep -l \"commute_prediction_lookback_days\")"
     ]
   }
 }

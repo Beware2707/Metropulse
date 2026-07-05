@@ -6,7 +6,7 @@ transaction; repositories only issue statements.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Sequence
 
 from sqlalchemy import delete, func, select, update
@@ -25,6 +25,7 @@ from metropulse.infrastructure.db.commuter_models import (
     LastTrainReminder,
     LeaveHomeReminder,
     Notification,
+    PredictedDepartureNotice,
     ServiceAlert,
     StationExit,
     User,
@@ -242,6 +243,41 @@ class LeaveHomeReminderRepository:
         return bool(result.rowcount)
 
 
+class PredictedDepartureNoticeRepository:
+    """Idempotency markers for proactive "time to leave" nudges."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def get(self, user_id: str) -> PredictedDepartureNotice | None:
+        """The notice row for a user, if one exists yet."""
+        return await self._session.get(PredictedDepartureNotice, user_id)
+
+    async def mark_notified(
+        self, user_id: str, service_date: date, departure_at: datetime, now: datetime
+    ) -> None:
+        """Record that we've sent today's predicted-departure nudge.
+
+        Upserts: most users won't have a row yet, but re-running the
+        scheduler for the same user later the same day must update the
+        existing row rather than violate the primary key.
+
+        This is a get-then-mutate upsert, not an atomic ``INSERT ... ON
+        CONFLICT`` — safe only because the caller (the "predicted-departure-
+        notices" APScheduler job) runs with ``max_instances=1`` on a single
+        worker process, so two concurrent writers for the same user_id can't
+        happen today. If that ever changes, this needs a real conditional
+        upsert.
+        """
+        notice = await self.get(user_id)
+        if notice is None:
+            notice = PredictedDepartureNotice(user_id=user_id, updated_at=now)
+            self._session.add(notice)
+        notice.last_notified_service_date = service_date
+        notice.last_notified_departure_at = departure_at
+        notice.updated_at = now
+
+
 class ServiceAlertRepository:
     """Service disruption alerts."""
 
@@ -316,6 +352,22 @@ class JourneyRepository:
         """All active journeys (worker evaluation set)."""
         result = await self._session.execute(
             select(Journey).where(Journey.status == "active")
+        )
+        return result.scalars().all()
+
+    async def distinct_user_ids_with_history(self, since: datetime) -> Sequence[str]:
+        """User ids with at least one completed/missed journey since a moment.
+
+        Feeds the proactive commute scheduler's per-user evaluation loop —
+        cheaper than loading every user just to find most have no history.
+        """
+        result = await self._session.execute(
+            select(Journey.user_id)
+            .where(
+                Journey.status.in_(("completed", "missed")),
+                Journey.started_at >= since,
+            )
+            .distinct()
         )
         return result.scalars().all()
 

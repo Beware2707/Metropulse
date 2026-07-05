@@ -17,8 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from metropulse.application.commuter.coach import CoachRecommendationService
 from metropulse.application.commuter.exits import ExitService
-from metropulse.application.intelligence.delay_predictor import DelayPredictionService
 from metropulse.application.journey_planner import ROUTE_PREFERENCES, JourneyPlanner
+from metropulse.application.ports import DelayEstimator
 from metropulse.domain.exceptions import UnknownEntityError
 from metropulse.domain.intelligence import RouteRecommendation, SmartRecommendation
 from metropulse.domain.journey import JourneyPlan, RideLeg
@@ -40,7 +40,7 @@ class SmartRecommendationService:
         planner: JourneyPlanner,
         coach: CoachRecommendationService,
         exits: ExitService,
-        delay: DelayPredictionService,
+        delay: DelayEstimator,
     ) -> None:
         self._planner = planner
         self._coach = coach

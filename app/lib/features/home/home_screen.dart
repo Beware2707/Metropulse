@@ -9,6 +9,7 @@ import '../../core/formatters.dart';
 import '../../core/l10n_ext.dart';
 import '../../core/widgets/ambient_background.dart';
 import '../../core/widgets/async_section.dart';
+import '../../core/widgets/coach_chip.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/glass_surface.dart';
 import '../../core/widgets/gradient_button.dart';
@@ -112,6 +113,13 @@ class _Header extends StatelessWidget {
         const LiveIndicator(),
         const SizedBox(width: AppSpacing.sm),
         IconPillButton(
+          icon: Icons.mic_none_rounded,
+          tooltip: 'Metro Assistant',
+          filled: true,
+          onPressed: () => context.push('/assistant'),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        IconPillButton(
           icon: Icons.notifications_none_rounded,
           tooltip: 'Notifications',
           onPressed: () => context.push('/notifications'),
@@ -136,6 +144,7 @@ class _HomeContent extends ConsumerWidget {
       SearchEntryPill(hint: 'Where to?', onTap: () => context.push('/search')),
       if (journey != null) const _ActiveJourneyBanner(),
       const _CommuteHero(),
+      const _SmartSuggestionCard(),
       const _AlertsSection(),
     ];
     final secondaryRaw = <Widget>[
@@ -345,6 +354,95 @@ class _ActiveJourneyBanner extends StatelessWidget {
               ),
             ),
             const Icon(Icons.chevron_right_rounded, color: Colors.white),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// --- Smart suggestion (Metro Intelligence) -----------------------------------------
+
+/// Metro Intelligence's prediction for the commute this user is about to
+/// make, learned from their own journey history. Silently absent (not an
+/// empty state) until there's enough history to learn a pattern from.
+class _SmartSuggestionCard extends ConsumerWidget {
+  const _SmartSuggestionCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final prediction = ref.watch(commutePredictionProvider).valueOrNull;
+    if (prediction == null) return const SizedBox.shrink();
+
+    final theme = Theme.of(context);
+    final (confidenceLabel, confidenceColor) = switch (prediction.confidence) {
+      >= 0.75 => ('Confident', AppColors.success),
+      >= 0.4 => ('Learning', AppColors.warning),
+      _ => ('Early guess', AppColors.brandBlue),
+    };
+
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.lg),
+      child: GlassSurface(
+        onTap: () => context.push(
+          '/planner?origin=${prediction.originStopId}&destination=${prediction.destinationStopId}',
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                IconBadge(icon: Icons.auto_awesome_rounded, gradient: AppColors.heroGradientFor()),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(child: Text('Smart suggestion', style: theme.textTheme.titleMedium)),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: confidenceColor.withValues(alpha: 0.15),
+                    borderRadius: AppRadius.pillR,
+                  ),
+                  child: Text(
+                    confidenceLabel.toUpperCase(),
+                    style: theme.textTheme.labelSmall?.copyWith(color: confidenceColor),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Text('${prediction.originName} → ${prediction.destinationName}',
+                style: theme.textTheme.titleLarge),
+            const SizedBox(height: 4),
+            Text('Usually around ${clockTime(prediction.predictedDepartureAt)}',
+                style: theme.textTheme.bodyMedium),
+            const SizedBox(height: AppSpacing.sm),
+            Text(prediction.basis, style: theme.textTheme.labelSmall),
+            if (prediction.recommendedCoach != null || prediction.recommendedExitName != null) ...[
+              const SizedBox(height: AppSpacing.md),
+              Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.sm,
+                children: [
+                  if (prediction.recommendedCoach != null)
+                    CoachChip(coach: prediction.recommendedCoach! + 1, dense: true),
+                  if (prediction.recommendedExitName != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerHighest,
+                        borderRadius: AppRadius.pillR,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.exit_to_app_rounded, size: 14),
+                          const SizedBox(width: 4),
+                          Text(prediction.recommendedExitName!, style: theme.textTheme.labelMedium),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ],
           ],
         ),
       ),

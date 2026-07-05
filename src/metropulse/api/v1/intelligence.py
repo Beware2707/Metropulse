@@ -12,6 +12,7 @@ from metropulse.api.deps import get_commuter, get_current_user, get_session
 from metropulse.api.schemas_commuter import (
     CommutePredictionOut,
     DelayEstimateOut,
+    InferredPlaceOut,
     SmartRecommendationOut,
 )
 from metropulse.domain.entities import utcnow
@@ -35,6 +36,19 @@ async def predict_commute(
     except UnknownEntityError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return CommutePredictionOut.from_domain(prediction)
+
+
+@router.get("/me/inferred-places", response_model=list[InferredPlaceOut])
+async def inferred_places(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+    services: CommuterServices = Depends(get_commuter),
+) -> list[InferredPlaceOut]:
+    """Places inferred from this user's journey history (Home, and a regular
+    weekday destination) — suggestions for the client to offer, e.g. as
+    pre-filled Favourites labels. Never written on the user's behalf."""
+    places = await services.place_roles.infer(session, user.id, utcnow())
+    return [InferredPlaceOut.from_domain(place) for place in places]
 
 
 @router.get("/delay-estimate", response_model=DelayEstimateOut)

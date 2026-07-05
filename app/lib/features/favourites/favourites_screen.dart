@@ -10,8 +10,10 @@ import '../../core/widgets/glass_surface.dart';
 import '../../core/widgets/gradient_button.dart';
 import '../../core/widgets/icon_badge.dart';
 import '../../core/widgets/section_header.dart';
+import '../../domain/place_suggestions.dart';
 import '../../providers/core_providers.dart';
-import '../home/home_providers.dart' show favouriteStationsProvider, pinnedJourneysProvider;
+import '../home/home_providers.dart'
+    show favouriteStationsProvider, inferredPlacesProvider, pinnedJourneysProvider;
 
 export '../home/home_providers.dart' show favouriteStationsProvider;
 
@@ -28,6 +30,7 @@ class FavouritesScreen extends ConsumerWidget {
     final favourites = ref.watch(favouriteStationsProvider);
     final stations = ref.watch(stationIndexProvider);
     final pinnedJourneys = ref.watch(pinnedJourneysProvider);
+    final inferredPlaces = ref.watch(inferredPlacesProvider).valueOrNull ?? const [];
 
     return Scaffold(
       body: AmbientBackground(
@@ -42,6 +45,19 @@ class FavouritesScreen extends ConsumerWidget {
                   padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, 180),
                   children: [
                     Text('Saved', style: Theme.of(context).textTheme.displaySmall),
+                    for (final suggestion in placeSuggestions(rows, inferredPlaces))
+                      Padding(
+                        padding: const EdgeInsets.only(top: AppSpacing.md),
+                        child: _PlaceSuggestionCard(
+                          suggestion: suggestion,
+                          onChoose: (label) => _onStationAction(
+                            context,
+                            ref,
+                            {'stop_id': suggestion.place.stopId, 'position': rows.length},
+                            'label:$label',
+                          ),
+                        ),
+                      ),
                     const SectionHeader(title: 'Stations', padding: EdgeInsets.only(top: AppSpacing.xl)),
                     if (rows.isEmpty)
                       const EmptyState(
@@ -165,6 +181,43 @@ class FavouritesScreen extends ConsumerWidget {
       await repository.save(stopId, label: label, position: position);
     }
     ref.invalidate(favouriteStationsProvider);
+  }
+}
+
+class _PlaceSuggestionCard extends StatelessWidget {
+  const _PlaceSuggestionCard({required this.suggestion, required this.onChoose});
+
+  final PlaceSuggestion suggestion;
+  final ValueChanged<String> onChoose;
+
+  @override
+  Widget build(BuildContext context) {
+    final place = suggestion.place;
+    final question = suggestion.labelOptions.length == 1
+        ? 'Is ${place.stopName} your ${suggestion.labelOptions.single}?'
+        : "What's ${place.stopName} to you?";
+    return GlassSurface(
+      child: Row(
+        children: [
+          IconBadge(
+            icon: place.role == 'home' ? Icons.home_rounded : Icons.work_rounded,
+            gradient: AppColors.heroGradientFor(),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(question, style: Theme.of(context).textTheme.titleMedium),
+                Text(place.rationale, style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ),
+          ),
+          for (final label in suggestion.labelOptions)
+            TextButton(onPressed: () => onChoose(label), child: Text(label)),
+        ],
+      ),
+    );
   }
 }
 

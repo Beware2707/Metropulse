@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from statistics import median
 from typing import Sequence
 
@@ -84,7 +84,7 @@ class CommutePredictionService:
             journey
             for journey in history
             if journey.status in ("completed", "missed")
-            and journey.started_at >= cutoff
+            and _ensure_aware(journey.started_at) >= cutoff
             and (journey.started_at.weekday() >= 5) == is_weekend
         ]
         if not matching:
@@ -211,6 +211,16 @@ def _closest_to_now(grouped: dict[tuple[str, str], _Candidate], now: datetime) -
 def _circular_distance(a: float, b: float) -> float:
     diff = abs(a - b)
     return min(diff, _SECONDS_PER_DAY - diff)
+
+
+def _ensure_aware(value: datetime) -> datetime:
+    """Treat a naive datetime as UTC.
+
+    ``DateTime(timezone=True)`` round-trips as aware on PostgreSQL but as
+    naive on SQLite (used in tests) — this normalises either into a value
+    safely comparable against ``utcnow()``.
+    """
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
 def _at_time_of_day(now: datetime, seconds_since_midnight: float) -> datetime:

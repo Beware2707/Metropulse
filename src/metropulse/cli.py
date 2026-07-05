@@ -24,6 +24,9 @@ from typing import Any
 from metropulse.application.commuter.analytics import purge_analytics
 from metropulse.application.commuter.rule_engine import CommuterRuleEngine
 from metropulse.application.consumers import EtaWarmer, FeedAnalyticsRecorder
+from metropulse.application.intelligence.proactive_scheduler import (
+    ProactiveCommuteSchedulerService,
+)
 from metropulse.application.realtime_engine import RealtimeEngine, cleanup_history
 from metropulse.infrastructure.redis.stream_bus import RedisStreamConsumer
 from metropulse.infrastructure.redis.vehicle_store import UPDATES_STREAM
@@ -106,6 +109,18 @@ async def run_worker(settings: Settings) -> int:
             event_publisher=resources.event_publisher,
         )
 
+        proactive_scheduler = ProactiveCommuteSchedulerService(
+            resources.commuter.commute_predictor,
+            resources.commuter.notifications,
+            resources.session_factory,
+            lead_minutes=settings.proactive_commute_lead_minutes,
+            min_confidence=settings.proactive_commute_min_confidence,
+            timezone=settings.timezone,
+            # Same window CommutePredictionService itself uses, so the two
+            # can never drift apart from an independent config change.
+            history_window_days=settings.commute_prediction_lookback_days,
+        )
+
         engine = RealtimeEngine(
             client,
             resources.vehicle_store,
@@ -164,6 +179,14 @@ async def run_worker(settings: Settings) -> int:
             max_instances=1,
             coalesce=True,
             id="last-train-reminders",
+        )
+        scheduler.add_job(
+            proactive_scheduler.evaluate_safe,
+            "interval",
+            seconds=settings.proactive_commute_eval_interval_seconds,
+            max_instances=1,
+            coalesce=True,
+            id="predicted-departure-notices",
         )
         scheduler.add_job(
             cleanup_history,

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,3 +81,34 @@ class SmartRecommendation:
     recommended_coach: int | None
     recommended_exit_name: str | None
     least_crowded_available: bool
+
+
+class PlaceRole(str, Enum):
+    """A role inferred for a place from movement patterns, not user input.
+
+    Movement data alone can't tell "Office" from "College" — both are simply
+    the place a user travels to and from on a regular weekday schedule. So
+    this models exactly two roles: ``HOME`` (where trips most often start)
+    and ``WEEKDAY_ANCHOR`` (where they most often go on weekdays from home).
+    The UI is expected to let the user confirm or relabel the real name.
+    """
+
+    HOME = "home"
+    WEEKDAY_ANCHOR = "weekday_anchor"
+
+
+@dataclass(frozen=True, slots=True)
+class InferredPlace:
+    """A place role inferred from a user's own journey history.
+
+    This is a suggestion, not a fact written on the user's behalf: callers
+    should offer it for confirmation (e.g. pre-filling a Favourites label)
+    rather than silently overwriting anything the user already set.
+    """
+
+    stop_id: str
+    stop_name: str
+    role: PlaceRole
+    confidence: float
+    sample_size: int
+    rationale: str

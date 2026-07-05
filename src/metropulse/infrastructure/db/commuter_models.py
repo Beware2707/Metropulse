@@ -138,6 +138,26 @@ class LeaveHomeReminder(Base):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class PredictedDepartureNotice(Base):
+    """Idempotency marker for proactive "time to leave" nudges.
+
+    Unlike :class:`LeaveHomeReminder` (a one-shot reminder the user creates
+    for a specific known train), this is written by
+    ``ProactiveCommuteSchedulerService`` itself, once per user per service
+    day, so the worker's periodic evaluation doesn't re-notify the same
+    predicted commute on every pass within the lead window.
+    """
+
+    __tablename__ = "predicted_departure_notices"
+
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    last_notified_service_date: Mapped[date | None] = mapped_column(Date)
+    last_notified_departure_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class ServiceAlert(Base):
     """A service disruption/advisory, admin-created or feed-ingested."""
 

@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 
 import '../domain/models/commute_card.dart';
 import '../domain/models/eta.dart';
+import '../domain/models/intelligence.dart';
 import '../domain/models/journey.dart';
 import '../domain/models/station.dart';
 import '../domain/models/train.dart';
@@ -390,5 +391,72 @@ class CommuteRepository {
       if (error.response?.statusCode == 409) return null;
       rethrow;
     }
+  }
+}
+
+/// Metro Intelligence: commute prediction, delay estimation, and smart
+/// route/coach/exit recommendations — all derived from GTFS schedules and
+/// the user's own journey history, never a black-box model.
+class IntelligenceRepository {
+  IntelligenceRepository(this._api);
+
+  final ApiClient _api;
+
+  /// The commute this user is most likely making right now. Returns null
+  /// when there isn't enough journey history yet (backend 404) — not an
+  /// error, just "nothing learned yet".
+  Future<CommutePrediction?> commutePrediction() async {
+    try {
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/api/v1/intelligence/me/commute-prediction',
+      );
+      return CommutePrediction.fromJson(response.data!);
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
+  /// Typical delay for a route around the current time of day.
+  Future<DelayEstimate> delayEstimate({required String routeId, int? directionId}) async {
+    final response = await _api.dio.get<Map<String, dynamic>>(
+      '/api/v1/intelligence/delay-estimate',
+      queryParameters: {
+        'route_id': routeId,
+        if (directionId != null) 'direction_id': directionId,
+      },
+    );
+    return DelayEstimate.fromJson(response.data!);
+  }
+
+  /// Best route, departure time, coach and exit for a trip. Returns null
+  /// when nothing connects the two stations (backend 404).
+  Future<SmartRecommendation?> recommendations({
+    required String origin,
+    required String destination,
+  }) async {
+    try {
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/api/v1/intelligence/recommendations',
+        queryParameters: {'origin': origin, 'destination': destination},
+      );
+      return SmartRecommendation.fromJson(response.data!);
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
+  /// Places inferred from this user's own journey history (Home, and a
+  /// regular weekday destination) — suggestions to offer, e.g. as
+  /// pre-filled Favourites labels. Empty when nothing's been learned yet.
+  Future<List<InferredPlace>> inferredPlaces() async {
+    final response = await _api.dio.get<List<dynamic>>(
+      '/api/v1/intelligence/me/inferred-places',
+    );
+    return (response.data ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(InferredPlace.fromJson)
+        .toList(growable: false);
   }
 }

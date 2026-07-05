@@ -35,6 +35,10 @@ final commuteRepositoryProvider = Provider<CommuteRepository>(
   (ref) => CommuteRepository(ref.watch(apiClientProvider)),
 );
 
+final intelligenceRepositoryProvider = Provider<IntelligenceRepository>(
+  (ref) => IntelligenceRepository(ref.watch(apiClientProvider)),
+);
+
 final notificationsRepositoryProvider = Provider<NotificationsRepository>(
   (ref) => NotificationsRepository(ref.watch(apiClientProvider)),
 );

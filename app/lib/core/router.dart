@@ -13,6 +13,7 @@ import '../features/settings/settings_screen.dart';
 import '../features/splash/splash_screen.dart';
 import '../features/station/station_detail_screen.dart';
 import '../features/train/train_detail_screen.dart';
+import '../features/voice/voice_assistant_screen.dart';
 import 'root_shell.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -58,6 +59,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/search', builder: (_, __) => const SearchScreen()),
       GoRoute(path: '/journeys/history', builder: (_, __) => const JourneyHistoryScreen()),
       GoRoute(path: '/notifications', builder: (_, __) => const NotificationsScreen()),
+      GoRoute(path: '/assistant', builder: (_, __) => const VoiceAssistantScreen()),
     ],
   );
 });

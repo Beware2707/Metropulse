@@ -3,12 +3,27 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/location_service.dart';
 import '../../data/repositories.dart';
 import '../../domain/models/commute_card.dart';
+import '../../domain/models/intelligence.dart';
 import '../../domain/models/journey.dart';
 import '../../domain/nearby.dart';
 import '../../providers/core_providers.dart';
 
 final commuteCardProvider = FutureProvider<CommuteCard?>(
   (ref) => ref.watch(commuteRepositoryProvider).card(),
+);
+
+/// The commute Metro Intelligence predicts the user is about to make, learned
+/// from their own journey history. Null while there isn't enough history yet
+/// (not an error — just nothing learned so far).
+final commutePredictionProvider = FutureProvider<CommutePrediction?>(
+  (ref) => ref.watch(intelligenceRepositoryProvider).commutePrediction(),
+);
+
+/// Place roles (Home, a regular weekday destination) Metro Intelligence has
+/// inferred from journey history — suggestions for Favourites to offer, not
+/// facts to write on the user's behalf. Empty while nothing's been learned.
+final inferredPlacesProvider = FutureProvider<List<InferredPlace>>(
+  (ref) => ref.watch(intelligenceRepositoryProvider).inferredPlaces(),
 );
 
 /// A full route plan for the commute card's origin/destination, purely to

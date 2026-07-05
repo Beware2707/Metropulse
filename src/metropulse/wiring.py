@@ -42,8 +42,10 @@ from metropulse.application.intelligence.delay_predictor import DelayPredictionS
 from metropulse.application.intelligence.smart_recommendations import (
     SmartRecommendationService,
 )
+from metropulse.application.intelligence.place_roles import PlaceRoleInferenceService
 from metropulse.application.journey_planner import JourneyPlanner
 from metropulse.application.live_hub import ConnectionManager, LiveHub, ReplayBuffer
+from metropulse.application.ports import CommutePredictor, DelayEstimator, RecommendationEngine
 from metropulse.application.route_resolver import IdMapper, MappingRule, RouteResolver
 from metropulse.application.train_service import TrainService
 from metropulse.config import Settings
@@ -74,9 +76,10 @@ class CommuterServices:
     analytics: AnalyticsService
     planner: JourneyPlanner
     commute_card: CommuteCardService
-    commute_predictor: CommutePredictionService
-    delay_predictor: DelayPredictionService
-    smart_recommendations: SmartRecommendationService
+    commute_predictor: CommutePredictor
+    delay_predictor: DelayEstimator
+    smart_recommendations: RecommendationEngine
+    place_roles: PlaceRoleInferenceService
 
 
 @dataclass
@@ -167,6 +170,7 @@ def build_commuter_services(
         ),
         delay_predictor=delay_predictor,
         smart_recommendations=SmartRecommendationService(planner, coach, exits, delay_predictor),
+        place_roles=PlaceRoleInferenceService(lookback_days=settings.commute_prediction_lookback_days),
     )
 
 

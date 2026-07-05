@@ -16,6 +16,7 @@ from metropulse.domain.commuter import (
 from metropulse.domain.intelligence import (
     CommutePrediction,
     DelayEstimate,
+    InferredPlace,
     RouteRecommendation,
     SmartRecommendation,
 )
@@ -728,4 +729,29 @@ class SmartRecommendationOut(BaseModel):
             recommended_coach=rec.recommended_coach,
             recommended_exit_name=rec.recommended_exit_name,
             least_crowded_available=rec.least_crowded_available,
+        )
+
+
+class InferredPlaceOut(BaseModel):
+    """A place role (Home / a regular weekday destination) inferred from
+    journey history — a suggestion for the client to offer, not a fact
+    written on the user's behalf."""
+
+    stop_id: str
+    stop_name: str
+    role: str
+    confidence: float
+    sample_size: int
+    rationale: str
+
+    @classmethod
+    def from_domain(cls, place: InferredPlace) -> "InferredPlaceOut":
+        """Build from the domain value."""
+        return cls(
+            stop_id=place.stop_id,
+            stop_name=place.stop_name,
+            role=place.role.value,
+            confidence=place.confidence,
+            sample_size=place.sample_size,
+            rationale=place.rationale,
         )
