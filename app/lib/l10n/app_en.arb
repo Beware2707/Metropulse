@@ -19,6 +19,7 @@
   "homeNoAlerts": "No disruptions right now — all lines running normally.",
   "homeNoRecentJourneys": "Journeys you take will appear here.",
   "homeNoFavourites": "Star stations you use often for one-tap access.",
+  "homeNoLastTrain": "Add a Home favourite station to see tonight's last train here.",
   "homeLocationOff": "Allow location access to see stations near you.",
   "homeEnableLocation": "Enable location",
   "homeSectionError": "Couldn't load this section. Pull to retry.",

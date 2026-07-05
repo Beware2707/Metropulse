@@ -84,6 +84,16 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_format: Literal["text", "json"] = "text"
 
+    # CORS: browsers preflight every cross-origin request the Flutter web
+    # client makes (dev server on its own port, or a separately hosted PWA).
+    # Native (Android/iOS) callers are unaffected since they don't do CORS.
+    cors_allow_origins: list[str] = Field(
+        default_factory=lambda: [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ]
+    )
+
     def load_static_id_maps(self) -> tuple[dict[str, str], dict[str, str]]:
         """Load explicit ``(trip_id_map, route_id_map)`` from ``id_mapping_file``.
 

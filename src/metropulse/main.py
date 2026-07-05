@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from sqlalchemy import text
 
@@ -88,6 +89,14 @@ def create_app(
     )
     app.include_router(v1_router)
     app.include_router(ws_router)
+    if app_settings.cors_allow_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=app_settings.cors_allow_origins,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
     if app_settings.rate_limit_per_minute > 0:
         app.add_middleware(
             RateLimitMiddleware,

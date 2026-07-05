@@ -18,7 +18,26 @@
       "Bash(grep -n \"^  geolocator\" pubspec.lock -A1; find / -maxdepth 6 -path \"*/.pub-cache/hosted/*/geolocator-*\" -type d 2>/dev/null | head -5)",
       "PowerShell(Set-Location C:\\\\Users\\\\riddl\\\\Downloads\\\\Metro\\\\app; Select-String -Path pubspec.lock -Pattern \"geolocator:\" -Context 0,6 | Select-Object -First 1 -ExpandProperty Context | ForEach-Object { $_.PostContext })",
       "Bash(/c/flutter/bin/flutter.bat config *)",
-      "PowerShell(flutter doctor -v 2>&1)"
+      "PowerShell(flutter doctor -v 2>&1)",
+      "PowerShell(docker --version 2>&1)",
+      "Bash(unzip -l \"/c/Users/riddl/Downloads/DMRC_GTFS.zip\")",
+      "Bash(docker compose *)",
+      "Bash(docker volume *)",
+      "PowerShell(Set-Location C:\\\\Users\\\\riddl\\\\Downloads\\\\Metro; Write-Host \"DATABASE_URL env var: [$env:DATABASE_URL]\"; Write-Host \"---\"; .\\\\.venv\\\\Scripts\\\\python.exe -c \"from metropulse.config import get_settings; s = get_settings\\(\\); print\\('DB URL:', s.database_url\\); print\\('Redis URL:', s.redis_url\\)\")",
+      "PowerShell(Get-NetTCPConnection -LocalPort 5432 -ErrorAction SilentlyContinue | Select-Object -Property LocalAddress,LocalPort,State,OwningProcess | Format-Table -AutoSize; Write-Host \"---processes---\"; Get-Process -Id \\(Get-NetTCPConnection -LocalPort 5432 -ErrorAction SilentlyContinue\\).OwningProcess -ErrorAction SilentlyContinue | Select-Object Id,ProcessName,Path)",
+      "PowerShell(Set-Location C:\\\\Users\\\\riddl\\\\Downloads\\\\Metro; for \\($i=0; $i -lt 10; $i++\\) { $s = docker compose ps postgres --format json | ConvertFrom-Json; if \\($s.Health -eq \"healthy\"\\) { Write-Host \"healthy\"; break }; Start-Sleep -Seconds 2 }; docker compose ps postgres)",
+      "PowerShell(Get-NetTCPConnection -LocalPort 5433 -ErrorAction SilentlyContinue | Select-Object LocalAddress, LocalPort, State, OwningProcess; Write-Host \"---\"; Get-Process -Id \\(Get-NetTCPConnection -LocalPort 5433 -ErrorAction SilentlyContinue\\).OwningProcess -ErrorAction SilentlyContinue | Select-Object Id, ProcessName, Path)",
+      "PowerShell(Get-Process -Id 7532)",
+      "PowerShell(foreach \\($p in 5434,5435,15432,25432,55432\\) { $c = Get-NetTCPConnection -LocalPort $p -ErrorAction SilentlyContinue; if \\($c\\) { Write-Host \"$p BUSY\" } else { Write-Host \"$p FREE\" } })",
+      "PowerShell(Get-Process -Id 28744,18112 -ErrorAction SilentlyContinue)",
+      "Bash(.venv/Scripts/python.exe -m metropulse.cli --help)",
+      "Bash(.venv/Scripts/python.exe -m metropulse.cli load-static \"/c/Users/riddl/Downloads/DMRC_GTFS.zip\")",
+      "Bash(curl -s http://localhost:8000/api/v1/stations)",
+      "Bash(curl -s http://localhost:8000/health)",
+      "Bash(curl -s http://localhost:8000/api/v1/health)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173)",
+      "Bash(curl -s -i -X OPTIONS http://localhost:8000/api/v1/users -H \"Origin: http://localhost:5173\" -H \"Access-Control-Request-Method: POST\" -H \"Access-Control-Request-Headers: content-type\")",
+      "Bash(flutter gen-l10n *)"
     ]
   }
 }

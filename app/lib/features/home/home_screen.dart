@@ -442,7 +442,7 @@ class _LastTrainSection extends ConsumerWidget {
       title: context.t.homeLastTrain,
       value: lastTrain,
       isEmpty: (data) => data == null,
-      emptyMessage: context.t.homeNoFavourites,
+      emptyMessage: context.t.homeNoLastTrain,
       onRetry: () => ref.invalidate(homeLastTrainProvider),
       builder: (context, data) {
         final info = data!;
