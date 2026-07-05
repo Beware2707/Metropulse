@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -31,7 +31,7 @@ class StationDetailScreen extends ConsumerWidget {
     final arrivals = ref.watch(arrivalsForStationProvider(stopId));
     final lastTrain = ref.watch(_lastTrainProvider(stopId));
     final exits = ref.watch(_exitsProvider(stopId));
-    final favourites = ref.watch(favouritesProvider);
+    final favourites = ref.watch(favouriteStationsProvider);
     final isFavourite = favourites.valueOrNull
             ?.any((f) => f['stop_id'] == stopId) ??
         false;
@@ -49,7 +49,7 @@ class StationDetailScreen extends ConsumerWidget {
               } else {
                 await repository.save(stopId);
               }
-              ref.invalidate(favouritesProvider);
+              ref.invalidate(favouriteStationsProvider);
             },
           ),
         ],
@@ -98,9 +98,9 @@ class StationDetailScreen extends ConsumerWidget {
               subtitle: lastTrain.when(
                 data: (data) => Text(data == null
                     ? 'No service information'
-                    : '${data['headsign'] ?? data['route_id']} · '
+                    : '${data['headsign'] ?? data['route_id']} at '
                         '${clockTime(DateTime.tryParse('${data['departure_at']}'))}'),
-                loading: () => const Text('…'),
+                loading: () => const Text('...'),
                 error: (_, __) => const Text('Unavailable offline'),
               ),
             ),
@@ -125,7 +125,7 @@ class StationDetailScreen extends ConsumerWidget {
                             title: Text('${exit['name']}'),
                             subtitle: exit['landmarks'] is List &&
                                     (exit['landmarks'] as List).isNotEmpty
-                                ? Text((exit['landmarks'] as List).join(' · '))
+                                ? Text((exit['landmarks'] as List).join(', '))
                                 : null,
                           ),
                         ),

@@ -37,13 +37,16 @@ class AnimatedTrain {
 /// Tweens every train from its previous to its latest GTFS position over
 /// [duration], ticking [onFrame] while any train is still moving.
 ///
-/// Trains glide between updates instead of teleporting — the map reads as a
-/// living system even though positions only arrive every ~5 seconds.
+/// Trains glide between updates instead of teleporting. Note the honest
+/// division of labour: MapLibre renders on the GPU at the display's native
+/// 60/120 Hz; this ticker only feeds it fresh GeoJSON at [fps] — pushing
+/// source updates faster than ~20/s wastes platform-channel bandwidth for
+/// no visible gain at metro speeds.
 class TrainAnimator {
   TrainAnimator({
     required this.onFrame,
     this.duration = const Duration(seconds: 4),
-    this.fps = 10,
+    this.fps = 20,
   });
 
   final void Function(Map<String, AnimatedTrain> trains) onFrame;
@@ -52,6 +55,7 @@ class TrainAnimator {
 
   final Map<String, AnimatedTrain> _trains = {};
   Timer? _ticker;
+  bool _paused = false;
 
   Map<String, AnimatedTrain> get trains => _trains;
 
@@ -70,8 +74,24 @@ class TrainAnimator {
     _ensureTicking();
   }
 
+  /// Battery hygiene: stop ticking while the screen is not visible.
+  void pause() {
+    _paused = true;
+    _ticker?.cancel();
+    _ticker = null;
+  }
+
+  /// Resume after [pause]; trains snap-finish their pending tweens.
+  void resume() {
+    _paused = false;
+    for (final train in _trains.values) {
+      train.advance(1.0); // don't replay stale motion after a long pause
+    }
+    onFrame(_trains);
+  }
+
   void _ensureTicking() {
-    if (_ticker != null) return;
+    if (_ticker != null || _paused) return;
     final interval = Duration(milliseconds: 1000 ~/ fps);
     final step = interval.inMilliseconds / duration.inMilliseconds;
     _ticker = Timer.periodic(interval, (_) {

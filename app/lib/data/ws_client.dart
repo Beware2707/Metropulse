@@ -33,8 +33,28 @@ class LiveWsClient {
   int _backoffSeconds = 1;
   bool _closed = false;
 
+  bool _suspended = false;
+
+  /// Battery saver: drop the socket while the app is backgrounded. The
+  /// stored `last_seq` means resuming replays exactly what was missed.
+  void suspend() {
+    if (_suspended || _closed) return;
+    _suspended = true;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _teardownSocket();
+  }
+
+  /// Reconnect after [suspend]; a no-op when already live.
+  void resume() {
+    if (!_suspended || _closed) return;
+    _suspended = false;
+    _backoffSeconds = 1;
+    connect();
+  }
+
   void connect() {
-    if (_closed) return;
+    if (_closed || _suspended) return;
     _status.add(WsStatus.connecting);
     try {
       final channel = WebSocketChannel.connect(Uri.parse(url));
@@ -84,7 +104,7 @@ class LiveWsClient {
   }
 
   void _scheduleReconnect() {
-    if (_closed || _reconnectTimer != null) return;
+    if (_closed || _suspended || _reconnectTimer != null) return;
     _status.add(WsStatus.reconnecting);
     _teardownSocket();
     _reconnectTimer = Timer(Duration(seconds: _backoffSeconds), () {

@@ -47,6 +47,29 @@ class LocalStore {
   String get themeMode => _box.get('theme_mode') ?? 'system';
   Future<void> saveThemeMode(String value) => _box.put('theme_mode', value);
 
+  // -- journey context ----------------------------------------------------------
+  //
+  // The backend owns the journey session; this stores the plan-derived extras
+  // (interchanges, coach, exit) so Journey Mode survives backgrounding and
+  // full restarts. Keyed by journey id and cleared when a journey ends.
+
+  Map<String, dynamic>? journeyContext(int journeyId) {
+    final raw = _box.get('journey_ctx');
+    if (raw == null) return null;
+    try {
+      final decoded = jsonDecode(raw) as Map<String, dynamic>;
+      if (decoded['journey_id'] == journeyId) return decoded;
+    } on FormatException {
+      return null;
+    }
+    return null;
+  }
+
+  Future<void> saveJourneyContext(int journeyId, Map<String, dynamic> context) =>
+      _box.put('journey_ctx', jsonEncode({...context, 'journey_id': journeyId}));
+
+  Future<void> clearJourneyContext() => _box.delete('journey_ctx');
+
   // -- offline station cache ----------------------------------------------------
 
   OfflineBundle? get cachedBundle {

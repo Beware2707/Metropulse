@@ -3,68 +3,147 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/formatters.dart';
+import '../../core/l10n_ext.dart';
 import '../../domain/models/commute_card.dart';
 import '../../domain/models/journey.dart';
+import '../../domain/nearby.dart';
 import '../../providers/core_providers.dart';
+import '../../providers/live_providers.dart';
+import '../shared/async_section.dart';
 import '../shared/widgets.dart';
+import 'home_providers.dart';
 
-final commuteCardProvider = FutureProvider<CommuteCard?>(
-  (ref) => ref.watch(commuteRepositoryProvider).card(),
-);
+export 'home_providers.dart' show activeJourneyProvider, commuteCardProvider;
 
-final activeJourneyProvider = FutureProvider<Journey?>(
-  (ref) => ref.watch(journeyRepositoryProvider).current(),
-);
-
-/// Home: the commuter's answer screen — commute card first, actions second.
+/// Home: the commuter dashboard. The commute card answers "when do I leave,
+/// what do I board, which platform/coach, am I delayed" before anything else;
+/// map and planner are one tap away but never the first thing.
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final card = ref.watch(commuteCardProvider);
-    final journey = ref.watch(activeJourneyProvider);
-
     return Scaffold(
       appBar: AppBar(
-        title: const Text('MetroPulse'),
+        title: Text(context.t.appTitle),
         actions: [
           const Padding(
             padding: EdgeInsets.only(right: 8),
             child: Center(child: LiveIndicator()),
           ),
           IconButton(
+            tooltip: 'Live map',
+            icon: const Icon(Icons.map_outlined),
+            onPressed: () => context.push('/map'),
+          ),
+          IconButton(
+            tooltip: 'Settings',
             icon: const Icon(Icons.settings_outlined),
             onPressed: () => context.push('/settings'),
           ),
         ],
       ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => context.push('/planner'),
+        icon: const Icon(Icons.route_outlined),
+        label: Text(context.t.journeyPlanCta),
+      ),
       body: RefreshIndicator(
         onRefresh: () async {
-          ref.invalidate(commuteCardProvider);
-          ref.invalidate(activeJourneyProvider);
+          ref
+            ..invalidate(commuteCardProvider)
+            ..invalidate(activeJourneyProvider)
+            ..invalidate(activeAlertsProvider)
+            ..invalidate(recentJourneysProvider)
+            ..invalidate(favouriteStationsProvider)
+            ..invalidate(homeLastTrainProvider)
+            ..invalidate(nearbyStationsProvider);
         },
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            if (journey.valueOrNull != null)
-              _ActiveJourneyBanner(journey: journey.valueOrNull!),
-            card.when(
-              data: (data) => data == null
-                  ? const _SetupCommuteCard()
-                  : _CommuteCardView(card: data),
-              loading: () => const Card(
-                child: SizedBox(
-                  height: 180,
-                  child: Center(child: CircularProgressIndicator()),
-                ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final isWide = constraints.maxWidth >= 720;
+            final content = _HomeContent(isWide: isWide);
+            // Tablets: cap line length and centre the dashboard.
+            return Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1100),
+                child: content,
               ),
-              error: (_, __) => const _SetupCommuteCard(),
-            ),
-            const SizedBox(height: 16),
-            _QuickActions(),
-          ],
+            );
+          },
         ),
+      ),
+    );
+  }
+}
+
+class _HomeContent extends ConsumerWidget {
+  const _HomeContent({required this.isWide});
+
+  final bool isWide;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final journey = ref.watch(activeJourneyProvider).valueOrNull;
+
+    final primary = <Widget>[
+      if (journey != null) const _ActiveJourneyBanner(),
+      const _CommuteSection(),
+      const _AlertsSection(),
+    ];
+    final secondary = <Widget>[
+      const _FavouritesSection(),
+      const _NearbySection(),
+      const _LastTrainSection(),
+      const _RecentJourneysSection(),
+    ];
+
+    if (!isWide) {
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+        children: [...primary, ...secondary],
+      );
+    }
+    // Two-column tablet layout: the commute story left, browsing right.
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(flex: 3, child: Column(children: primary)),
+          const SizedBox(width: 16),
+          Expanded(flex: 2, child: Column(children: secondary)),
+        ],
+      ),
+    );
+  }
+}
+
+// --- Commute card -------------------------------------------------------------
+
+class _CommuteSection extends ConsumerWidget {
+  const _CommuteSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final card = ref.watch(commuteCardProvider);
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: card.when(
+        loading: () => const SkeletonBlock(height: 220),
+        error: (_, __) => Card(
+          child: ListTile(
+            leading: const Icon(Icons.cloud_off),
+            title: Text(context.t.homeSectionError),
+            trailing: TextButton(
+              onPressed: () => ref.invalidate(commuteCardProvider),
+              child: Text(context.t.retry),
+            ),
+          ),
+        ),
+        data: (data) => data == null
+            ? const _SetupCommuteCard()
+            : _CommuteCardView(card: data),
       ),
     );
   }
@@ -78,56 +157,63 @@ class _CommuteCardView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(card.greeting, style: theme.textTheme.titleMedium),
-            const SizedBox(height: 4),
-            Text(
-              '${card.originName} → ${card.destinationName}',
-              style: theme.textTheme.headlineSmall
-                  ?.copyWith(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            if (card.routeLongName != null)
-              LineBadge(label: card.routeLongName!, colorHex: card.routeColor),
-            const SizedBox(height: 16),
-            if (card.leaveInSeconds != null)
+    return Semantics(
+      label: 'Commute card: ${card.originName} to ${card.destinationName}',
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(card.greeting, style: theme.textTheme.titleMedium),
+              const SizedBox(height: 4),
               Text(
-                'Leave in ${minutesLabel(card.leaveInSeconds)}',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  color: theme.colorScheme.primary,
-                  fontWeight: FontWeight.w800,
-                ),
-              )
-            else
-              Text('No upcoming departures',
-                  style: theme.textTheme.titleMedium),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 24,
-              runSpacing: 12,
-              children: [
-                StatTile(
-                    label: 'Next metro',
-                    value: clockTime(card.nextDepartureAt)),
-                StatTile(label: 'Crowding', value: card.crowding),
-                if (card.platformHint != null)
-                  StatTile(label: 'Platform', value: card.platformHint!),
-                if (card.recommendedCoach != null)
+                '${card.originName} → ${card.destinationName}',
+                style: theme.textTheme.headlineSmall
+                    ?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              if (card.routeLongName != null)
+                LineBadge(label: card.routeLongName!, colorHex: card.routeColor),
+              const SizedBox(height: 16),
+              if (card.leaveInSeconds != null)
+                Text(
+                  context.t.homeLeaveIn(minutesLabel(card.leaveInSeconds)),
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    color: theme.colorScheme.primary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                )
+              else
+                Text(context.t.homeNoDepartures,
+                    style: theme.textTheme.titleMedium),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 24,
+                runSpacing: 12,
+                children: [
                   StatTile(
-                      label: 'Coach', value: '${card.recommendedCoach! + 1}'),
-                StatTile(label: 'ETA', value: minutesLabel(card.travelSeconds)),
-                if (card.interchangeNames.isNotEmpty)
+                      label: context.t.nextMetro,
+                      value: clockTime(card.nextDepartureAt)),
+                  StatTile(label: context.t.crowding, value: card.crowding),
+                  if (card.platformHint != null)
+                    StatTile(
+                        label: context.t.platform, value: card.platformHint!),
+                  if (card.recommendedCoach != null)
+                    StatTile(
+                        label: context.t.journeyCoach,
+                        value: '${card.recommendedCoach! + 1}'),
                   StatTile(
-                      label: 'Interchange',
-                      value: card.interchangeNames.join(', ')),
-              ],
-            ),
-          ],
+                      label: context.t.eta,
+                      value: minutesLabel(card.travelSeconds)),
+                  if (card.interchangeNames.isNotEmpty)
+                    StatTile(
+                        label: context.t.interchange,
+                        value: card.interchangeNames.join(', ')),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -143,10 +229,8 @@ class _SetupCommuteCard extends StatelessWidget {
       child: ListTile(
         contentPadding: const EdgeInsets.all(16),
         leading: const Icon(Icons.add_home_work_outlined, size: 36),
-        title: const Text('Set up your commute'),
-        subtitle: const Text(
-            'Add two favourite stations labelled Home and Work to see your '
-            'personalised commute card here.'),
+        title: Text(context.t.homeSetupCommuteTitle),
+        subtitle: Text(context.t.homeSetupCommuteBody),
         trailing: const Icon(Icons.chevron_right),
         onTap: () => context.push('/favourites'),
       ),
@@ -155,9 +239,7 @@ class _SetupCommuteCard extends StatelessWidget {
 }
 
 class _ActiveJourneyBanner extends StatelessWidget {
-  const _ActiveJourneyBanner({required this.journey});
-
-  final Journey journey;
+  const _ActiveJourneyBanner();
 
   @override
   Widget build(BuildContext context) {
@@ -166,8 +248,8 @@ class _ActiveJourneyBanner extends StatelessWidget {
       color: scheme.primaryContainer,
       child: ListTile(
         leading: Icon(Icons.navigation, color: scheme.onPrimaryContainer),
-        title: const Text('Journey in progress'),
-        subtitle: const Text('Tap to return to live journey mode'),
+        title: Text(context.t.journeyInProgress),
+        subtitle: Text(context.t.journeyReturnTap),
         trailing: const Icon(Icons.chevron_right),
         onTap: () => context.push('/journey'),
       ),
@@ -175,40 +257,209 @@ class _ActiveJourneyBanner extends StatelessWidget {
   }
 }
 
-class _QuickActions extends StatelessWidget {
+// --- Alerts ---------------------------------------------------------------------
+
+class _AlertsSection extends ConsumerWidget {
+  const _AlertsSection();
+
   @override
-  Widget build(BuildContext context) {
-    final actions = [
-      ('Live map', Icons.map_outlined, '/map'),
-      ('Plan journey', Icons.route_outlined, '/planner'),
-      ('Search', Icons.search, '/search'),
-      ('Favourites', Icons.star_outline, '/favourites'),
-    ];
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      mainAxisSpacing: 12,
-      crossAxisSpacing: 12,
-      childAspectRatio: 2.4,
-      children: [
-        for (final (label, icon, path) in actions)
-          Card(
-            child: InkWell(
-              borderRadius: BorderRadius.circular(16),
-              onTap: () => context.push(path),
-              child: Row(
-                children: [
-                  const SizedBox(width: 16),
-                  Icon(icon),
-                  const SizedBox(width: 12),
-                  Text(label,
-                      style: Theme.of(context).textTheme.titleSmall),
-                ],
+  Widget build(BuildContext context, WidgetRef ref) {
+    // REST snapshot on load; live WS alert frames refresh it for free.
+    ref.listen(serviceAlertBannerProvider, (_, __) {
+      ref.invalidate(activeAlertsProvider);
+    });
+    final alerts = ref.watch(activeAlertsProvider);
+    return AsyncSection<List<Map<String, dynamic>>>(
+      title: context.t.homeLiveAlerts,
+      value: alerts,
+      isEmpty: (data) => data.isEmpty,
+      emptyMessage: context.t.homeNoAlerts,
+      onRetry: () => ref.invalidate(activeAlertsProvider),
+      builder: (context, data) => Column(
+        children: [
+          for (final alert in data)
+            Card(
+              child: ListTile(
+                leading: Icon(
+                  switch ('${alert['severity']}') {
+                    'severe' => Icons.error_outline,
+                    'warning' => Icons.warning_amber_outlined,
+                    _ => Icons.info_outline,
+                  },
+                  color: switch ('${alert['severity']}') {
+                    'severe' => Theme.of(context).colorScheme.error,
+                    'warning' => Colors.orange,
+                    _ => null,
+                  },
+                ),
+                title: Text('${alert['title']}'),
+                subtitle: Text('${alert['description']}',
+                    maxLines: 2, overflow: TextOverflow.ellipsis),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// --- Favourites -----------------------------------------------------------------
+
+class _FavouritesSection extends ConsumerWidget {
+  const _FavouritesSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final favourites = ref.watch(favouriteStationsProvider);
+    final stations = ref.watch(stationIndexProvider);
+    return AsyncSection<List<Map<String, dynamic>>>(
+      title: context.t.homeFavouriteStations,
+      value: favourites,
+      isEmpty: (data) => data.isEmpty,
+      emptyMessage: context.t.homeNoFavourites,
+      onRetry: () => ref.invalidate(favouriteStationsProvider),
+      trailing: IconButton(
+        tooltip: 'Manage favourites',
+        icon: const Icon(Icons.edit_outlined, size: 18),
+        onPressed: () => context.push('/favourites'),
+      ),
+      builder: (context, data) => Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final row in data)
+            ActionChip(
+              avatar: Icon(switch ('${row['label']}'.toLowerCase()) {
+                'home' => Icons.home_outlined,
+                'work' => Icons.work_outline,
+                _ => Icons.star_outline,
+              }, size: 18),
+              label: Text(
+                  stations['${row['stop_id']}']?.name ?? '${row['stop_id']}'),
+              onPressed: () => context.push('/station/${row['stop_id']}'),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// --- Nearby ---------------------------------------------------------------------
+
+class _NearbySection extends ConsumerWidget {
+  const _NearbySection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final nearby = ref.watch(nearbyStationsProvider);
+    return AsyncSection<NearbyState>(
+      title: context.t.homeNearbyStations,
+      value: nearby,
+      isEmpty: (state) => state is NearbyUnavailable,
+      emptyMessage: context.t.homeLocationOff,
+      onRetry: () => ref.invalidate(nearbyStationsProvider),
+      builder: (context, state) => switch (state) {
+        NearbyNeedsPermission() => Card(
+            child: ListTile(
+              leading: const Icon(Icons.location_off_outlined),
+              title: Text(context.t.homeLocationOff),
+              trailing: TextButton(
+                onPressed: () => ref.invalidate(nearbyStationsProvider),
+                child: Text(context.t.homeEnableLocation),
               ),
             ),
           ),
-      ],
+        NearbyReady(:final stations) => Column(
+            children: [
+              for (final nearbyStation in stations)
+                Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.place_outlined),
+                    title: Text(nearbyStation.station.name),
+                    subtitle:
+                        Text(distanceLabel(nearbyStation.distanceM)),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => context
+                        .push('/station/${nearbyStation.station.stopId}'),
+                  ),
+                ),
+            ],
+          ),
+        NearbyUnavailable() => const SizedBox.shrink(),
+      },
+    );
+  }
+}
+
+// --- Last train -----------------------------------------------------------------
+
+class _LastTrainSection extends ConsumerWidget {
+  const _LastTrainSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final lastTrain = ref.watch(homeLastTrainProvider);
+    final stations = ref.watch(stationIndexProvider);
+    return AsyncSection<Map<String, dynamic>?>(
+      title: context.t.homeLastTrain,
+      value: lastTrain,
+      isEmpty: (data) => data == null,
+      emptyMessage: context.t.homeNoFavourites,
+      onRetry: () => ref.invalidate(homeLastTrainProvider),
+      builder: (context, data) {
+        final info = data!;
+        final departure = DateTime.tryParse('${info['departure_at']}');
+        final stationName =
+            stations['${info['stop_id']}']?.name ?? '${info['stop_id']}';
+        return Card(
+          child: ListTile(
+            leading: const Icon(Icons.nightlight_outlined),
+            title: Text('$stationName · ${clockTime(departure)}'),
+            subtitle: Text('${info['headsign'] ?? info['route_id']}'),
+            onTap: () => context.push('/station/${info['stop_id']}'),
+          ),
+        );
+      },
+    );
+  }
+}
+
+// --- Recent journeys --------------------------------------------------------------
+
+class _RecentJourneysSection extends ConsumerWidget {
+  const _RecentJourneysSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final journeys = ref.watch(recentJourneysProvider);
+    final stations = ref.watch(stationIndexProvider);
+    return AsyncSection<List<Journey>>(
+      title: context.t.homeRecentJourneys,
+      value: journeys,
+      isEmpty: (data) => data.isEmpty,
+      emptyMessage: context.t.homeNoRecentJourneys,
+      onRetry: () => ref.invalidate(recentJourneysProvider),
+      builder: (context, data) => Column(
+        children: [
+          for (final journey in data)
+            Card(
+              child: ListTile(
+                leading: Icon(switch (journey.status) {
+                  'completed' => Icons.check_circle_outline,
+                  'missed' => Icons.error_outline,
+                  _ => Icons.remove_circle_outline,
+                }),
+                title: Text(
+                  '${stations[journey.originStopId]?.name ?? journey.originStopId}'
+                  ' → '
+                  '${stations[journey.destinationStopId]?.name ?? journey.destinationStopId}',
+                ),
+                subtitle: Text(journey.status),
+                onTap: () => context.push('/planner'),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

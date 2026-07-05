@@ -1,0 +1,50 @@
+{
+  "@@locale": "en",
+  "appTitle": "MetroPulse",
+  "homeYourCommute": "Your commute",
+  "homeLeaveIn": "Leave in {duration}",
+  "@homeLeaveIn": {
+    "placeholders": {
+      "duration": {"type": "String"}
+    }
+  },
+  "homeNoDepartures": "No upcoming departures",
+  "homeSetupCommuteTitle": "Set up your commute",
+  "homeSetupCommuteBody": "Add two favourite stations labelled Home and Work to see your personalised commute card here.",
+  "homeFavouriteStations": "Favourite stations",
+  "homeNearbyStations": "Nearby stations",
+  "homeLiveAlerts": "Live alerts",
+  "homeRecentJourneys": "Recent journeys",
+  "homeLastTrain": "Tonight's last train",
+  "homeNoAlerts": "No disruptions right now — all lines running normally.",
+  "homeNoRecentJourneys": "Journeys you take will appear here.",
+  "homeNoFavourites": "Star stations you use often for one-tap access.",
+  "homeLocationOff": "Allow location access to see stations near you.",
+  "homeEnableLocation": "Enable location",
+  "homeSectionError": "Couldn't load this section. Pull to retry.",
+  "journeyInProgress": "Journey in progress",
+  "journeyReturnTap": "Tap to return to live journey mode",
+  "journeyNoJourney": "No journey in progress",
+  "journeyPlanCta": "Plan a journey",
+  "journeyTimeRemaining": "Time remaining",
+  "journeyStationsRemaining": "Stations remaining",
+  "journeyBoard": "Board",
+  "journeyCoach": "Coach",
+  "journeyExit": "Exit",
+  "journeyRunningLate": "Running late",
+  "journeyInterchangeSoon": "Interchange at the next station: {station}",
+  "@journeyInterchangeSoon": {
+    "placeholders": {
+      "station": {"type": "String"}
+    }
+  },
+  "journeyArrivingSoon": "Your destination is the next station — get ready to alight.",
+  "journeyArrived": "I have arrived",
+  "journeyAbandon": "Abandon",
+  "nextMetro": "Next metro",
+  "crowding": "Crowding",
+  "platform": "Platform",
+  "eta": "ETA",
+  "interchange": "Interchange",
+  "retry": "Retry"
+}

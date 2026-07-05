@@ -1,12 +1,11 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../providers/core_providers.dart';
+import '../home/home_providers.dart' show favouriteStationsProvider;
 
-final favouritesProvider = FutureProvider<List<Map<String, dynamic>>>(
-  (ref) => ref.watch(favouritesRepositoryProvider).list(),
-);
+export '../home/home_providers.dart' show favouriteStationsProvider;
 
 /// Favourite stations with Home/Work labels (which power the commute card).
 class FavouritesScreen extends ConsumerWidget {
@@ -16,7 +15,7 @@ class FavouritesScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final favourites = ref.watch(favouritesProvider);
+    final favourites = ref.watch(favouriteStationsProvider);
     final stations = ref.watch(stationIndexProvider);
 
     return Scaffold(
@@ -94,6 +93,6 @@ class FavouritesScreen extends ConsumerWidget {
         position: (row['position'] as num?)?.toInt() ?? 0,
       );
     }
-    ref.invalidate(favouritesProvider);
+    ref.invalidate(favouriteStationsProvider);
   }
 }

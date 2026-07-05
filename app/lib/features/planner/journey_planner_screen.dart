@@ -67,12 +67,31 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
   Future<void> _startJourney() async {
     final plan = _plan!;
     final firstRide = plan.legs.where((leg) => leg.isRide).firstOrNull;
-    await ref.read(journeyRepositoryProvider).start(
-          origin: plan.origin.stopId,
-          destination: plan.destination.stopId,
-          routeId: firstRide?.routeId,
-          interchangeStopIds: plan.interchangeStopIds,
-        );
+    final repository = ref.read(journeyRepositoryProvider);
+    final journey = await repository.start(
+      origin: plan.origin.stopId,
+      destination: plan.destination.stopId,
+      routeId: firstRide?.routeId,
+      interchangeStopIds: plan.interchangeStopIds,
+    );
+
+    // Persist the plan-derived context so Journey Mode survives process
+    // death: the server owns the session, Hive owns the presentation extras.
+    final coach = await repository.coachRecommendation(
+      origin: plan.origin.stopId,
+      destination: plan.destination.stopId,
+      routeId: firstRide?.routeId,
+      directionId: firstRide?.directionId,
+    );
+    await ref.read(localStoreProvider).saveJourneyContext(journey.id, {
+      'total_stations': plan.remainingStations.length,
+      'interchange_stop_ids': plan.interchangeStopIds,
+      'route_long_name': firstRide?.routeLongName,
+      'route_color': firstRide?.routeColor,
+      'platform_hint': firstRide?.platformHint,
+      'recommended_coach': coach?['recommended_coach'],
+    });
+
     ref.invalidate(activeJourneyProvider);
     if (mounted) context.go('/journey');
   }

@@ -146,6 +146,40 @@ class JourneyRepository {
     }
   }
 
+  Future<List<Journey>> history({int limit = 5}) async {
+    final response = await _api.dio.get<Map<String, dynamic>>(
+      '/api/v1/me/journeys',
+      queryParameters: {'limit': limit},
+    );
+    final rows = response.data?['journeys'] as List<dynamic>? ?? const [];
+    return rows
+        .whereType<Map<String, dynamic>>()
+        .map(Journey.fromJson)
+        .toList(growable: false);
+  }
+
+  Future<Map<String, dynamic>?> coachRecommendation({
+    required String origin,
+    required String destination,
+    String? routeId,
+    int? directionId,
+  }) async {
+    try {
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/api/v1/recommendations/coach',
+        queryParameters: {
+          'origin': origin,
+          'destination': destination,
+          if (routeId != null) 'route_id': routeId,
+          if (directionId != null) 'direction_id': directionId,
+        },
+      );
+      return response.data;
+    } on DioException {
+      return null;
+    }
+  }
+
   Future<void> end(int journeyId, {required bool completed}) async {
     final action = completed ? 'complete' : 'abandon';
     await _api.dio.post<Map<String, dynamic>>(
@@ -172,6 +206,19 @@ class JourneyRepository {
     } on DioException {
       return null; // exits are curated data; absence is normal
     }
+  }
+}
+
+/// Active service alerts (disruptions).
+class AlertsRepository {
+  AlertsRepository(this._api);
+
+  final ApiClient _api;
+
+  Future<List<Map<String, dynamic>>> active() async {
+    final response = await _api.dio.get<Map<String, dynamic>>('/api/v1/alerts');
+    final rows = response.data?['alerts'] as List<dynamic>? ?? const [];
+    return rows.whereType<Map<String, dynamic>>().toList(growable: false);
   }
 }
 

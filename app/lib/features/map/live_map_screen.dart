@@ -23,21 +23,40 @@ class LiveMapScreen extends ConsumerStatefulWidget {
   ConsumerState<LiveMapScreen> createState() => _LiveMapScreenState();
 }
 
-class _LiveMapScreenState extends ConsumerState<LiveMapScreen> {
+class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
+    with WidgetsBindingObserver {
   MapLibreMapController? _map;
   bool _styleReady = false;
   late final TrainAnimator _animator =
       TrainAnimator(onFrame: (_) => _pushTrainSource());
   Map<String, Train> _latestTrains = const {};
+  bool _downloadingTiles = false;
 
   static const _trainsSource = 'mp-trains';
   static const _stationsSource = 'mp-stations';
   static const _linesSource = 'mp-lines';
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _animator.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // No animation work while the map isn't on screen — battery hygiene.
+    if (state == AppLifecycleState.paused) {
+      _animator.pause();
+    } else if (state == AppLifecycleState.resumed) {
+      _animator.resume();
+    }
   }
 
   @override
@@ -47,8 +66,19 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Live map'),
-        actions: const [
-          Padding(padding: EdgeInsets.only(right: 16), child: Center(child: LiveIndicator())),
+        actions: [
+          IconButton(
+            tooltip: 'Download offline map area',
+            icon: _downloadingTiles
+                ? const SizedBox(
+                    width: 18, height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.download_for_offline_outlined),
+            onPressed: _downloadingTiles ? null : _downloadOfflineTiles,
+          ),
+          const Padding(
+              padding: EdgeInsets.only(right: 16),
+              child: Center(child: LiveIndicator())),
         ],
       ),
       body: MapLibreMap(
@@ -95,9 +125,51 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen> {
         circleStrokeColor: '#444444',
       ),
     );
+    // Station name labels appear once zoomed in enough to be readable.
+    await map.addSymbolLayer(
+      _stationsSource,
+      'mp-station-labels',
+      const SymbolLayerProperties(
+        textField: ['get', 'name'],
+        textSize: 11,
+        textOffset: [0, 1.1],
+        textAnchor: 'top',
+        textHaloColor: '#ffffff',
+        textHaloWidth: 1.2,
+      ),
+      minzoom: 12,
+    );
 
+    // Trains cluster when zoomed out so a 300-train network stays readable.
     await map.addSource(
-        _trainsSource, GeojsonSourceProperties(data: _trainGeoJson()));
+      _trainsSource,
+      GeojsonSourceProperties(
+        data: _trainGeoJson(),
+        cluster: true,
+        clusterMaxZoom: 11,
+        clusterRadius: 40,
+      ),
+    );
+    await map.addCircleLayer(
+      _trainsSource,
+      'mp-train-clusters',
+      const CircleLayerProperties(
+        circleRadius: 16,
+        circleColor: '#1F6FEB',
+        circleOpacity: 0.85,
+      ),
+      filter: ['has', 'point_count'],
+    );
+    await map.addSymbolLayer(
+      _trainsSource,
+      'mp-train-cluster-count',
+      const SymbolLayerProperties(
+        textField: ['get', 'point_count_abbreviated'],
+        textSize: 12,
+        textColor: '#ffffff',
+      ),
+      filter: ['has', 'point_count'],
+    );
     await map.addCircleLayer(
       _trainsSource,
       'mp-trains-layer',
@@ -107,10 +179,41 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen> {
         circleStrokeWidth: 2,
         circleStrokeColor: '#ffffff',
       ),
+      filter: [
+        '!',
+        ['has', 'point_count'],
+      ],
     );
 
     _styleReady = true;
     _onTrains(ref.read(liveTrainsProvider));
+  }
+
+  /// Cache map tiles for the Delhi metro region so the map renders offline.
+  Future<void> _downloadOfflineTiles() async {
+    setState(() => _downloadingTiles = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await downloadOfflineRegion(
+        OfflineRegionDefinition(
+          bounds: LatLngBounds(
+            southwest: const LatLng(28.35, 76.85),
+            northeast: const LatLng(28.90, 77.55),
+          ),
+          mapStyleUrl: AppConfig.mapStyleUrl,
+          minZoom: 9,
+          maxZoom: 13,
+        ),
+        metadata: {'name': 'delhi-metro'},
+      );
+      messenger.showSnackBar(
+          const SnackBar(content: Text('Offline map area downloaded.')));
+    } on Exception catch (error) {
+      messenger.showSnackBar(
+          SnackBar(content: Text('Offline download failed: $error')));
+    } finally {
+      if (mounted) setState(() => _downloadingTiles = false);
+    }
   }
 
   /// Hit-test the trains layer on tap (stable across maplibre_gl versions,
@@ -235,6 +338,7 @@ class _TrainSheet extends ConsumerWidget {
       );
     }
     final next = train.nextStation;
+    final speed = train.vehicle.speedMps;
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 0, 24, 32),
       child: Column(
@@ -250,22 +354,57 @@ class _TrainSheet extends ConsumerWidget {
                 color: routeColor(train.routeColor),
               ),
               const SizedBox(width: 8),
-              Text(
-                train.atStation
-                    ? 'At ${train.currentStation?.name ?? 'station'}'
-                    : 'Moving train',
-                style: theme.textTheme.titleMedium,
+              Expanded(
+                child: Text(
+                  train.atStation
+                      ? 'At ${train.currentStation?.name ?? 'station'}'
+                      : 'Moving train',
+                  style: theme.textTheme.titleMedium,
+                ),
               ),
-              if (train.isStale) ...[
-                const SizedBox(width: 8),
-                const Icon(Icons.signal_wifi_off, size: 16),
-              ],
+              if (train.isStale) const Icon(Icons.signal_wifi_off, size: 16),
             ],
           ),
           if (next != null) ...[
             const SizedBox(height: 12),
             Text('Next: ${next.name}', style: theme.textTheme.titleLarge),
             _NextStopEta(vehicleId: vehicleId),
+          ],
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 24,
+            runSpacing: 12,
+            children: [
+              if (train.currentStation != null)
+                StatTile(label: 'Current', value: train.currentStation!.name),
+              if (speed != null)
+                StatTile(
+                    label: 'Speed',
+                    value: '${(speed * 3.6).round()} km/h'),
+              if (train.headsign != null)
+                StatTile(label: 'Direction', value: train.headsign!),
+              if (train.destination != null)
+                StatTile(label: 'Destination', value: train.destination!.name),
+            ],
+          ),
+          if (train.remainingStations.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text('Remaining stations', style: theme.textTheme.labelMedium),
+            const SizedBox(height: 6),
+            SizedBox(
+              height: 36,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: train.remainingStations.length,
+                separatorBuilder: (_, __) =>
+                    const Icon(Icons.chevron_right, size: 16),
+                itemBuilder: (_, index) => Chip(
+                  visualDensity: VisualDensity.compact,
+                  label: Text(train.remainingStations[index].name,
+                      style: const TextStyle(fontSize: 12)),
+                ),
+              ),
+            ),
           ],
           const SizedBox(height: 16),
           FilledButton.tonal(
