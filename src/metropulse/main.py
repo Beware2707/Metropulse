@@ -15,10 +15,11 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 from fastapi import FastAPI
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from sqlalchemy import text
 
 from metropulse import __version__
+from metropulse.api.dashboard import DASHBOARD_HTML
 from metropulse.api.middleware import RateLimitMiddleware
 from metropulse.api.schemas import HealthOut
 from metropulse.api.v1 import router as v1_router
@@ -125,6 +126,11 @@ def create_app(
             feed=feed_status,
             feed_age_seconds=feed_age,
         )
+
+    @app.get("/admin/dashboard", response_class=HTMLResponse, include_in_schema=False)
+    async def admin_dashboard() -> str:
+        """The internal ops dashboard (data calls require the admin key)."""
+        return DASHBOARD_HTML
 
     @app.get("/metrics", response_class=PlainTextResponse, tags=["ops"])
     async def metrics() -> str:

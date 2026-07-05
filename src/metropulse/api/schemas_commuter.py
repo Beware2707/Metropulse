@@ -537,6 +537,52 @@ class AnalyticsSummaryOut(BaseModel):
     counts: dict[str, int]
 
 
+# --- Commute card ----------------------------------------------------------------
+
+
+class CommuteCardOut(BaseModel):
+    """The personalised home-screen commute card."""
+
+    greeting: str
+    origin_stop_id: str
+    origin_name: str
+    destination_stop_id: str
+    destination_name: str
+    route_long_name: str | None
+    route_color: str | None
+    platform_hint: str | None
+    next_departure_at: datetime | None
+    leave_by: datetime | None
+    leave_in_seconds: float | None
+    crowding: str
+    recommended_coach: int | None
+    interchange_names: list[str]
+    travel_seconds: float | None
+    expected_arrival_at: datetime | None
+    stations_remaining: int | None
+
+
+# --- Admin stats -------------------------------------------------------------------
+
+
+class AdminStatsOut(BaseModel):
+    """Operational snapshot for the internal dashboard."""
+
+    feed_status: str
+    feed_age_seconds: float | None
+    active_trains: int
+    diff_sequence: int
+    ws_connections: int
+    redis_ok: bool
+    database_ok: bool
+    users_total: int
+    users_active_15m: int
+    ws_messages_sent_total: float
+    ws_connections_dropped_total: float
+    events_published_total: float
+    http_429_total: float
+
+
 # --- Notifications -----------------------------------------------------------
 
 

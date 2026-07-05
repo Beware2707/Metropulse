@@ -109,6 +109,81 @@ class LastTrainService:
             departure_at=midnight + timedelta(seconds=stop_time.departure_seconds),
         )
 
+    async def next_departure(
+        self,
+        session: AsyncSession,
+        stop_id: str,
+        after: datetime,
+        route_id: str | None = None,
+        direction_id: int | None = None,
+    ) -> LastTrainInfo | None:
+        """The first boardable departure from a stop at or after a moment.
+
+        Checks the service day containing ``after`` and, when that day has no
+        further departures (late night), the following service day.
+        """
+        local = after.astimezone(self._tz)
+        for day_offset in (0, 1):
+            service_date = local.date() + timedelta(days=day_offset)
+            midnight = datetime.combine(service_date, time(0), tzinfo=self._tz)
+            min_seconds = max(int((after - midnight).total_seconds()), 0)
+            info = await self._first_departure_after(
+                session, stop_id, service_date, min_seconds, route_id, direction_id
+            )
+            if info is not None:
+                return info
+        return None
+
+    async def _first_departure_after(
+        self,
+        session: AsyncSession,
+        stop_id: str,
+        service_date: date,
+        min_seconds: int,
+        route_id: str | None,
+        direction_id: int | None,
+    ) -> LastTrainInfo | None:
+        active = await self.active_service_ids(session, service_date)
+        if not active:
+            return None
+        terminal_stop_time = aliased(StopTime)
+        terminal_seq = (
+            select(func.max(terminal_stop_time.stop_sequence))
+            .where(terminal_stop_time.trip_id == StopTime.trip_id)
+            .scalar_subquery()
+        )
+        stmt = (
+            select(StopTime, Trip)
+            .join(Trip, Trip.trip_id == StopTime.trip_id)
+            .where(
+                StopTime.stop_id == stop_id,
+                Trip.service_id.in_(active),
+                StopTime.stop_sequence < terminal_seq,
+                StopTime.departure_seconds >= min_seconds,
+            )
+        )
+        if route_id is not None:
+            stmt = stmt.where(Trip.route_id == route_id)
+        if direction_id is not None:
+            stmt = stmt.where(Trip.direction_id == direction_id)
+        row = (
+            await session.execute(stmt.order_by(StopTime.departure_seconds).limit(1))
+        ).first()
+        if row is None:
+            return None
+        stop_time, trip = row[0], row[1]
+        midnight = datetime.combine(service_date, time(0), tzinfo=self._tz)
+        return LastTrainInfo(
+            stop_id=stop_id,
+            route_id=trip.route_id,
+            trip_id=trip.trip_id,
+            direction_id=trip.direction_id,
+            headsign=trip.trip_headsign,
+            service_date=service_date,
+            departure_seconds=stop_time.departure_seconds,
+            departure_at=midnight + timedelta(seconds=stop_time.departure_seconds),
+        )
+
     async def due_reminders(
         self, session: AsyncSession, now: datetime
     ) -> list[tuple[LastTrainReminder, LastTrainInfo]]:

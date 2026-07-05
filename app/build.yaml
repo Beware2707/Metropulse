@@ -1,0 +1,8 @@
+# Backend payloads are snake_case; models stay idiomatic camelCase in Dart.
+targets:
+  $default:
+    builders:
+      json_serializable:
+        options:
+          field_rename: snake
+          explicit_to_json: true

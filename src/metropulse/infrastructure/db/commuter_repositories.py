@@ -59,6 +59,18 @@ class UserRepository:
         """Stage a new user for insert."""
         self._session.add(user)
 
+    async def count_all(self) -> int:
+        """Total registered users."""
+        result = await self._session.execute(select(func.count()).select_from(User))
+        return int(result.scalar_one())
+
+    async def count_active_since(self, since: datetime) -> int:
+        """Users seen since a moment (any authenticated request)."""
+        result = await self._session.execute(
+            select(func.count()).select_from(User).where(User.last_seen_at >= since)
+        )
+        return int(result.scalar_one())
+
 
 class FavouriteRepository:
     """Favourite stations and routes."""
@@ -371,6 +383,13 @@ class StationExitRepository:
             select(StationExit)
             .where(StationExit.stop_id == stop_id)
             .order_by(StationExit.name)
+        )
+        return result.scalars().all()
+
+    async def all_exits(self) -> Sequence[StationExit]:
+        """Every curated exit (bulk consumers: offline bundle builds)."""
+        result = await self._session.execute(
+            select(StationExit).order_by(StationExit.stop_id, StationExit.name)
         )
         return result.scalars().all()
 

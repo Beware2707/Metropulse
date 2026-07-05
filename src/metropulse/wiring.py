@@ -22,6 +22,7 @@ from metropulse.application.commuter.coach import (
     CoachRecommendationService,
     HistoricalCrowdPredictor,
 )
+from metropulse.application.commuter.commute_card import CommuteCardService
 from metropulse.application.commuter.exits import ExitService
 from metropulse.application.commuter.favourites import FavouritesService
 from metropulse.application.commuter.journeys import JourneyService
@@ -65,6 +66,7 @@ class CommuterServices:
     offline: OfflineBundleService
     analytics: AnalyticsService
     planner: JourneyPlanner
+    commute_card: CommuteCardService
 
 
 @dataclass
@@ -121,23 +123,28 @@ def build_commuter_services(
         lookback_days=settings.crowd_lookback_days,
         hour_window=settings.crowd_hour_window,
     )
+    favourites = FavouritesService()
+    last_train = LastTrainService(timezone=settings.timezone)
+    planner = JourneyPlanner(session_factory)
+    coach = CoachRecommendationService(
+        predictor, default_coach_count=settings.default_coach_count
+    )
     return CommuterServices(
         users=UserService(),
-        favourites=FavouritesService(),
+        favourites=favourites,
         notifications=NotificationService(channels=(LoggingNotificationChannel(),)),
         destination_alerts=DestinationAlertService(vehicle_store),
         service_alerts=ServiceAlertService(
             publish=vehicle_store.publish_diff, event_publisher=event_publisher
         ),
-        last_train=LastTrainService(timezone=settings.timezone),
+        last_train=last_train,
         journeys=JourneyService(event_publisher=event_publisher),
-        coach=CoachRecommendationService(
-            predictor, default_coach_count=settings.default_coach_count
-        ),
+        coach=coach,
         exits=ExitService(),
         offline=OfflineBundleService(session_factory, redis),
         analytics=AnalyticsService(max_batch=settings.analytics_max_batch),
-        planner=JourneyPlanner(session_factory),
+        planner=planner,
+        commute_card=CommuteCardService(favourites, last_train, planner, coach),
     )
 
 

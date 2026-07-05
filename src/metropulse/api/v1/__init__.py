@@ -2,8 +2,10 @@
 
 from fastapi import APIRouter
 
+from metropulse.api.v1.admin_stats import router as admin_stats_router
 from metropulse.api.v1.alerts import router as alerts_router
 from metropulse.api.v1.analytics import router as analytics_router
+from metropulse.api.v1.commute import router as commute_router
 from metropulse.api.v1.eta import router as eta_router
 from metropulse.api.v1.favourites import router as favourites_router
 from metropulse.api.v1.journey_plan import router as journey_plan_router
@@ -32,3 +34,5 @@ router.include_router(recommendations_router)
 router.include_router(offline_router)
 router.include_router(analytics_router)
 router.include_router(notifications_router)
+router.include_router(commute_router)
+router.include_router(admin_stats_router)

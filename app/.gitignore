@@ -1,0 +1,8 @@
+.dart_tool/
+.flutter-plugins*
+.packages
+build/
+*.g.dart
+*.freezed.dart
+.idea/
+*.iml

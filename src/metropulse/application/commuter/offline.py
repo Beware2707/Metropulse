@@ -114,6 +114,27 @@ class OfflineBundleService:
         pipe.set(_BUNDLE_KEY.format(version=version), payload)
         pipe.set(_META_KEY.format(version=version), meta)
         await pipe.execute()
+        await self._evict_other_versions(version)
+
+    async def _evict_other_versions(self, current_version: str) -> None:
+        """Delete cached bundles of superseded dataset versions.
+
+        Bundles are megabytes each and dataset versions are unbounded over
+        time — without eviction, Redis memory grows with every reload.
+        """
+        keep = {
+            _BUNDLE_KEY.format(version=current_version),
+            _META_KEY.format(version=current_version),
+        }
+        stale: list[str] = []
+        for pattern in ("mp:offline:bundle:*", "mp:offline:meta:*"):
+            async for key in self._redis.scan_iter(match=pattern):
+                name = key.decode("utf-8") if isinstance(key, bytes) else key
+                if name not in keep:
+                    stale.append(name)
+        if stale:
+            await self._redis.delete(*stale)
+            logger.info("evicted %d superseded offline bundle key(s)", len(stale))
 
     async def _build(self, version: str) -> dict[str, Any]:
         async with self._session_factory() as session:
@@ -121,20 +142,17 @@ class OfflineBundleService:
             routes = await RouteRepository(session).list_all()
             route_stations = await self._route_stations(session)
 
+            # One bulk query, not one per station (N+1 at network scale).
             exits_by_stop: dict[str, list[dict[str, Any]]] = {}
-            exit_repo = StationExitRepository(session)
-            for stop in stops:
-                exits = await exit_repo.exits_for(stop.stop_id)
-                if exits:
-                    exits_by_stop[stop.stop_id] = [
-                        {
-                            "id": e.id,
-                            "name": e.name,
-                            "description": e.description,
-                            "landmarks": e.landmarks or [],
-                        }
-                        for e in exits
-                    ]
+            for exit_row in await StationExitRepository(session).all_exits():
+                exits_by_stop.setdefault(exit_row.stop_id, []).append(
+                    {
+                        "id": exit_row.id,
+                        "name": exit_row.name,
+                        "description": exit_row.description,
+                        "landmarks": exit_row.landmarks or [],
+                    }
+                )
 
         return {
             "version": version,

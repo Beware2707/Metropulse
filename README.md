@@ -10,6 +10,11 @@ recommendations, offline bundles and analytics.
 Commuter architecture details (and how AI crowd/ETA prediction plugs in with
 no schema changes): see [docs/COMMUTER_DESIGN.md](docs/COMMUTER_DESIGN.md).
 
+The Flutter client lives in [app/](app/README.md) (Riverpod + GoRouter + Dio +
+Freezed + Hive + MapLibre; WebSocket-only live updates). The internal ops
+dashboard is served by the API at `/admin/dashboard` (enter the admin key).
+The personalised commute card is `GET /api/v1/me/commute-card`.
+
 ## Architecture
 
 Clean Architecture, dependencies point inward only:
