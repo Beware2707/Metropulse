@@ -17,6 +17,7 @@ static reload invalidates it automatically.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import heapq
 import itertools
 import logging
@@ -87,13 +88,47 @@ class NetworkGraph:
 
 @dataclass(frozen=True, slots=True)
 class PlannerParameters:
-    """Tunable weights for path search."""
+    """Tunable weights for path search.
+
+    ``walk_cost_multiplier`` scales walk-edge cost during Dijkstra's search
+    only (see :func:`_search_weights`); it never touches the real walk
+    duration reconstructed afterwards, so it cannot distort displayed timing.
+    """
 
     walk_max_m: float = 300.0
     walk_speed_mps: float = 1.3
     transfer_overhead_seconds: float = 120.0
     board_penalty_seconds: float = 300.0
     min_hop_seconds: float = 30.0
+    walk_cost_multiplier: float = 1.0
+
+
+#: Client-facing route preferences accepted by :meth:`JourneyPlanner.plan`.
+ROUTE_PREFERENCES: tuple[str, ...] = ("fastest", "fewer_transfers", "less_walking")
+
+
+def _search_weights(base: PlannerParameters, preference: str) -> PlannerParameters:
+    """Bias Dijkstra's route *selection* for a preference.
+
+    This only changes which path search prefers; it never changes the real
+    board-wait or walk duration used to reconstruct the chosen plan's timing
+    (see :meth:`JourneyPlanner._build_plan`, which always reads from the
+    planner's base parameters) — so a preference can bias which route is
+    picked without ever making the displayed ETA/arrival time dishonest.
+
+    Raises ``ValueError`` for an unrecognised preference.
+    """
+    if preference == "fastest":
+        return base
+    if preference == "fewer_transfers":
+        # Boarding a new leg becomes far costlier, so Dijkstra favours a
+        # single longer ride over splitting the trip across more trains.
+        return dataclasses.replace(base, board_penalty_seconds=base.board_penalty_seconds * 4.0)
+    if preference == "less_walking":
+        # Walking becomes far costlier relative to riding, so Dijkstra
+        # favours an all-rail (even if slower) path when one exists.
+        return dataclasses.replace(base, walk_cost_multiplier=base.walk_cost_multiplier * 6.0)
+    raise ValueError(f"unknown route preference {preference!r}; expected one of {ROUTE_PREFERENCES}")
 
 
 # Dijkstra states: ("at", stop_id) off-train, ("on", pattern_key, index) riding.
@@ -118,11 +153,18 @@ class JourneyPlanner:
         origin_stop_id: str,
         destination_stop_id: str,
         departure_at: datetime | None = None,
+        preference: str = "fastest",
     ) -> JourneyPlan:
         """Best journey between two stations.
 
-        Raises :class:`UnknownEntityError` for unknown stops and
-        :class:`NoRouteError` when the network offers no connection.
+        ``preference`` (one of :data:`ROUTE_PREFERENCES`) biases which route
+        is chosen among "fastest", "fewer_transfers" and "less_walking"; the
+        displayed timing of whichever route is chosen is always the real
+        schedule-derived duration, never inflated by the preference itself.
+
+        Raises :class:`UnknownEntityError` for unknown stops,
+        :class:`NoRouteError` when the network offers no connection, and
+        ``ValueError`` for an unrecognised preference.
         """
         if origin_stop_id == destination_stop_id:
             raise NoRouteError("origin and destination are the same station")
@@ -131,7 +173,8 @@ class JourneyPlanner:
             if stop_id not in graph.stop_names:
                 raise UnknownEntityError(f"stop '{stop_id}' not found")
 
-        actions = self._dijkstra(graph, origin_stop_id, destination_stop_id)
+        search_params = _search_weights(self._params, preference)
+        actions = self._dijkstra(graph, origin_stop_id, destination_stop_id, search_params)
         if actions is None:
             raise NoRouteError(
                 f"no route between '{origin_stop_id}' and '{destination_stop_id}'"
@@ -256,10 +299,14 @@ class JourneyPlanner:
     # -- search ---------------------------------------------------------------
 
     def _dijkstra(
-        self, graph: NetworkGraph, origin: str, destination: str
+        self, graph: NetworkGraph, origin: str, destination: str, params: PlannerParameters
     ) -> list[tuple] | None:
-        """Cheapest action sequence from origin to destination, or None."""
-        params = self._params
+        """Cheapest action sequence from origin to destination, or None.
+
+        ``params`` carries the preference-adjusted search weights (see
+        :func:`_search_weights`); real timing is reconstructed separately in
+        :meth:`_build_plan` from the planner's base parameters.
+        """
         start: _State = ("at", origin)
         target: _State = ("at", destination)
         best: dict[_State, float] = {start: 0.0}
@@ -287,10 +334,13 @@ class JourneyPlanner:
                         ("board", key, index),
                     )
                 for edge in graph.walk_edges.get(stop_id, []):
+                    # The multiplier only weighs this edge in the search
+                    # comparison; the action still records the real
+                    # edge.walk_seconds for _build_plan's timing.
                     self._relax(
                         best, prev, queue, counter, state,
                         ("at", edge.to_stop_id),
-                        cost + edge.walk_seconds,
+                        cost + edge.walk_seconds * params.walk_cost_multiplier,
                         ("walk", stop_id, edge.to_stop_id, edge.distance_m,
                          edge.walk_seconds),
                     )

@@ -15,6 +15,8 @@ class AppConfig {
     defaultValue: 'https://demotiles.maplibre.org/style.json',
   );
 
+  static const String appVersion = '1.0.0';
+
   /// Delhi city centre — the initial camera before any data loads.
   static const double initialLat = 28.6139;
   static const double initialLon = 77.2090;

@@ -4,9 +4,9 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/formatters.dart';
 import '../../core/l10n_ext.dart';
+import '../../domain/fare.dart';
 import '../../domain/models/commute_card.dart';
 import '../../domain/models/journey.dart';
-import '../../domain/nearby.dart';
 import '../../providers/core_providers.dart';
 import '../../providers/live_providers.dart';
 import '../shared/async_section.dart';
@@ -87,6 +87,7 @@ class _HomeContent extends ConsumerWidget {
     final journey = ref.watch(activeJourneyProvider).valueOrNull;
 
     final primary = <Widget>[
+      const _QuickSearchBar(),
       if (journey != null) const _ActiveJourneyBanner(),
       const _CommuteSection(),
       const _AlertsSection(),
@@ -114,6 +115,39 @@ class _HomeContent extends ConsumerWidget {
           const SizedBox(width: 16),
           Expanded(flex: 2, child: Column(children: secondary)),
         ],
+      ),
+    );
+  }
+}
+
+// --- Quick search ------------------------------------------------------------
+
+class _QuickSearchBar extends StatelessWidget {
+  const _QuickSearchBar();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(28),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(28),
+          onTap: () => context.push('/search'),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                Icon(Icons.search, color: scheme.onSurfaceVariant),
+                const SizedBox(width: 12),
+                Text('Search stations, aliases, landmarks…',
+                    style: TextStyle(color: scheme.onSurfaceVariant)),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -149,14 +183,16 @@ class _CommuteSection extends ConsumerWidget {
   }
 }
 
-class _CommuteCardView extends StatelessWidget {
+class _CommuteCardView extends ConsumerWidget {
   const _CommuteCardView({required this.card});
 
   final CommuteCard card;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    final suggestedPlan = ref.watch(homeSuggestedPlanProvider).valueOrNull;
+    final fare = suggestedPlan == null ? null : estimateFare(suggestedPlan);
     return Semantics(
       label: 'Commute card: ${card.originName} to ${card.destinationName}',
       child: Card(
@@ -206,6 +242,8 @@ class _CommuteCardView extends StatelessWidget {
                   StatTile(
                       label: context.t.eta,
                       value: minutesLabel(card.travelSeconds)),
+                  if (fare != null)
+                    StatTile(label: 'Fare (est.)', value: '₹${fare.rupees}'),
                   if (card.interchangeNames.isNotEmpty)
                     StatTile(
                         label: context.t.interchange,
@@ -416,6 +454,19 @@ class _LastTrainSection extends ConsumerWidget {
             leading: const Icon(Icons.nightlight_outlined),
             title: Text('$stationName · ${clockTime(departure)}'),
             subtitle: Text('${info['headsign'] ?? info['route_id']}'),
+            trailing: TextButton(
+              onPressed: () async {
+                final messenger = ScaffoldMessenger.of(context);
+                await ref.read(remindersRepositoryProvider).createLastTrain(
+                      stopId: '${info['stop_id']}',
+                      routeId: info['route_id'] as String?,
+                    );
+                messenger.showSnackBar(
+                  const SnackBar(content: Text("You'll be reminded before it departs.")),
+                );
+              },
+              child: const Text('Remind me'),
+            ),
             onTap: () => context.push('/station/${info['stop_id']}'),
           ),
         );
@@ -439,6 +490,10 @@ class _RecentJourneysSection extends ConsumerWidget {
       isEmpty: (data) => data.isEmpty,
       emptyMessage: context.t.homeNoRecentJourneys,
       onRetry: () => ref.invalidate(recentJourneysProvider),
+      trailing: TextButton(
+        onPressed: () => context.push('/journeys/history'),
+        child: const Text('See all'),
+      ),
       builder: (context, data) => Column(
         children: [
           for (final journey in data)

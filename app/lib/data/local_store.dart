@@ -12,7 +12,8 @@ final localStoreProvider = Provider<LocalStore>(
   (ref) => throw UnimplementedError('LocalStore is provided in main()'),
 );
 
-/// Hive-backed persistence: identity, settings, and the offline station cache.
+/// Hive-backed persistence: identity, settings, offline caches (stations,
+/// favourites, journey history) and journey-session recovery state.
 class LocalStore {
   LocalStore._(this._box);
 
@@ -47,11 +48,36 @@ class LocalStore {
   String get themeMode => _box.get('theme_mode') ?? 'system';
   Future<void> saveThemeMode(String value) => _box.put('theme_mode', value);
 
+  /// A user-chosen multiplier layered on top of the OS text-scale setting,
+  /// for commuters who want the app larger than their system default.
+  double get textScaleFactor => double.tryParse(_box.get('text_scale') ?? '') ?? 1.0;
+  Future<void> saveTextScaleFactor(double scale) => _box.put('text_scale', '$scale');
+
+  bool get highContrast => _box.get('high_contrast') == 'true';
+  Future<void> setHighContrast(bool enabled) => _box.put('high_contrast', '$enabled');
+
+  /// Material You (wallpaper-derived) colour scheme on supported devices.
+  bool get dynamicColorEnabled => _box.get('dynamic_color') != 'false';
+  Future<void> setDynamicColorEnabled(bool enabled) =>
+      _box.put('dynamic_color', '$enabled');
+
+  bool get notificationsEnabled => _box.get('notifications_enabled') != 'false';
+  Future<void> setNotificationsEnabled(bool enabled) =>
+      _box.put('notifications_enabled', '$enabled');
+
+  // -- notifications sync state -----------------------------------------------
+
+  int get lastSeenNotificationId =>
+      int.tryParse(_box.get('last_seen_notification_id') ?? '') ?? 0;
+  Future<void> saveLastSeenNotificationId(int id) =>
+      _box.put('last_seen_notification_id', '$id');
+
   // -- journey context ----------------------------------------------------------
   //
   // The backend owns the journey session; this stores the plan-derived extras
-  // (interchanges, coach, exit) so Journey Mode survives backgrounding and
-  // full restarts. Keyed by journey id and cleared when a journey ends.
+  // (interchanges, coach, exit, and the full plan snapshot so the GTFS-
+  // timetable progress simulation can be rebuilt after a restart). Keyed by
+  // journey id and cleared when a journey ends.
 
   Map<String, dynamic>? journeyContext(int journeyId) {
     final raw = _box.get('journey_ctx');
@@ -70,7 +96,64 @@ class LocalStore {
 
   Future<void> clearJourneyContext() => _box.delete('journey_ctx');
 
-  // -- offline station cache ----------------------------------------------------
+  // -- recent station searches ---------------------------------------------------
+
+  static const _maxRecentSearches = 12;
+
+  List<String> get recentSearchStopIds {
+    final raw = _box.get('recent_searches');
+    if (raw == null) return const [];
+    try {
+      return (jsonDecode(raw) as List<dynamic>).map((e) => '$e').toList(growable: false);
+    } on FormatException {
+      return const [];
+    }
+  }
+
+  Future<void> recordSearchVisit(String stopId) async {
+    final deduped = recentSearchStopIds.where((id) => id != stopId);
+    final updated = [stopId, ...deduped].take(_maxRecentSearches).toList(growable: false);
+    await _box.put('recent_searches', jsonEncode(updated));
+  }
+
+  Future<void> clearRecentSearches() => _box.delete('recent_searches');
+
+  // -- pinned journeys (local-only shortcuts into the planner) --------------------
+
+  List<Map<String, dynamic>> get pinnedJourneys {
+    final raw = _box.get('pinned_journeys');
+    if (raw == null) return const [];
+    try {
+      return (jsonDecode(raw) as List<dynamic>)
+          .whereType<Map<String, dynamic>>()
+          .toList(growable: false);
+    } on FormatException {
+      return const [];
+    }
+  }
+
+  Future<void> addPinnedJourney({
+    required String originStopId,
+    required String destinationStopId,
+    required String label,
+  }) async {
+    final updated = [
+      ...pinnedJourneys,
+      {
+        'origin_stop_id': originStopId,
+        'destination_stop_id': destinationStopId,
+        'label': label,
+      },
+    ];
+    await _box.put('pinned_journeys', jsonEncode(updated));
+  }
+
+  Future<void> removePinnedJourneyAt(int index) async {
+    final updated = [...pinnedJourneys]..removeAt(index);
+    await _box.put('pinned_journeys', jsonEncode(updated));
+  }
+
+  // -- offline station cache -----------------------------------------------------
 
   OfflineBundle? get cachedBundle {
     final raw = _box.get('offline_bundle');
@@ -87,5 +170,32 @@ class LocalStore {
   Future<void> saveBundle(OfflineBundle bundle, String rawJson) async {
     await _box.put('offline_bundle', rawJson);
     await _box.put('offline_bundle_version', bundle.version);
+  }
+
+  // -- favourites cache (offline fallback) ----------------------------------------
+
+  List<Map<String, dynamic>>? get cachedFavouriteStations =>
+      _decodeMapList(_box.get('favourites_cache'));
+
+  Future<void> saveFavouriteStationsCache(List<Map<String, dynamic>> rows) =>
+      _box.put('favourites_cache', jsonEncode(rows));
+
+  // -- journey history cache (offline fallback) -----------------------------------
+
+  List<Map<String, dynamic>>? get cachedJourneyHistory =>
+      _decodeMapList(_box.get('journey_history_cache'));
+
+  Future<void> saveJourneyHistoryCache(List<Map<String, dynamic>> rows) =>
+      _box.put('journey_history_cache', jsonEncode(rows));
+
+  List<Map<String, dynamic>>? _decodeMapList(String? raw) {
+    if (raw == null) return null;
+    try {
+      return (jsonDecode(raw) as List<dynamic>)
+          .whereType<Map<String, dynamic>>()
+          .toList(growable: false);
+    } on FormatException {
+      return null;
+    }
   }
 }

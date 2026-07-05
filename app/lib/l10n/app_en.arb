@@ -32,13 +32,6 @@
   "journeyCoach": "Coach",
   "journeyExit": "Exit",
   "journeyRunningLate": "Running late",
-  "journeyInterchangeSoon": "Interchange at the next station: {station}",
-  "@journeyInterchangeSoon": {
-    "placeholders": {
-      "station": {"type": "String"}
-    }
-  },
-  "journeyArrivingSoon": "Your destination is the next station — get ready to alight.",
   "journeyArrived": "I have arrived",
   "journeyAbandon": "Abandon",
   "nextMetro": "Next metro",

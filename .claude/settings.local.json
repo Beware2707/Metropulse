@@ -9,7 +9,16 @@
       "PowerShell(flutter --version 2>&1)",
       "PowerShell(dart --version 2>&1)",
       "PowerShell(Set-Location C:\\\\Users\\\\riddl\\\\Downloads\\\\Metro; .\\\\.venv\\\\Scripts\\\\python.exe -m pytest -q 2>&1 | Select-Object -Last 2; .\\\\.venv\\\\Scripts\\\\ruff.exe check src tests alembic; .\\\\.venv\\\\Scripts\\\\python.exe -c \"import metropulse.main as m; print\\('openapi OK,', len\\(m.app.openapi\\(\\)['paths']\\), 'paths'\\)\"; \\(Get-ChildItem -Recurse -File C:\\\\Users\\\\riddl\\\\Downloads\\\\Metro\\\\app | Measure-Object\\).Count)",
-      "PowerShell(Set-Location C:\\\\Users\\\\riddl\\\\Downloads\\\\Metro\\\\app; \\(Get-Content lib\\\\features\\\\favourites\\\\favourites_screen.dart\\) -replace 'favouritesProvider','favouriteStationsProvider' | Set-Content -Encoding utf8 lib\\\\features\\\\favourites\\\\favourites_screen.dart; \\(Get-Content lib\\\\features\\\\station\\\\station_detail_screen.dart\\) -replace 'favouritesProvider','favouriteStationsProvider' | Set-Content -Encoding utf8 lib\\\\features\\\\station\\\\station_detail_screen.dart; Select-String -Path lib\\\\features\\\\favourites\\\\favourites_screen.dart,lib\\\\features\\\\station\\\\station_detail_screen.dart -Pattern 'favouriteStationsProvider' | Measure-Object | Select-Object -ExpandProperty Count)"
+      "PowerShell(Set-Location C:\\\\Users\\\\riddl\\\\Downloads\\\\Metro\\\\app; \\(Get-Content lib\\\\features\\\\favourites\\\\favourites_screen.dart\\) -replace 'favouritesProvider','favouriteStationsProvider' | Set-Content -Encoding utf8 lib\\\\features\\\\favourites\\\\favourites_screen.dart; \\(Get-Content lib\\\\features\\\\station\\\\station_detail_screen.dart\\) -replace 'favouritesProvider','favouriteStationsProvider' | Set-Content -Encoding utf8 lib\\\\features\\\\station\\\\station_detail_screen.dart; Select-String -Path lib\\\\features\\\\favourites\\\\favourites_screen.dart,lib\\\\features\\\\station\\\\station_detail_screen.dart -Pattern 'favouriteStationsProvider' | Measure-Object | Select-Object -ExpandProperty Count)",
+      "Bash(git stash *)",
+      "Bash(.venv/Scripts/python.exe -m pytest -q tests/test_leave_home.py::test_interchange_reminder_fires_once_then_journey_completes)",
+      "Bash(.venv/Scripts/python.exe -m pytest -q)",
+      "Bash(.venv/Scripts/ruff.exe check *)",
+      "Bash(flutter --version)",
+      "Bash(grep -n \"^  geolocator\" pubspec.lock -A1; find / -maxdepth 6 -path \"*/.pub-cache/hosted/*/geolocator-*\" -type d 2>/dev/null | head -5)",
+      "PowerShell(Set-Location C:\\\\Users\\\\riddl\\\\Downloads\\\\Metro\\\\app; Select-String -Path pubspec.lock -Pattern \"geolocator:\" -Context 0,6 | Select-Object -First 1 -ExpandProperty Context | ForEach-Object { $_.PostContext })",
+      "Bash(/c/flutter/bin/flutter.bat config *)",
+      "PowerShell(flutter doctor -v 2>&1)"
     ]
   }
 }

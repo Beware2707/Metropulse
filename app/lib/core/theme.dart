@@ -2,12 +2,26 @@ import 'package:flutter/material.dart';
 
 const _seed = Color(0xFF1F6FEB);
 
-ThemeData buildLightTheme() => _base(Brightness.light);
+ThemeData buildLightTheme({bool highContrast = false, ColorScheme? dynamicScheme}) =>
+    _base(Brightness.light, highContrast: highContrast, dynamicScheme: dynamicScheme);
 
-ThemeData buildDarkTheme() => _base(Brightness.dark);
+ThemeData buildDarkTheme({bool highContrast = false, ColorScheme? dynamicScheme}) =>
+    _base(Brightness.dark, highContrast: highContrast, dynamicScheme: dynamicScheme);
 
-ThemeData _base(Brightness brightness) {
-  final scheme = ColorScheme.fromSeed(seedColor: _seed, brightness: brightness);
+ThemeData _base(
+  Brightness brightness, {
+  required bool highContrast,
+  ColorScheme? dynamicScheme,
+}) {
+  // A device-derived (Material You) scheme takes priority when available and
+  // enabled; the seed-based scheme is the fallback everywhere else, with an
+  // optional boosted contrast level for the accessibility setting.
+  final scheme = dynamicScheme ??
+      ColorScheme.fromSeed(
+        seedColor: _seed,
+        brightness: brightness,
+        contrastLevel: highContrast ? 1.0 : 0.0,
+      );
   return ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
@@ -22,6 +36,7 @@ ThemeData _base(Brightness brightness) {
       color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
     ),
     snackBarTheme: const SnackBarThemeData(behavior: SnackBarBehavior.floating),
+    visualDensity: VisualDensity.adaptivePlatformDensity,
   );
 }
 

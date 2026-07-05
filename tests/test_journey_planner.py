@@ -11,7 +11,11 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from gtfs_fixture import write_multiline_gtfs_zip
-from metropulse.application.journey_planner import JourneyPlanner, PlannerParameters
+from metropulse.application.journey_planner import (
+    JourneyPlanner,
+    PlannerParameters,
+    _search_weights,
+)
 from metropulse.application.static_loader import GtfsStaticLoader
 from metropulse.domain.exceptions import NoRouteError, UnknownEntityError
 from metropulse.domain.journey import RideLeg, WalkLeg
@@ -154,3 +158,79 @@ async def test_journey_plan_api(api_client: httpx.AsyncClient) -> None:
         "/api/v1/journey/plan", params={"origin": "S1", "destination": "S1"}
     )
     assert same.status_code == 409
+
+
+# --- route preference ---------------------------------------------------------
+
+
+def test_search_weights_biases_without_mutating_base() -> None:
+    base = PlannerParameters(board_penalty_seconds=300.0, walk_cost_multiplier=1.0)
+
+    fastest = _search_weights(base, "fastest")
+    fewer_transfers = _search_weights(base, "fewer_transfers")
+    less_walking = _search_weights(base, "less_walking")
+
+    assert fastest == base
+    assert fewer_transfers.board_penalty_seconds == pytest.approx(1200.0)
+    assert fewer_transfers.walk_cost_multiplier == pytest.approx(1.0)  # untouched
+    assert less_walking.walk_cost_multiplier == pytest.approx(6.0)
+    assert less_walking.board_penalty_seconds == pytest.approx(300.0)  # untouched
+    assert base.board_penalty_seconds == 300.0  # base itself is never mutated
+
+    with pytest.raises(ValueError, match="unknown route preference"):
+        _search_weights(base, "bogus")
+
+
+async def test_preference_never_inflates_displayed_timing_single_line(
+    loaded_session_factory: SessionFactory,
+) -> None:
+    """A preference must only ever influence route *choice*, never the ETA."""
+    planner = JourneyPlanner(loaded_session_factory, PARAMS)
+    fastest = await planner.plan("S1", "S4", preference="fastest")
+    fewer_transfers = await planner.plan("S1", "S4", preference="fewer_transfers")
+    less_walking = await planner.plan("S1", "S4", preference="less_walking")
+
+    # Only one route exists on a single line, so all three preferences must
+    # choose it — and report identical, non-inflated timing for it.
+    assert fewer_transfers.expected_travel_seconds == pytest.approx(
+        fastest.expected_travel_seconds
+    )
+    assert less_walking.expected_travel_seconds == pytest.approx(
+        fastest.expected_travel_seconds
+    )
+    assert fewer_transfers.legs[0].ride_seconds == pytest.approx(
+        fastest.legs[0].ride_seconds
+    )
+
+
+async def test_preference_never_inflates_displayed_timing_with_walk_transfer(
+    multiline_session_factory: SessionFactory,
+) -> None:
+    """Same invariant on a route that is forced to walk between two lines."""
+    planner = JourneyPlanner(multiline_session_factory, PARAMS)
+    fastest = await planner.plan("S1", "X3", preference="fastest")
+    less_walking = await planner.plan("S1", "X3", preference="less_walking")
+
+    # The only path available still walks; walk_cost_multiplier must not
+    # leak into the reported walking distance/time or the total ETA.
+    assert less_walking.walking_distance_m == pytest.approx(fastest.walking_distance_m)
+    assert less_walking.expected_travel_seconds == pytest.approx(
+        fastest.expected_travel_seconds
+    )
+
+
+async def test_preference_endpoint_accepts_all_modes_and_rejects_others(
+    api_client: httpx.AsyncClient,
+) -> None:
+    for preference in ("fastest", "fewer_transfers", "less_walking"):
+        response = await api_client.get(
+            "/api/v1/journey/plan",
+            params={"origin": "S1", "destination": "S4", "preference": preference},
+        )
+        assert response.status_code == 200, preference
+
+    invalid = await api_client.get(
+        "/api/v1/journey/plan",
+        params={"origin": "S1", "destination": "S4", "preference": "wheelchair"},
+    )
+    assert invalid.status_code == 422

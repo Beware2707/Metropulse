@@ -11,6 +11,21 @@ final commuteCardProvider = FutureProvider<CommuteCard?>(
   (ref) => ref.watch(commuteRepositoryProvider).card(),
 );
 
+/// A full route plan for the commute card's origin/destination, purely to
+/// surface fare + a richer duration breakdown on Home — the card endpoint
+/// itself only returns aggregate timing, not a fare-computable plan.
+final homeSuggestedPlanProvider = FutureProvider<JourneyPlan?>((ref) async {
+  final card = await ref.watch(commuteCardProvider.future);
+  if (card == null) return null;
+  try {
+    return await ref
+        .watch(journeyRepositoryProvider)
+        .plan(card.originStopId, card.destinationStopId);
+  } on Exception {
+    return null; // the commute card itself already conveys the essentials
+  }
+});
+
 final activeJourneyProvider = FutureProvider<Journey?>(
   (ref) => ref.watch(journeyRepositoryProvider).current(),
 );
@@ -30,6 +45,13 @@ final activeAlertsProvider = FutureProvider<List<Map<String, dynamic>>>(
 
 final favouriteStationsProvider = FutureProvider<List<Map<String, dynamic>>>(
   (ref) => ref.watch(favouritesRepositoryProvider).list(),
+);
+
+/// Pinned journeys (local-only), wrapped in a real provider so mutations can
+/// trigger a rebuild via `ref.invalidate` — unlike `localStoreProvider`
+/// itself, which is a fixed value-override and never re-runs on invalidate.
+final pinnedJourneysProvider = Provider<List<Map<String, dynamic>>>(
+  (ref) => ref.watch(localStoreProvider).pinnedJourneys,
 );
 
 /// Last train tonight from the user's Home (or first favourite) station.

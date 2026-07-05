@@ -24,15 +24,27 @@ final trainsRepositoryProvider = Provider<TrainsRepository>(
 );
 
 final journeyRepositoryProvider = Provider<JourneyRepository>(
-  (ref) => JourneyRepository(ref.watch(apiClientProvider)),
+  (ref) => JourneyRepository(ref.watch(apiClientProvider), ref.watch(localStoreProvider)),
 );
 
 final favouritesRepositoryProvider = Provider<FavouritesRepository>(
-  (ref) => FavouritesRepository(ref.watch(apiClientProvider)),
+  (ref) => FavouritesRepository(ref.watch(apiClientProvider), ref.watch(localStoreProvider)),
 );
 
 final commuteRepositoryProvider = Provider<CommuteRepository>(
   (ref) => CommuteRepository(ref.watch(apiClientProvider)),
+);
+
+final notificationsRepositoryProvider = Provider<NotificationsRepository>(
+  (ref) => NotificationsRepository(ref.watch(apiClientProvider)),
+);
+
+final destinationAlertsRepositoryProvider = Provider<DestinationAlertsRepository>(
+  (ref) => DestinationAlertsRepository(ref.watch(apiClientProvider)),
+);
+
+final remindersRepositoryProvider = Provider<RemindersRepository>(
+  (ref) => RemindersRepository(ref.watch(apiClientProvider)),
 );
 
 /// The offline bundle: cached copy first, silently refreshed when stale.

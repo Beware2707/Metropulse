@@ -42,10 +42,8 @@ class LocationService {
       // Low accuracy is plenty for "which station is near me" and is the
       // battery-friendly choice.
       final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.low,
-          timeLimit: Duration(seconds: 8),
-        ),
+        desiredAccuracy: LocationAccuracy.low,
+        timeLimit: const Duration(seconds: 8),
       );
       return LocationFix(position.latitude, position.longitude);
     } on Exception {

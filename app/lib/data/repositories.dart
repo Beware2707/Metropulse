@@ -100,16 +100,40 @@ class TrainsRepository {
   }
 }
 
+/// Route preference for [JourneyRepository.plan] — mirrors the backend's
+/// `RoutePreference` enum. Wheelchair-friendly routing isn't offered here
+/// because the loaded GTFS dataset carries no accessibility data yet; the
+/// planner screen surfaces that honestly rather than pretending to route
+/// around it.
+enum RoutePreference { fastest, fewerTransfers, lessWalking }
+
+extension on RoutePreference {
+  String get wireValue => switch (this) {
+        RoutePreference.fastest => 'fastest',
+        RoutePreference.fewerTransfers => 'fewer_transfers',
+        RoutePreference.lessWalking => 'less_walking',
+      };
+}
+
 /// Journey planning and journey-session lifecycle.
 class JourneyRepository {
-  JourneyRepository(this._api);
+  JourneyRepository(this._api, this._store);
 
   final ApiClient _api;
+  final LocalStore _store;
 
-  Future<JourneyPlan> plan(String origin, String destination) async {
+  Future<JourneyPlan> plan(
+    String origin,
+    String destination, {
+    RoutePreference preference = RoutePreference.fastest,
+  }) async {
     final response = await _api.dio.get<Map<String, dynamic>>(
       '/api/v1/journey/plan',
-      queryParameters: {'origin': origin, 'destination': destination},
+      queryParameters: {
+        'origin': origin,
+        'destination': destination,
+        'preference': preference.wireValue,
+      },
     );
     return JourneyPlan.fromJson(response.data!);
   }
@@ -146,16 +170,26 @@ class JourneyRepository {
     }
   }
 
+  /// Journey history, offline-first: a successful fetch refreshes the local
+  /// cache; a failed one (no connectivity) falls back to that cache so the
+  /// commuter's history remains visible offline, per the offline-support
+  /// requirement — this list is REST data, not part of the offline bundle.
   Future<List<Journey>> history({int limit = 5}) async {
-    final response = await _api.dio.get<Map<String, dynamic>>(
-      '/api/v1/me/journeys',
-      queryParameters: {'limit': limit},
-    );
-    final rows = response.data?['journeys'] as List<dynamic>? ?? const [];
-    return rows
-        .whereType<Map<String, dynamic>>()
-        .map(Journey.fromJson)
-        .toList(growable: false);
+    try {
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/api/v1/me/journeys',
+        queryParameters: {'limit': limit},
+      );
+      final rows = (response.data?['journeys'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .toList(growable: false);
+      await _store.saveJourneyHistoryCache(rows);
+      return rows.map(Journey.fromJson).toList(growable: false);
+    } on DioException {
+      final cached = _store.cachedJourneyHistory;
+      if (cached == null) rethrow;
+      return cached.map(Journey.fromJson).toList(growable: false);
+    }
   }
 
   Future<Map<String, dynamic>?> coachRecommendation({
@@ -222,19 +256,28 @@ class AlertsRepository {
   }
 }
 
-/// Favourite stations.
+/// Favourite stations, with an offline-fallback cache (see [JourneyRepository.history]).
 class FavouritesRepository {
-  FavouritesRepository(this._api);
+  FavouritesRepository(this._api, this._store);
 
   final ApiClient _api;
+  final LocalStore _store;
 
   Future<List<Map<String, dynamic>>> list() async {
-    final response = await _api.dio.get<List<dynamic>>(
-      '/api/v1/me/favourites/stations',
-    );
-    return (response.data ?? const [])
-        .whereType<Map<String, dynamic>>()
-        .toList();
+    try {
+      final response = await _api.dio.get<List<dynamic>>(
+        '/api/v1/me/favourites/stations',
+      );
+      final rows = (response.data ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .toList(growable: false);
+      await _store.saveFavouriteStationsCache(rows);
+      return rows;
+    } on DioException {
+      final cached = _store.cachedFavouriteStations;
+      if (cached == null) rethrow;
+      return cached;
+    }
   }
 
   Future<void> save(String stopId, {String? label, int position = 0}) =>
@@ -245,6 +288,89 @@ class FavouritesRepository {
 
   Future<void> remove(String stopId) =>
       _api.dio.delete<void>('/api/v1/me/favourites/stations/$stopId');
+}
+
+/// The user's notification inbox — these are the surfaced form of every
+/// backend-scheduled alert (destination, interchange, last-train,
+/// leave-home, missed-stop, delay, service alert).
+class NotificationsRepository {
+  NotificationsRepository(this._api);
+
+  final ApiClient _api;
+
+  Future<List<Map<String, dynamic>>> list({int limit = 50}) async {
+    final response = await _api.dio.get<Map<String, dynamic>>(
+      '/api/v1/me/notifications',
+      queryParameters: {'limit': limit},
+    );
+    final rows = response.data?['notifications'] as List<dynamic>? ?? const [];
+    return rows.whereType<Map<String, dynamic>>().toList(growable: false);
+  }
+
+  Future<void> markRead(int notificationId) => _api.dio
+      .post<void>('/api/v1/me/notifications/$notificationId/read');
+}
+
+/// Destination alerts: "tell me when my train nears my stop" — created
+/// automatically by Journey Mode once a live vehicle is bound to a journey.
+class DestinationAlertsRepository {
+  DestinationAlertsRepository(this._api);
+
+  final ApiClient _api;
+
+  Future<void> create({
+    required String vehicleId,
+    required String targetStopId,
+    int thresholdSeconds = 120,
+  }) =>
+      _api.dio.post<Map<String, dynamic>>(
+        '/api/v1/me/alerts/destination',
+        data: {
+          'vehicle_id': vehicleId,
+          'target_stop_id': targetStopId,
+          'threshold_seconds': thresholdSeconds,
+        },
+      );
+}
+
+/// Last-train and leave-home reminders, scheduled entirely by the backend —
+/// this only submits the request.
+class RemindersRepository {
+  RemindersRepository(this._api);
+
+  final ApiClient _api;
+
+  Future<void> createLastTrain({
+    required String stopId,
+    String? routeId,
+    int? directionId,
+    int leadMinutes = 30,
+  }) =>
+      _api.dio.post<Map<String, dynamic>>(
+        '/api/v1/me/reminders/last-train',
+        data: {
+          'stop_id': stopId,
+          'route_id': routeId,
+          'direction_id': directionId,
+          'lead_minutes': leadMinutes,
+        },
+      );
+
+  Future<void> createLeaveHome({
+    required String stopId,
+    required DateTime trainDepartureAt,
+    required int walkingMinutes,
+    int bufferMinutes = 10,
+  }) =>
+      _api.dio.post<Map<String, dynamic>>(
+        '/api/v1/me/reminders/leave-home',
+        data: {
+          'stop_id': stopId,
+          'train_departure_at': trainDepartureAt.toUtc().toIso8601String(),
+          'walking_minutes': walkingMinutes,
+          'buffer_minutes': bufferMinutes,
+        },
+      );
 }
 
 /// The home-screen commute card.
