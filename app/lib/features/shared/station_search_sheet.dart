@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/design/app_colors.dart';
 import '../../core/design/app_spacing.dart';
 import '../../core/widgets/glass_surface.dart';
 import '../../core/widgets/icon_badge.dart';
+import '../../core/widgets/station_row.dart';
 import '../../domain/models/station.dart';
 import '../../domain/search_index.dart';
 import '../../providers/core_providers.dart';
@@ -143,52 +143,15 @@ class _QuickPicks extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, AppSpacing.xxl),
       children: [
         if (favourites.isNotEmpty) ...[
-          const _SectionLabel('Favourites'),
-          for (final station in favourites) _Row(station: station, icon: Icons.star_rounded, onTap: onPick),
+          const SearchSectionLabel('Favourites'),
+          for (final station in favourites) StationRow(station: station, icon: Icons.star_rounded, onTap: onPick),
         ],
         if (recents.isNotEmpty) ...[
-          const _SectionLabel('Recent'),
-          for (final station in recents) _Row(station: station, icon: Icons.history_rounded, onTap: onPick),
+          const SearchSectionLabel('Recent'),
+          for (final station in recents) StationRow(station: station, icon: Icons.history_rounded, onTap: onPick),
         ],
       ],
     );
   }
 }
 
-class _Row extends StatelessWidget {
-  const _Row({required this.station, required this.icon, required this.onTap});
-
-  final Station station;
-  final IconData icon;
-  final void Function(Station) onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-      child: GlassSurface(
-        onTap: () => onTap(station),
-        child: Row(
-          children: [
-            IconBadge(icon: icon, color: AppColors.brandBlue.withValues(alpha: 0.14), foreground: AppColors.brandBlue),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(child: Text(station.name, style: Theme.of(context).textTheme.titleMedium)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SectionLabel extends StatelessWidget {
-  const _SectionLabel(this.text);
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(4, AppSpacing.md, 4, AppSpacing.sm),
-      child: Text(text.toUpperCase(), style: Theme.of(context).textTheme.labelSmall),
-    );
-  }
-}

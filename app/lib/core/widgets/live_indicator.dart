@@ -34,20 +34,21 @@ class _LiveIndicatorState extends ConsumerState<LiveIndicator>
       WsStatus.connecting => (AppColors.warning, 'CONNECTING'),
       WsStatus.reconnecting => (AppColors.danger, 'RECONNECTING'),
     };
+    final dot = Container(
+      width: 7,
+      height: 7,
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+    );
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
       decoration: BoxDecoration(color: color.withValues(alpha: 0.14), borderRadius: AppRadius.pillR),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          FadeTransition(
-            opacity: Tween(begin: 0.4, end: 1.0).animate(_pulse),
-            child: Container(
-              width: 7,
-              height: 7,
-              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-            ),
-          ),
+          if (MediaQuery.of(context).disableAnimations)
+            dot
+          else
+            FadeTransition(opacity: Tween(begin: 0.4, end: 1.0).animate(_pulse), child: dot),
           const SizedBox(width: 6),
           Text(label,
               style: TextStyle(fontSize: 11, letterSpacing: 0.6, color: color, fontWeight: FontWeight.w800)),

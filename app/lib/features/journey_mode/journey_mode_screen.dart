@@ -160,7 +160,9 @@ class _JourneyView extends ConsumerWidget {
           padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 100, AppSpacing.lg, AppSpacing.xxl),
           children: [
             AnimatedSwitcher(
-              duration: const Duration(milliseconds: 350),
+              duration: MediaQuery.of(context).disableAnimations
+                  ? Duration.zero
+                  : const Duration(milliseconds: 350),
               transitionBuilder: (child, animation) => FadeTransition(
                 opacity: animation,
                 child: SlideTransition(

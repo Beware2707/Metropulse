@@ -46,6 +46,7 @@ class _DelayedRevealState extends State<DelayedReveal> with SingleTickerProvider
 
   @override
   Widget build(BuildContext context) {
+    if (MediaQuery.of(context).disableAnimations) return widget.child;
     final curved = CurvedAnimation(parent: _controller, curve: widget.curve);
     return AnimatedBuilder(
       animation: curved,
@@ -104,20 +105,20 @@ class _DrawnBarState extends State<DrawnBar> with SingleTickerProviderStateMixin
 
   @override
   Widget build(BuildContext context) {
+    final bar = Container(
+      height: widget.height,
+      decoration: BoxDecoration(color: widget.color, borderRadius: BorderRadius.circular(widget.height / 2)),
+    );
+    if (MediaQuery.of(context).disableAnimations) {
+      return Align(alignment: Alignment.centerLeft, child: FractionallySizedBox(widthFactor: 1.0, child: bar));
+    }
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, _) {
         final t = Curves.easeOutCubic.transform(_controller.value).clamp(0.0001, 1.0);
         return Align(
           alignment: Alignment.centerLeft,
-          child: FractionallySizedBox(
-            widthFactor: t,
-            child: Container(
-              height: widget.height,
-              decoration:
-                  BoxDecoration(color: widget.color, borderRadius: BorderRadius.circular(widget.height / 2)),
-            ),
-          ),
+          child: FractionallySizedBox(widthFactor: t, child: bar),
         );
       },
     );

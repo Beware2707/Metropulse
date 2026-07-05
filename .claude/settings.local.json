@@ -59,7 +59,15 @@
       "Bash(grep -v \"//.*\\\\.show\")",
       "Bash(xargs grep -l \"notification\")",
       "Bash(.venv/Scripts/python.exe -c ' *)",
-      "Bash(xargs grep -l \"commute_prediction_lookback_days\")"
+      "Bash(xargs grep -l \"commute_prediction_lookback_days\")",
+      "Bash(grep -E \"\\\\.dart$\")",
+      "Bash(grep -v \"// \")",
+      "Bash(cd \"C:\\\\Users\\\\riddl\\\\Downloads\\\\Metro\" && grep -r \"^class [A-Z]\" app/lib --include=\"*.dart\" | grep -v \"\\\\.g\\\\.dart\\\\|\\\\.freezed\\\\.dart\" | grep -v \"^app/lib/l10n\" | cut -d: -f2 | cut -d' ' -f2 | sort -u > /tmp/classes.txt && head -20 /tmp/classes.txt)",
+      "Bash(powershell -Command 'Get-Process | Where-Object {$_.ProcessName -match '\\\\''dart'\\\\''} | Select-Object ProcessName, Id, CPU, WorkingSet64 | Format-Table -AutoSize')",
+      "Bash(powershell -Command \"Get-Process -Id 26948 | Select-Object ProcessName, CPU\")",
+      "Bash(powershell -Command 'Get-Process | Where-Object {$_.ProcessName -match '\\\\''dart'\\\\''} | Select-Object ProcessName, Id, CPU, StartTime | Format-Table -AutoSize')",
+      "Bash(powershell -Command 'Get-Process | Where-Object {$_.ProcessName -match '\\\\''dart'\\\\''} | Select-Object ProcessName, Id, CPU, StartTime | Sort-Object StartTime -Descending | Format-Table -AutoSize')",
+      "Bash(powershell -Command 'Get-CimInstance Win32_Process | Where-Object {$_.Name -match '\\\\''dart'\\\\''} | Select-Object ProcessId, Name, CommandLine | Format-List')"
     ]
   }
 }

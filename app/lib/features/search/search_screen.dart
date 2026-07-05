@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/design/app_colors.dart';
 import '../../core/design/app_radius.dart';
 import '../../core/design/app_spacing.dart';
 import '../../core/widgets/ambient_background.dart';
@@ -11,6 +10,7 @@ import '../../core/widgets/glass_surface.dart';
 import '../../core/widgets/gradient_button.dart';
 import '../../core/widgets/icon_badge.dart';
 import '../../core/widgets/search_entry_pill.dart';
+import '../../core/widgets/station_row.dart';
 import '../../domain/models/station.dart';
 import '../../domain/search_index.dart';
 import '../../providers/core_providers.dart';
@@ -220,55 +220,15 @@ class _RecentAndFavourites extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, AppSpacing.xxl),
       children: [
         if (favourites.isNotEmpty) ...[
-          const _SectionLabel('Favourites'),
-          for (final station in favourites) _StationRow(station: station, icon: Icons.star_rounded, onTap: onTap),
+          const SearchSectionLabel('Favourites', topSpacing: AppSpacing.lg),
+          for (final station in favourites) StationRow(station: station, icon: Icons.star_rounded, onTap: onTap),
         ],
         if (recents.isNotEmpty) ...[
-          const _SectionLabel('Recent searches'),
-          for (final station in recents) _StationRow(station: station, icon: Icons.history_rounded, onTap: onTap),
+          const SearchSectionLabel('Recent searches', topSpacing: AppSpacing.lg),
+          for (final station in recents) StationRow(station: station, icon: Icons.history_rounded, onTap: onTap),
         ],
       ],
     );
   }
 }
 
-class _StationRow extends StatelessWidget {
-  const _StationRow({required this.station, required this.icon, required this.onTap});
-
-  final Station station;
-  final IconData icon;
-  final void Function(Station) onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-      child: GlassSurface(
-        onTap: () => onTap(station),
-        child: Row(
-          children: [
-            IconBadge(icon: icon, color: AppColors.brandBlue.withValues(alpha: 0.14), foreground: AppColors.brandBlue),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(child: Text(station.name, style: Theme.of(context).textTheme.titleMedium)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SectionLabel extends StatelessWidget {
-  const _SectionLabel(this.text);
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(4, AppSpacing.lg, 4, AppSpacing.sm),
-      child: Text(
-        text.toUpperCase(),
-        style: Theme.of(context).textTheme.labelSmall,
-      ),
-    );
-  }
-}

@@ -251,34 +251,36 @@ class _MicButtonState extends State<_MicButton> with SingleTickerProviderStateMi
 
   @override
   Widget build(BuildContext context) {
+    Widget button(double scale) {
+      return Transform.scale(
+        scale: scale,
+        child: Container(
+          width: 84,
+          height: 84,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: AppColors.heroGradientFor(),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.brandViolet.withValues(alpha: widget.listening ? 0.6 : 0.35),
+                blurRadius: widget.listening ? 36 : 20,
+                spreadRadius: widget.listening ? 4 : 0,
+              ),
+            ],
+          ),
+          child: Icon(widget.listening ? Icons.mic_rounded : Icons.mic_none_rounded, color: Colors.white, size: 36),
+        ),
+      );
+    }
+
     return GestureDetector(
       onTap: widget.onTap,
-      child: AnimatedBuilder(
-        animation: _pulse,
-        builder: (context, child) {
-          final scale = widget.listening ? 1.0 + _pulse.value * 0.12 : 1.0;
-          return Transform.scale(
-            scale: scale,
-            child: Container(
-              width: 84,
-              height: 84,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: AppColors.heroGradientFor(),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.brandViolet.withValues(alpha: widget.listening ? 0.6 : 0.35),
-                    blurRadius: widget.listening ? 36 : 20,
-                    spreadRadius: widget.listening ? 4 : 0,
-                  ),
-                ],
-              ),
-              child: Icon(widget.listening ? Icons.mic_rounded : Icons.mic_none_rounded,
-                  color: Colors.white, size: 36),
+      child: MediaQuery.of(context).disableAnimations
+          ? button(1.0)
+          : AnimatedBuilder(
+              animation: _pulse,
+              builder: (context, child) => button(widget.listening ? 1.0 + _pulse.value * 0.12 : 1.0),
             ),
-          );
-        },
-      ),
     );
   }
 }
