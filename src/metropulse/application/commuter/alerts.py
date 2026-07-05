@@ -9,6 +9,7 @@ from typing import Any, Awaitable, Callable, Sequence
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from metropulse.domain.entities import utcnow
+from metropulse.domain.events import ServiceAlertCreated
 from metropulse.domain.exceptions import NotTrackedError, UnknownEntityError
 from metropulse.infrastructure.db.commuter_models import DestinationAlert, ServiceAlert
 from metropulse.infrastructure.db.commuter_repositories import (
@@ -16,6 +17,7 @@ from metropulse.infrastructure.db.commuter_repositories import (
     ServiceAlertRepository,
 )
 from metropulse.infrastructure.db.repositories import StopRepository
+from metropulse.infrastructure.redis.event_publisher import RedisDomainEventPublisher
 from metropulse.infrastructure.redis.vehicle_store import RedisVehicleStore
 
 SEVERITIES = ("info", "warning", "severe")
@@ -79,10 +81,16 @@ class DestinationAlertService:
 class ServiceAlertService:
     """Admin-managed (and later feed-ingested) service disruption alerts."""
 
-    def __init__(self, publish: Callable[[str], Awaitable[None]] | None = None) -> None:
+    def __init__(
+        self,
+        publish: Callable[[str], Awaitable[None]] | None = None,
+        event_publisher: RedisDomainEventPublisher | None = None,
+    ) -> None:
         # Optional realtime fan-out: alerts are pushed to WebSocket clients
-        # through the same channel the vehicle diffs use.
+        # through the same stream the vehicle diffs use; typed domain events
+        # go to the internal event stream for other consumers.
         self._publish = publish
+        self._events = event_publisher
 
     async def create(
         self,
@@ -121,6 +129,17 @@ class ServiceAlertService:
         if self._publish is not None:
             await self._publish(
                 json.dumps({"type": "alert", "ts": now.isoformat(), "alert": to_dict(alert)})
+            )
+        if self._events is not None:
+            await self._events.publish(
+                ServiceAlertCreated(
+                    alert_id=alert.id,
+                    severity=alert.severity,
+                    route_id=alert.route_id,
+                    stop_id=alert.stop_id,
+                    title=alert.title,
+                    timestamp=now.isoformat(),
+                )
             )
         return alert
 

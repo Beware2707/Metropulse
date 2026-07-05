@@ -22,6 +22,7 @@ from metropulse.config import Settings
 from metropulse.infrastructure.db.base import SessionFactory
 from metropulse.infrastructure.db.models import Base
 from metropulse.infrastructure.redis.eta_cache import RedisEtaCache
+from metropulse.infrastructure.redis.event_publisher import RedisDomainEventPublisher
 from metropulse.infrastructure.redis.vehicle_store import RedisVehicleStore
 from metropulse.main import create_app
 from metropulse.wiring import AppResources, build_commuter_services
@@ -107,6 +108,7 @@ def resources(
     store = RedisVehicleStore(fake_redis)
     resolver = RouteResolver(loaded_session_factory, IdMapper(), station_radius_m=75.0)
     eta_engine = EtaEngine(loaded_session_factory, EtaParameters())
+    event_publisher = RedisDomainEventPublisher(fake_redis)
     return AppResources(
         settings=settings,
         engine=None,
@@ -119,8 +121,9 @@ def resources(
         eta_service=CachedEtaService(eta_engine, RedisEtaCache(fake_redis)),
         live_hub=LiveHub(ConnectionManager(), ReplayBuffer(64)),
         commuter=build_commuter_services(
-            settings, loaded_session_factory, fake_redis, store
+            settings, loaded_session_factory, fake_redis, store, event_publisher
         ),
+        event_publisher=event_publisher,
         owns_connections=False,
     )
 

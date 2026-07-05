@@ -240,3 +240,5 @@ class HealthOut(BaseModel):
     status: str
     database: bool
     redis: bool
+    feed: str  # ok | stale | unknown
+    feed_age_seconds: float | None

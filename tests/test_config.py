@@ -25,11 +25,20 @@ def test_env_parsing(monkeypatch: pytest.MonkeyPatch) -> None:
         json.dumps([{"field": "trip_id", "pattern": "^RT_", "replacement": ""}]),
     )
     settings = Settings(_env_file=None)
-    assert settings.dmrc_api_key == "abc123"
+    assert settings.dmrc_api_key.get_secret_value() == "abc123"
     assert settings.poll_interval_seconds == 2.5
     assert settings.id_mapping_rules == [
         IdMappingRule(field="trip_id", pattern="^RT_", replacement="")
     ]
+
+
+def test_secrets_never_leak_via_repr(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DMRC_API_KEY", "super-secret-key")
+    monkeypatch.setenv("ADMIN_API_KEY", "admin-secret")
+    settings = Settings(_env_file=None)
+    rendered = f"{settings!r} {settings.dmrc_api_key} {settings.admin_api_key}"
+    assert "super-secret-key" not in rendered
+    assert "admin-secret" not in rendered
 
 
 def test_id_mapping_file_loading(tmp_path: Path) -> None:
@@ -47,6 +56,29 @@ def test_id_mapping_file_loading(tmp_path: Path) -> None:
 def test_id_mapping_file_absent_returns_empty_maps() -> None:
     settings = Settings(_env_file=None)
     assert settings.load_static_id_maps() == ({}, {})
+
+
+def test_id_mapping_file_can_carry_rules(tmp_path: Path) -> None:
+    mapping_file = tmp_path / "agency.json"
+    mapping_file.write_text(
+        json.dumps(
+            {
+                "trip_id": {"RT_1": "T1"},
+                "rules": [
+                    {"field": "trip_id", "pattern": "^AGENCY:", "replacement": ""}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    settings = Settings(
+        _env_file=None,
+        id_mapping_file=mapping_file,
+        id_mapping_rules=[IdMappingRule(field="route_id", pattern="_X$", replacement="")],
+    )
+    rules = settings.load_id_mapping_rules()
+    # Environment rules first, then file rules.
+    assert [r.pattern for r in rules] == ["_X$", "^AGENCY:"]
 
 
 def test_id_mapping_file_bad_structure_raises(tmp_path: Path) -> None:

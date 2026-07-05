@@ -18,14 +18,16 @@ from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+import contextlib
+from typing import Any
+
 from metropulse.application.commuter.analytics import purge_analytics
 from metropulse.application.commuter.rule_engine import CommuterRuleEngine
-from metropulse.application.events import FEED_UPDATED, EventBus
-from metropulse.application.realtime_engine import (
-    PollResult,
-    RealtimeEngine,
-    cleanup_history,
-)
+from metropulse.application.consumers import EtaWarmer, FeedAnalyticsRecorder
+from metropulse.application.realtime_engine import RealtimeEngine, cleanup_history
+from metropulse.infrastructure.redis.stream_bus import RedisStreamConsumer
+from metropulse.infrastructure.redis.vehicle_store import UPDATES_STREAM
+from metropulse.tracing import configure_tracing
 from metropulse.application.static_loader import GtfsStaticLoader
 from metropulse.config import Settings, get_settings
 from metropulse.domain.exceptions import GtfsValidationError
@@ -87,7 +89,7 @@ async def run_worker(settings: Settings) -> int:
         client = GtfsRtClient(
             http,
             settings.gtfs_rt_vehicle_positions_url,
-            settings.dmrc_api_key,
+            settings.dmrc_api_key.get_secret_value(),
             max_attempts=settings.fetch_max_attempts,
         )
 
@@ -100,16 +102,9 @@ async def run_worker(settings: Settings) -> int:
             resources.commuter.last_train,
             resources.commuter.journeys,
             journey_max_age_hours=settings.journey_max_age_hours,
+            delay_notify_seconds=settings.journey_delay_notify_seconds,
+            event_publisher=resources.event_publisher,
         )
-
-        # Event-driven notifications: commuter rules run exactly when a feed
-        # poll lands, not on an unrelated polling timer.
-        event_bus = EventBus()
-
-        async def _on_feed_updated(_result: PollResult) -> None:
-            await rule_engine.evaluate_realtime_safe()
-
-        event_bus.subscribe(FEED_UPDATED, _on_feed_updated)
 
         engine = RealtimeEngine(
             client,
@@ -117,8 +112,41 @@ async def run_worker(settings: Settings) -> int:
             resources.session_factory,
             resources.train_service,
             stale_after_seconds=settings.stale_after_seconds,
-            event_bus=event_bus,
+            event_publisher=resources.event_publisher,
         )
+
+        # Event-driven pipeline: the poller appends update events to a Redis
+        # stream; independent consumer groups react to every event and survive
+        # worker restarts (pending entries are redelivered).
+        eta_warmer = EtaWarmer(
+            resources.resolver, resources.eta_service, resources.event_publisher
+        )
+        analytics_recorder = FeedAnalyticsRecorder(resources.session_factory)
+
+        async def _notify_handler(event: dict[str, Any]) -> None:
+            if event.get("type") == "update":
+                await rule_engine.evaluate_realtime_safe()
+
+        consumers = [
+            (
+                RedisStreamConsumer(resources.redis, UPDATES_STREAM, "notify", "worker-notify"),
+                _notify_handler,
+            ),
+            (
+                RedisStreamConsumer(resources.redis, UPDATES_STREAM, "eta", "worker-eta"),
+                eta_warmer.handle,
+            ),
+            (
+                RedisStreamConsumer(
+                    resources.redis, UPDATES_STREAM, "analytics", "worker-analytics"
+                ),
+                analytics_recorder.handle,
+            ),
+        ]
+        consumer_tasks = [
+            asyncio.create_task(consumer.run(handler), name=f"consumer-{consumer.group}")
+            for consumer, handler in consumers
+        ]
 
         scheduler = AsyncIOScheduler()
         scheduler.add_job(
@@ -165,6 +193,11 @@ async def run_worker(settings: Settings) -> int:
             await stop.wait()
         finally:
             scheduler.shutdown(wait=False)
+            for task in consumer_tasks:
+                task.cancel()
+            for task in consumer_tasks:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await task
         logger.info("realtime worker stopped")
         return 0
     finally:
@@ -205,7 +238,9 @@ def main(argv: list[str] | None = None) -> int:
     """CLI entry point; returns the process exit code."""
     args = build_parser().parse_args(argv)
     settings = get_settings()
-    configure_logging(settings.log_level)
+    configure_logging(settings.log_level, settings.log_format)
+    if args.command == "run-worker":
+        configure_tracing("metropulse-worker")
 
     if args.command == "load-static":
         return asyncio.run(load_static(settings, args.zip_path))

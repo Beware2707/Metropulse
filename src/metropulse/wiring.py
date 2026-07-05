@@ -45,6 +45,7 @@ from metropulse.infrastructure.db.base import (
     create_session_factory,
 )
 from metropulse.infrastructure.redis.eta_cache import RedisEtaCache
+from metropulse.infrastructure.redis.event_publisher import RedisDomainEventPublisher
 from metropulse.infrastructure.redis.vehicle_store import RedisVehicleStore
 
 
@@ -81,6 +82,7 @@ class AppResources:
     eta_service: CachedEtaService
     live_hub: LiveHub
     commuter: CommuterServices
+    event_publisher: RedisDomainEventPublisher | None = None
     owns_connections: bool = True
 
     async def close(self) -> None:
@@ -93,11 +95,15 @@ class AppResources:
 
 
 def build_id_mapper(settings: Settings) -> IdMapper:
-    """Construct the ID mapper from configured rules and the optional map file."""
+    """Construct the ID mapper from configured rules and the optional map file.
+
+    Fully configuration-driven: an agency profile (env rules and/or a JSON
+    file with maps + rules) is all it takes to support a new transit agency.
+    """
     trip_map, route_map = settings.load_static_id_maps()
     rules = [
         MappingRule(field=rule.field, pattern=rule.pattern, replacement=rule.replacement)
-        for rule in settings.id_mapping_rules
+        for rule in settings.load_id_mapping_rules()
     ]
     return IdMapper(rules=rules, trip_id_map=trip_map, route_id_map=route_map)
 
@@ -107,6 +113,7 @@ def build_commuter_services(
     session_factory: SessionFactory,
     redis: Redis,
     vehicle_store: RedisVehicleStore,
+    event_publisher: RedisDomainEventPublisher | None = None,
 ) -> CommuterServices:
     """Assemble the commuter service bundle over shared infrastructure."""
     predictor = HistoricalCrowdPredictor(
@@ -119,9 +126,11 @@ def build_commuter_services(
         favourites=FavouritesService(),
         notifications=NotificationService(channels=(LoggingNotificationChannel(),)),
         destination_alerts=DestinationAlertService(vehicle_store),
-        service_alerts=ServiceAlertService(publish=vehicle_store.publish_diff),
+        service_alerts=ServiceAlertService(
+            publish=vehicle_store.publish_diff, event_publisher=event_publisher
+        ),
         last_train=LastTrainService(timezone=settings.timezone),
-        journeys=JourneyService(),
+        journeys=JourneyService(event_publisher=event_publisher),
         coach=CoachRecommendationService(
             predictor, default_coach_count=settings.default_coach_count
         ),
@@ -136,7 +145,14 @@ def build_resources(settings: Settings) -> AppResources:
     """Build the full production object graph from settings."""
     engine = create_engine(settings.database_url)
     session_factory = create_session_factory(engine)
-    redis: Redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    redis: Redis = Redis.from_url(
+        settings.redis_url,
+        decode_responses=True,
+        socket_timeout=5.0,
+        socket_connect_timeout=5.0,
+        health_check_interval=30,
+        max_connections=50,
+    )
     vehicle_store = RedisVehicleStore(redis)
     resolver = RouteResolver(
         session_factory,
@@ -159,6 +175,7 @@ def build_resources(settings: Settings) -> AppResources:
         eta_engine, RedisEtaCache(redis, ttl_seconds=settings.poll_interval_seconds * 6)
     )
     live_hub = LiveHub(ConnectionManager(), ReplayBuffer(settings.ws_replay_buffer_size))
+    event_publisher = RedisDomainEventPublisher(redis)
     return AppResources(
         settings=settings,
         engine=engine,
@@ -170,7 +187,10 @@ def build_resources(settings: Settings) -> AppResources:
         eta_engine=eta_engine,
         eta_service=eta_service,
         live_hub=live_hub,
-        commuter=build_commuter_services(settings, session_factory, redis, vehicle_store),
+        commuter=build_commuter_services(
+            settings, session_factory, redis, vehicle_store, event_publisher
+        ),
+        event_publisher=event_publisher,
     )
 
 

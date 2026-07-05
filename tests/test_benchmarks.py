@@ -55,6 +55,49 @@ async def test_eta_compute_throughput(
     assert elapsed < 10.0, f"eta compute too slow: {elapsed:.2f}s for 100 iterations"
 
 
+def test_snapshot_diff_throughput() -> None:
+    """Diffing a 10k-vehicle network must be far below one poll interval."""
+    from datetime import UTC, datetime
+
+    from metropulse.application.snapshot import diff_snapshots
+
+    now = datetime.now(UTC)
+    previous = {
+        f"v{i}": make_vehicle(f"v{i}", longitude=77.0 + (i % 100) * 1e-4, timestamp=now)
+        for i in range(10_000)
+    }
+    moved = {
+        vid: make_vehicle(vid, longitude=pos.longitude + 1e-4, timestamp=now)
+        for vid, pos in previous.items()
+    }
+
+    start = time.perf_counter()
+    unchanged_diff = diff_snapshots(previous, dict(previous), now, 90)
+    moved_diff = diff_snapshots(previous, moved, now, 90)
+    elapsed = time.perf_counter() - start
+
+    assert not unchanged_diff.has_changes
+    assert len(moved_diff.moved) == 10_000
+    assert elapsed < 3.0, f"snapshot diff too slow: {elapsed:.2f}s for 2x10k vehicles"
+
+
+def test_train_state_serialization_throughput() -> None:
+    """Serializing 5k train states (one big poll's WS payload work)."""
+    import json as jsonlib
+
+    states = [
+        make_vehicle(f"v{i}", longitude=77.0 + (i % 300) * 1e-4).to_dict()
+        for i in range(5_000)
+    ]
+    start = time.perf_counter()
+    payload = jsonlib.dumps(states)
+    parsed = jsonlib.loads(payload)
+    elapsed = time.perf_counter() - start
+
+    assert len(parsed) == 5_000
+    assert elapsed < 3.0, f"serialization too slow: {elapsed:.2f}s for 5k states"
+
+
 async def test_broadcast_fanout_to_many_connections() -> None:
     manager = ConnectionManager()
     for _ in range(2000):

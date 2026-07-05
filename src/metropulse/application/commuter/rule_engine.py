@@ -16,23 +16,26 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from metropulse.application.commuter.journey_session import JourneySessionTracker
 from metropulse.application.commuter.journeys import JourneyService
 from metropulse.application.commuter.last_train import LastTrainService
 from metropulse.application.commuter.notifications import NotificationService
 from metropulse.application.eta_engine import EtaEngine
 from metropulse.application.route_resolver import RouteResolver
-from metropulse.domain.entities import TrainLocation, VehiclePosition, utcnow
+from metropulse.domain.entities import VehiclePosition, utcnow
+from metropulse.domain.events import DestinationReached
 from metropulse.infrastructure.db.base import SessionFactory
-from metropulse.infrastructure.db.commuter_models import DestinationAlert, Journey
+from metropulse.infrastructure.db.commuter_models import DestinationAlert
 from metropulse.infrastructure.db.commuter_repositories import (
     DestinationAlertRepository,
     JourneyRepository,
     LeaveHomeReminderRepository,
 )
+from metropulse.infrastructure.redis.event_publisher import RedisDomainEventPublisher
 from metropulse.infrastructure.redis.vehicle_store import RedisVehicleStore
 
 logger = logging.getLogger(__name__)
@@ -47,6 +50,8 @@ class RuleEvaluationResult:
     journeys_completed: int
     journeys_abandoned: int
     interchange_reminders: int = 0
+    journeys_missed: int = 0
+    delay_notifications: int = 0
 
 
 class CommuterRuleEngine:
@@ -63,6 +68,8 @@ class CommuterRuleEngine:
         journey_service: JourneyService,
         *,
         journey_max_age_hours: float = 6.0,
+        delay_notify_seconds: float = 300.0,
+        event_publisher: RedisDomainEventPublisher | None = None,
     ) -> None:
         self._store = store
         self._resolver = resolver
@@ -71,7 +78,15 @@ class CommuterRuleEngine:
         self._notifications = notifications
         self._last_train = last_train
         self._journeys = journey_service
-        self._journey_max_age = timedelta(hours=journey_max_age_hours)
+        self._publisher = event_publisher
+        self._sessions = JourneySessionTracker(
+            resolver,
+            eta_engine,
+            journey_service,
+            notifications,
+            journey_max_age_hours=journey_max_age_hours,
+            delay_notify_seconds=delay_notify_seconds,
+        )
 
     async def evaluate_realtime_safe(self) -> RuleEvaluationResult | None:
         """Scheduler entry point: never raises."""
@@ -92,31 +107,37 @@ class CommuterRuleEngine:
     async def evaluate_realtime(self) -> RuleEvaluationResult:
         """One evaluation cycle for destination alerts and journeys."""
         snapshot = await self._store.get_all()
-        triggered = expired = completed = abandoned = interchanges = 0
+        counters = {
+            "triggered": 0, "expired": 0, "completed": 0, "abandoned": 0,
+            "interchange": 0, "missed": 0, "delay": 0,
+        }
         async with self._session_factory() as session:
             async with session.begin():
                 for alert in await DestinationAlertRepository(session).list_active():
                     outcome = await self._evaluate_alert(session, alert, snapshot)
-                    if outcome == "triggered":
-                        triggered += 1
-                    elif outcome == "expired":
-                        expired += 1
+                    if outcome in counters:
+                        counters[outcome] += 1
                 for journey in await JourneyRepository(session).list_active():
-                    outcome = await self._evaluate_journey(session, journey, snapshot)
-                    if outcome == "completed":
-                        completed += 1
-                    elif outcome == "abandoned":
-                        abandoned += 1
-                    elif outcome == "interchange":
-                        interchanges += 1
+                    outcome = await self._sessions.evaluate(session, journey, snapshot)
+                    if outcome in counters:
+                        counters[outcome] += 1
         result = RuleEvaluationResult(
-            triggered, expired, completed, abandoned, interchanges
+            alerts_triggered=counters["triggered"],
+            alerts_expired=counters["expired"],
+            journeys_completed=counters["completed"],
+            journeys_abandoned=counters["abandoned"],
+            interchange_reminders=counters["interchange"],
+            journeys_missed=counters["missed"],
+            delay_notifications=counters["delay"],
         )
-        if triggered or expired or completed or abandoned or interchanges:
+        if any(counters.values()):
             logger.info(
                 "rules: %d alert(s) triggered, %d expired, %d journey(s) completed, "
-                "%d abandoned, %d interchange reminder(s)",
-                triggered, expired, completed, abandoned, interchanges,
+                "%d abandoned, %d missed, %d interchange reminder(s), %d delay "
+                "notification(s)",
+                counters["triggered"], counters["expired"], counters["completed"],
+                counters["abandoned"], counters["missed"], counters["interchange"],
+                counters["delay"],
             )
         return result
 
@@ -168,78 +189,17 @@ class CommuterRuleEngine:
                 "eta_seconds": target.eta_seconds if target else 0,
             },
         )
+        if self._publisher is not None:
+            await self._publisher.publish(
+                DestinationReached(
+                    user_id=alert.user_id,
+                    vehicle_id=alert.vehicle_id,
+                    stop_id=alert.target_stop_id,
+                    alert_id=alert.id,
+                    timestamp=utcnow().isoformat(),
+                )
+            )
         return "triggered"
-
-    async def _evaluate_journey(
-        self,
-        session: AsyncSession,
-        journey: Journey,
-        snapshot: dict[str, VehiclePosition],
-    ) -> str | None:
-        now = utcnow()
-        started = journey.started_at
-        if started.tzinfo is None:  # SQLite returns naive datetimes
-            started = started.replace(tzinfo=now.tzinfo)
-        if now - started > self._journey_max_age:
-            finished = await self._journeys.abandon(session, journey.user_id, journey.id)
-            return "abandoned" if finished else None
-
-        if not journey.vehicle_id:
-            return None
-        vehicle = snapshot.get(journey.vehicle_id)
-        if vehicle is None or not vehicle.trip_id:
-            return None
-        context = await self._resolver.resolve_trip(vehicle.trip_id)
-        if context is None:
-            return None
-        location = self._resolver.locate(vehicle, context)
-        current = location.current_station
-        if current is None or current.stop_id != journey.destination_stop_id:
-            return await self._maybe_remind_interchange(session, journey, location)
-
-        finished = await self._journeys.complete(
-            session, journey.user_id, journey.id, auto=True
-        )
-        if finished is None:
-            return None
-        await self._notifications.create(
-            session,
-            journey.user_id,
-            kind="journey_completed",
-            title=f"Arrived at {current.name}",
-            body="You've reached your destination. Journey completed.",
-            payload={"journey_id": journey.id, "stop_id": current.stop_id},
-        )
-        return "completed"
-
-    async def _maybe_remind_interchange(
-        self, session: AsyncSession, journey: Journey, location: TrainLocation
-    ) -> str | None:
-        """Notify once per planned interchange as the train approaches it."""
-        payload = journey.payload or {}
-        planned: list[str] = payload.get("interchange_stop_ids") or []
-        notified: list[str] = payload.get("notified_interchanges") or []
-        next_station = location.next_station
-        if (
-            next_station is None
-            or next_station.stop_id not in planned
-            or next_station.stop_id in notified
-        ):
-            return None
-        await self._notifications.create(
-            session,
-            journey.user_id,
-            kind="interchange_reminder",
-            title=f"Interchange ahead: {next_station.name}",
-            body=(
-                f"Get ready to change trains at {next_station.name}, "
-                "the next station."
-            ),
-            payload={"journey_id": journey.id, "stop_id": next_station.stop_id},
-        )
-        # Reassign (not mutate) so SQLAlchemy detects the JSON change.
-        journey.payload = {**payload, "notified_interchanges": [*notified, next_station.stop_id]}
-        return "interchange"
 
     async def evaluate_reminders(self, now: datetime | None = None) -> int:
         """One clock-driven cycle: last-train and leave-home reminders.

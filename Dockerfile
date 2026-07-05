@@ -19,6 +19,11 @@ USER metropulse
 
 EXPOSE 8000
 
-# --ws websockets enables permessage-deflate compression for /ws/live.
+# The worker service disables this in docker-compose (it serves no HTTP).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD ["python", "-c", "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status == 200 else 1)"]
+
+# --ws websockets enables permessage-deflate compression for /ws/live;
+# --proxy-headers trusts X-Forwarded-* from the fronting load balancer.
 CMD ["uvicorn", "metropulse.main:app", "--host", "0.0.0.0", "--port", "8000", \
-     "--ws", "websockets", "--no-access-log"]
+     "--ws", "websockets", "--no-access-log", "--proxy-headers"]

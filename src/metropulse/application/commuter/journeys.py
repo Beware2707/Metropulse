@@ -8,10 +8,12 @@ from typing import Any, Sequence
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from metropulse.domain.entities import utcnow
+from metropulse.domain.events import JourneyCompleted, JourneyStarted
 from metropulse.domain.exceptions import UnknownEntityError
 from metropulse.infrastructure.db.commuter_models import Journey, JourneyEvent
 from metropulse.infrastructure.db.commuter_repositories import JourneyRepository
 from metropulse.infrastructure.db.repositories import StopRepository
+from metropulse.infrastructure.redis.event_publisher import RedisDomainEventPublisher
 
 
 class JourneyService:
@@ -19,8 +21,13 @@ class JourneyService:
 
     A user has at most one active journey; starting a new one supersedes the
     previous. All transitions are logged to ``journey_events`` — that stream
-    is both the product history and future ML training data.
+    is both the product history and future ML training data. Lifecycle
+    domain events (JourneyStarted/JourneyCompleted) are published best-effort
+    to the internal event stream when a publisher is wired in.
     """
+
+    def __init__(self, event_publisher: RedisDomainEventPublisher | None = None) -> None:
+        self._publisher = event_publisher
 
     async def start(
         self,
@@ -75,6 +82,17 @@ class JourneyService:
         repo.add(journey)
         await session.flush()
         repo.add_event(_event(journey.id, "started", now, {"vehicle_id": vehicle_id}))
+        if self._publisher is not None:
+            await self._publisher.publish(
+                JourneyStarted(
+                    journey_id=journey.id,
+                    user_id=user_id,
+                    origin_stop_id=origin_stop_id,
+                    destination_stop_id=destination_stop_id,
+                    vehicle_id=vehicle_id,
+                    timestamp=now.isoformat(),
+                )
+            )
         return journey
 
     async def current(self, session: AsyncSession, user_id: str) -> Journey | None:
@@ -91,13 +109,41 @@ class JourneyService:
         self, session: AsyncSession, user_id: str, journey_id: int, *, auto: bool = False
     ) -> Journey | None:
         """Complete an active journey owned by the user (None if no match)."""
-        return await self._finish(session, user_id, journey_id, "completed", auto=auto)
+        journey = await self._finish(session, user_id, journey_id, "completed", auto=auto)
+        if journey is not None:
+            await self._publish_completed(journey, auto=auto, missed=False)
+        return journey
+
+    async def mark_missed(
+        self, session: AsyncSession, user_id: str, journey_id: int
+    ) -> Journey | None:
+        """End a journey whose train passed the destination (None if no match)."""
+        journey = await self._finish(session, user_id, journey_id, "missed", auto=True)
+        if journey is not None:
+            await self._publish_completed(journey, auto=True, missed=True)
+        return journey
 
     async def abandon(
         self, session: AsyncSession, user_id: str, journey_id: int
     ) -> Journey | None:
         """Abandon an active journey owned by the user (None if no match)."""
         return await self._finish(session, user_id, journey_id, "abandoned", auto=False)
+
+    async def _publish_completed(
+        self, journey: Journey, *, auto: bool, missed: bool
+    ) -> None:
+        if self._publisher is None:
+            return
+        await self._publisher.publish(
+            JourneyCompleted(
+                journey_id=journey.id,
+                user_id=journey.user_id,
+                destination_stop_id=journey.destination_stop_id,
+                auto=auto,
+                missed=missed,
+                timestamp=utcnow().isoformat(),
+            )
+        )
 
     async def _finish(
         self,

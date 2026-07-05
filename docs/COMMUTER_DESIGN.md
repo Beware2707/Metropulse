@@ -4,30 +4,70 @@ This document explains the architectural decisions behind the commuter
 features and, specifically, how the system absorbs AI-based crowd and ETA
 prediction later **without schema changes**.
 
-## System shape
+## System shape (event-driven)
 
 ```
-                ┌────────────────────────────────────────────┐
-                │                  API (xN)                  │
-   clients ───▶ │  REST /api/v1/*   WS /ws/live   /offline/* │
-                └───────┬───────────────────┬────────────────┘
-                        │ SQL               │ Redis (snapshot, pub/sub, cache)
-                ┌───────▼───────┐   ┌───────▼───────┐
-                │  PostgreSQL   │   │     Redis     │
-                └───────▲───────┘   └───────▲───────┘
-                        │ SQL               │
-                ┌───────┴───────────────────┴────────────────┐
-                │                 Worker (x1)                │
-                │  realtime poll · rule engine · reminders   │
-                │  retention jobs                            │
-                └────────────────────────────────────────────┘
+   GTFS-RT feed
+        │ poll (5s, retry+backoff)
+        ▼
+  Ingestion worker ── snapshot/diff ──▶ Redis (latest positions, resolved
+        │                                      trains, ETA cache)
+        │ XADD (durable, trimmed)
+        ▼
+  Redis Stream  mp:updates
+        │
+   ┌────┼──────────────┬───────────────┐  consumer groups (independent,
+   ▼    ▼              ▼               ▼   crash-safe, replayed on restart)
+  ETA  Notify        Analytics     WS gateways (API xN, fan-out reads)
+ warm  (alerts,      (feed            │
+ cache  journeys,     telemetry)      ▼  diff-only frames, replay buffer
+        reminders*)               Flutter / web clients
 ```
 
+\* clock-based reminders (last-train, leave-home) stay on a 60 s scheduler —
+they are time-driven, not feed-driven.
+
+Two streams, two jobs:
+
+- ``mp:updates`` — the *transport* stream: full resolved train-state diffs
+  for WS gateways and the worker's fan-out consumers.
+- ``mp:events`` — the *domain event* stream: compact typed facts
+  (`VehicleUpdated`, `VehicleRemoved`, `EtaUpdated`, `JourneyStarted`,
+  `JourneyCompleted`, `ServiceAlertCreated`, `DestinationReached`) published
+  best-effort by services. New integrations subscribe here with their own
+  consumer group instead of calling services directly; unknown event names
+  parse to None so old consumers coexist with newer producers.
+
+## Journey sessions
+
+`JourneySessionTracker` owns the live trip lifecycle, evaluated on every
+feed update:
+
+```
+start ─▶ track train ─▶ interchange reminder ─▶ arrive ─▶ end (completed)
+                     └▶ delay notification (once, threshold-gated)
+                     └▶ passed destination ─▶ "you missed your stop" ─▶ end (missed)
+                     └▶ inactivity timeout ─▶ end (abandoned)
+```
+
+One outcome per cycle, priority-ordered (abandoned > completed > missed >
+interchange > delay). Notifications ride the evaluation transaction (outbox
+semantics); `JourneyStarted`/`JourneyCompleted` domain events are emitted
+best-effort. The snapshot diffing itself lives in the pure
+`application/snapshot.py` engine — side-effect-free and benchmarked at
+10k vehicles per cycle.
+
+- **The stream is the spine**: every feed poll appends one durable event.
+  Consumers (`eta`, `notify`, `analytics` groups) each see every event,
+  acknowledge after processing, and recover pending entries after a crash.
+  A poison message is logged and acknowledged — it can never wedge the
+  pipeline. The stream is MAXLEN-trimmed to bound memory.
 - **API replicas are stateless** — all per-user state is in PostgreSQL, all
-  live state in Redis. Scale horizontally behind a load balancer.
+  live state in Redis. Scale horizontally behind a load balancer; each
+  replica tail-reads the stream for WebSocket fan-out.
 - **The worker owns every automation** (destination alerts, journey
-  auto-completion, last-train reminders). Exactly one worker runs per feed,
-  so rule evaluation needs no distributed locking.
+  auto-completion, reminders). Exactly one worker runs per feed, so rule
+  evaluation needs no distributed locking.
 - **Notifications are an outbox**: rules write rows in the same transaction
   as the state transition they announce (crash-safe, exactly-once at the
   data level); delivery transports are best-effort adapters behind the

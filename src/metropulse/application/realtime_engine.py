@@ -16,16 +16,19 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Callable, Protocol
 
 from metropulse.application.events import FEED_UPDATED, EventBus
+from metropulse.application.snapshot import SnapshotDiff, diff_snapshots
 from metropulse.application.train_service import TrainService
 from metropulse.domain.entities import VehiclePosition, utcnow
+from metropulse.domain.events import VehicleRemoved, VehicleUpdated
 from metropulse.domain.exceptions import MetroPulseError
 from metropulse.infrastructure.db.base import SessionFactory
 from metropulse.infrastructure.db.repositories import VehicleHistoryRepository
 from metropulse.infrastructure.gtfs_rt.decoder import decode_vehicle_positions
+from metropulse.infrastructure.redis.event_publisher import RedisDomainEventPublisher
 from metropulse.infrastructure.redis.vehicle_store import RedisVehicleStore
 
 logger = logging.getLogger(__name__)
@@ -82,6 +85,7 @@ class RealtimeEngine:
         stale_after_seconds: float = 90.0,
         decoder: Decoder = decode_vehicle_positions,
         event_bus: EventBus | None = None,
+        event_publisher: RedisDomainEventPublisher | None = None,
     ) -> None:
         self._feed = feed
         self._store = store
@@ -90,6 +94,7 @@ class RealtimeEngine:
         self._stale_after = stale_after_seconds
         self._decoder = decoder
         self._event_bus = event_bus
+        self._event_publisher = event_publisher
         self.stats = EngineStats()
 
     async def poll_safe(self) -> PollResult | None:
@@ -128,77 +133,89 @@ class RealtimeEngine:
         current = {p.vehicle_id: p for p in positions}
         previous = await self._store.get_all()
 
-        changed = {
-            vid: pos for vid, pos in current.items() if previous.get(vid) != pos
-        }
-        added = sorted(vid for vid in changed if vid not in previous)
-        moved = sorted(vid for vid in changed if vid in previous)
-        removed = sorted(set(previous) - set(current))
-        stale = sorted(
-            vid for vid, pos in current.items() if pos.is_stale(now, self._stale_after)
-        )
-        if removed:
-            logger.info("vehicles removed from feed: %s", ", ".join(removed))
-        if stale:
-            logger.debug("stale vehicles (no fresh timestamp): %s", ", ".join(stale))
+        diff = diff_snapshots(current=current, previous=previous, now=now,
+                              stale_after_seconds=self._stale_after)
+        if diff.removed:
+            logger.info("vehicles removed from feed: %s", ", ".join(diff.removed))
+        if diff.stale:
+            logger.debug("stale vehicles (no fresh timestamp): %s", ", ".join(diff.stale))
 
-        await self._store.apply(changed, removed)
+        await self._store.apply(diff.changed, diff.removed)
 
-        if changed:
+        if diff.changed:
             async with self._session_factory() as session:
                 async with session.begin():
-                    await VehicleHistoryRepository(session).add_many(changed.values(), now)
+                    await VehicleHistoryRepository(session).add_many(
+                        diff.changed.values(), now
+                    )
 
         sequence = await self._store.next_sequence()
-        await self._publish_diff(sequence, changed, added, moved, removed, stale)
+        await self._publish_diff(sequence, diff)
+        await self._store.record_feed_success(now)
+        await self._publish_domain_events(diff, now)
 
         logger.info(
             "poll #%d: %d vehicles, %d added, %d moved, %d removed, %d stale (seq %d)",
-            self.stats.polls, len(current), len(added), len(moved), len(removed),
-            len(stale), sequence,
+            self.stats.polls, diff.total, len(diff.added), len(diff.moved),
+            len(diff.removed), len(diff.stale), sequence,
         )
         result = PollResult(
-            total=len(current),
-            added=tuple(added),
-            moved=tuple(moved),
-            removed=tuple(removed),
-            stale=tuple(stale),
+            total=diff.total,
+            added=diff.added,
+            moved=diff.moved,
+            removed=diff.removed,
+            stale=diff.stale,
             sequence=sequence,
         )
         if self._event_bus is not None:
             await self._event_bus.publish(FEED_UPDATED, result)
         return result
 
-    async def _publish_diff(
-        self,
-        sequence: int,
-        changed: dict[str, VehiclePosition],
-        added: list[str],
-        moved: list[str],
-        removed: list[str],
-        stale: list[str],
-    ) -> None:
+    async def _publish_diff(self, sequence: int, diff: SnapshotDiff) -> None:
         """Enrich changed trains once, cache the resolution, publish the diff."""
         now = utcnow()
         states = {
             vid: (await self._train_service.assemble(pos, now)).to_dict()
-            for vid, pos in sorted(changed.items())
+            for vid, pos in sorted(diff.changed.items())
         }
         # Single resolve per poll: API replicas read this cache instead of
         # re-resolving each request.
-        await self._store.cache_train_states(states, removed)
+        await self._store.cache_train_states(states, diff.removed)
         message = json.dumps(
             {
                 "type": "update",
                 "seq": sequence,
                 "ts": now.isoformat(),
-                "added": [states[vid] for vid in added],
-                "moved": [states[vid] for vid in moved],
-                "removed": removed,
-                "stale": stale,
+                "added": [states[vid] for vid in diff.added],
+                "moved": [states[vid] for vid in diff.moved],
+                "removed": list(diff.removed),
+                "stale": list(diff.stale),
             }
         )
         await self._store.publish_diff(message)
+
+    async def _publish_domain_events(self, diff: SnapshotDiff, now: datetime) -> None:
+        """Emit VehicleUpdated/VehicleRemoved facts to the event stream."""
+        if self._event_publisher is None:
+            return
+        for change, vehicle_ids in (("added", diff.added), ("moved", diff.moved)):
+            for vehicle_id in vehicle_ids:
+                position = diff.changed[vehicle_id]
+                await self._event_publisher.publish(
+                    VehicleUpdated(
+                        vehicle_id=vehicle_id,
+                        trip_id=position.trip_id,
+                        route_id=position.route_id,
+                        latitude=position.latitude,
+                        longitude=position.longitude,
+                        timestamp=position.timestamp.isoformat(),
+                        change=change,
+                    )
+                )
+        for vehicle_id in diff.removed:
+            await self._event_publisher.publish(
+                VehicleRemoved(vehicle_id=vehicle_id, timestamp=now.isoformat())
+            )
 
 
 async def cleanup_history(

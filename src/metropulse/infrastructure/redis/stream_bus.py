@@ -45,6 +45,11 @@ class RedisStreamConsumer:
         self._batch = batch_size
         self._idle_sleep = idle_sleep_seconds
 
+    @property
+    def group(self) -> str:
+        """The consumer group this member belongs to."""
+        return self._group
+
     async def ensure_group(self) -> None:
         """Create the consumer group (idempotent), starting at new entries."""
         try:

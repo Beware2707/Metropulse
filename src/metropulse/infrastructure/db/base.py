@@ -17,7 +17,17 @@ def create_engine(database_url: str, *, echo: bool = False) -> AsyncEngine:
     kwargs: dict[str, object] = {"echo": echo, "pool_pre_ping": True}
     if not database_url.startswith("sqlite"):
         # SQLite (used in tests) rejects pool sizing arguments.
-        kwargs.update({"pool_size": 10, "max_overflow": 20})
+        kwargs.update(
+            {
+                "pool_size": 10,
+                "max_overflow": 20,
+                # Recycle before typical LB/firewall idle timeouts kill the
+                # socket underneath us; bound how long a request waits for a
+                # pooled connection instead of queueing forever.
+                "pool_recycle": 1800,
+                "pool_timeout": 30,
+            }
+        )
     return create_async_engine(database_url, **kwargs)  # type: ignore[arg-type]
 
 

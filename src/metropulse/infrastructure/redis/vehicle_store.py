@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime
 from typing import Any, AsyncIterator, Iterable, Mapping
 
 from redis.asyncio import Redis
@@ -25,6 +26,7 @@ from metropulse.domain.entities import TrainState, VehiclePosition
 VEHICLES_KEY = "mp:vehicles"
 TRAINS_KEY = "mp:trains"
 SEQUENCE_KEY = "mp:seq"
+FEED_SUCCESS_KEY = "mp:feed:last_success"
 UPDATES_STREAM = "mp:updates"
 # Bounds stream memory (~a few MB at DMRC scale) while giving consumers and
 # reconnecting gateways minutes of replayable history.
@@ -112,20 +114,51 @@ class RedisVehicleStore:
         return int(value) if value is not None else 0
 
     async def publish_diff(self, message: str) -> None:
-        """Publish a serialized diff message to the updates channel."""
-        await self._redis.publish(UPDATES_CHANNEL, message)
+        """Append a serialized diff/alert event to the durable updates stream."""
+        await self._redis.xadd(
+            UPDATES_STREAM, {"data": message}, maxlen=STREAM_MAXLEN, approximate=True
+        )
 
     async def subscribe_diffs(self) -> AsyncIterator[str]:
-        """Yield diff messages as they are published (blocks forever)."""
-        pubsub = self._redis.pubsub()
-        await pubsub.subscribe(UPDATES_CHANNEL)
-        try:
-            async for message in pubsub.listen():
-                if message.get("type") == "message":
-                    yield _as_str(message["data"])
-        finally:
-            await pubsub.unsubscribe(UPDATES_CHANNEL)
-            await pubsub.aclose()
+        """Yield update events as they are appended to the stream (forever).
+
+        Fan-out reads for WebSocket gateways: each caller tracks its own
+        stream position starting from "now", so every API replica sees every
+        event without consumer-group coordination. Short non-blocking polls
+        keep cancellation prompt and work identically on fakeredis.
+        """
+        last_id = await self._latest_stream_id()
+        while True:
+            batches = await self._redis.xread({UPDATES_STREAM: last_id}, count=64)
+            if not batches:
+                await asyncio.sleep(0.1)
+                continue
+            for _, entries in batches:
+                for entry_id, fields in entries:
+                    last_id = _as_str(entry_id)
+                    data = fields.get("data", fields.get(b"data"))
+                    if data is not None:
+                        yield _as_str(data)
+
+    async def _latest_stream_id(self) -> str:
+        """The current tail of the updates stream ('0-0' when empty)."""
+        entries = await self._redis.xrevrange(UPDATES_STREAM, count=1)
+        return _as_str(entries[0][0]) if entries else "0-0"
+
+    async def vehicle_count(self) -> int:
+        """Number of vehicles in the latest snapshot (O(1) HLEN)."""
+        return int(await self._redis.hlen(VEHICLES_KEY))
+
+    async def record_feed_success(self, at: datetime) -> None:
+        """Record the moment of the last successful feed poll (health probe)."""
+        await self._redis.set(FEED_SUCCESS_KEY, at.isoformat())
+
+    async def feed_age_seconds(self, now: datetime) -> float | None:
+        """Seconds since the last successful poll, or None if never polled."""
+        raw = await self._redis.get(FEED_SUCCESS_KEY)
+        if raw is None:
+            return None
+        return (now - datetime.fromisoformat(_as_str(raw))).total_seconds()
 
     async def ping(self) -> bool:
         """Health-check the Redis connection."""

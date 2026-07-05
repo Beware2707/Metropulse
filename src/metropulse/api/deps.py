@@ -94,7 +94,7 @@ def require_admin(
 
     An empty configured key disables admin endpoints entirely.
     """
-    configured: str = request.app.state.settings.admin_api_key
+    configured: str = request.app.state.settings.admin_api_key.get_secret_value()
     if not configured or x_admin_key is None or not secrets.compare_digest(
         configured, x_admin_key
     ):

@@ -279,7 +279,8 @@ class AnalyticsEvent(Base):
     session_id: Mapped[str | None] = mapped_column(String(64))
     event_type: Mapped[str] = mapped_column(String(64))
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # Indexed: the retention job deletes by received_at range.
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     payload: Mapped[dict[str, Any] | None] = mapped_column(JsonB)
 
 

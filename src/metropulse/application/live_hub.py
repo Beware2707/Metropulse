@@ -15,6 +15,8 @@ import logging
 from collections import deque
 from typing import Protocol
 
+from metropulse.metrics import metrics
+
 logger = logging.getLogger(__name__)
 
 
@@ -62,9 +64,10 @@ class ReplayBuffer:
 class ConnectionManager:
     """Tracks live WebSocket connections and broadcasts to all of them."""
 
-    def __init__(self) -> None:
+    def __init__(self, send_timeout_seconds: float = 5.0) -> None:
         self._connections: set[WsConnection] = set()
         self._lock = asyncio.Lock()
+        self._send_timeout = send_timeout_seconds
 
     async def connect(self, connection: WsConnection) -> None:
         """Register a connection for broadcasts."""
@@ -96,15 +99,18 @@ class ConnectionManager:
             *(self._send_one(connection, message) for connection in targets)
         )
         dead = [connection for connection, ok in zip(targets, results) if not ok]
+        metrics.inc("metropulse_ws_messages_sent_total", len(targets) - len(dead))
         for connection in dead:
             await self.disconnect(connection)
         if dead:
+            metrics.inc("metropulse_ws_connections_dropped_total", len(dead))
             logger.info("dropped %d dead websocket connection(s)", len(dead))
 
-    @staticmethod
-    async def _send_one(connection: WsConnection, message: str) -> bool:
+    async def _send_one(self, connection: WsConnection, message: str) -> bool:
+        # The timeout guards the whole fan-out: a client that stops reading
+        # (full TCP buffer) would otherwise stall broadcast() indefinitely.
         try:
-            await connection.send_text(message)
+            await asyncio.wait_for(connection.send_text(message), self._send_timeout)
         except Exception:
             return False
         return True
@@ -113,10 +119,18 @@ class ConnectionManager:
 class LiveHub:
     """Bridges published diff messages to connected WebSocket clients."""
 
-    def __init__(self, manager: ConnectionManager, buffer: ReplayBuffer) -> None:
+    def __init__(
+        self,
+        manager: ConnectionManager,
+        buffer: ReplayBuffer,
+        max_queue: int = 2048,
+    ) -> None:
         self.manager = manager
         self.buffer = buffer
-        self._queue: asyncio.Queue[str] = asyncio.Queue()
+        # Bounded: if broadcasting falls behind the feed, dropping diffs is
+        # safe (clients recover via the seq-gap replay/snapshot protocol)
+        # while an unbounded queue would grow without limit.
+        self._queue: asyncio.Queue[str] = asyncio.Queue(maxsize=max_queue)
         self._loop: asyncio.AbstractEventLoop | None = None
 
     def submit(self, message: str) -> None:
@@ -130,9 +144,15 @@ class LiveHub:
         except RuntimeError:
             running = None
         if running is loop:
-            self._queue.put_nowait(message)
+            self._enqueue(message)
         else:
-            loop.call_soon_threadsafe(self._queue.put_nowait, message)
+            loop.call_soon_threadsafe(self._enqueue, message)
+
+    def _enqueue(self, message: str) -> None:
+        try:
+            self._queue.put_nowait(message)
+        except asyncio.QueueFull:
+            logger.warning("live hub queue full; dropping diff message")
 
     async def run(self) -> None:
         """Consume the queue forever: buffer each diff then broadcast it."""

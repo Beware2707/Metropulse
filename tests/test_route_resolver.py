@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
+import json
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
 from factories import make_vehicle
 from metropulse.application.route_resolver import IdMapper, MappingRule, RouteResolver
-from metropulse.config import IdMappingRule
+from metropulse.config import IdMappingRule, Settings
 from metropulse.infrastructure.db.base import SessionFactory
+from metropulse.wiring import build_id_mapper
 
 
 def test_mapper_exact_candidate_first() -> None:
@@ -147,6 +151,22 @@ async def test_locate_without_shape_uses_nearest_stop(
     assert location.at_station is False  # ~98 m away with a 75 m radius
 
 
+async def test_concurrent_misses_share_one_build(resolver: RouteResolver) -> None:
+    builds = {"count": 0}
+    original = resolver._build_context
+
+    async def counting_build(trip_id: str):  # noqa: ANN202
+        builds["count"] += 1
+        await asyncio.sleep(0.05)  # widen the race window
+        return await original(trip_id)
+
+    resolver._build_context = counting_build  # type: ignore[method-assign]
+    results = await asyncio.gather(*(resolver.resolve_trip("T1") for _ in range(10)))
+
+    assert builds["count"] == 1  # single-flight: one build for ten callers
+    assert all(r is results[0] for r in results)
+
+
 async def test_clear_cache_forces_rebuild(resolver: RouteResolver) -> None:
     first = await resolver.resolve_trip("T1")
     resolver.clear_cache()
@@ -158,3 +178,50 @@ async def test_clear_cache_forces_rebuild(resolver: RouteResolver) -> None:
 def test_configured_mapping_rule_rejects_bad_field() -> None:
     with pytest.raises(ValidationError):
         IdMappingRule(field="nonsense", pattern="a", replacement="b")  # type: ignore[arg-type]
+
+
+async def test_multi_agency_support_via_configuration_only(
+    loaded_session_factory: SessionFactory, tmp_path: Path
+) -> None:
+    """Two agencies with different realtime ID conventions, zero code changes.
+
+    Agency A prefixes realtime IDs ('DMRC:trip:T1') — solved by a regex rule.
+    Agency B uses opaque numeric IDs ('90001') — solved by an explicit map.
+    Both are plain JSON profiles fed through Settings -> build_id_mapper.
+    """
+    agency_a = tmp_path / "agency_a.json"
+    agency_a.write_text(
+        json.dumps({"rules": [
+            {"field": "trip_id", "pattern": "^DMRC:trip:", "replacement": ""},
+            {"field": "route_id", "pattern": "^DMRC:route:", "replacement": ""},
+        ]}),
+        encoding="utf-8",
+    )
+    agency_b = tmp_path / "agency_b.json"
+    agency_b.write_text(
+        json.dumps({"trip_id": {"90001": "T1"}, "route_id": {"77": "R1"}}),
+        encoding="utf-8",
+    )
+
+    resolver_a = RouteResolver(
+        loaded_session_factory,
+        build_id_mapper(Settings(_env_file=None, id_mapping_file=agency_a)),
+    )
+    resolver_b = RouteResolver(
+        loaded_session_factory,
+        build_id_mapper(Settings(_env_file=None, id_mapping_file=agency_b)),
+    )
+
+    context_a = await resolver_a.resolve_trip("DMRC:trip:T1")
+    assert context_a is not None and context_a.trip_id == "T1"
+    route_a = await resolver_a.resolve_route("DMRC:route:R1")
+    assert route_a is not None and route_a.route_id == "R1"
+
+    context_b = await resolver_b.resolve_trip("90001")
+    assert context_b is not None and context_b.trip_id == "T1"
+    route_b = await resolver_b.resolve_route("77")
+    assert route_b is not None and route_b.route_id == "R1"
+
+    # Neither profile understands the other's convention.
+    assert await resolver_a.resolve_trip("90001") is None
+    assert await resolver_b.resolve_trip("DMRC:trip:T1") is None

@@ -15,15 +15,20 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 from fastapi import FastAPI
+from fastapi.responses import PlainTextResponse
 from sqlalchemy import text
 
 from metropulse import __version__
+from metropulse.api.middleware import RateLimitMiddleware
 from metropulse.api.schemas import HealthOut
 from metropulse.api.v1 import router as v1_router
 from metropulse.api.ws.live import heartbeat_loop
 from metropulse.api.ws.live import router as ws_router
 from metropulse.config import Settings, get_settings
+from metropulse.domain.entities import utcnow
 from metropulse.logging_config import configure_logging
+from metropulse.metrics import metrics as metrics_registry
+from metropulse.tracing import configure_tracing, instrument_app
 from metropulse.wiring import AppResources, build_resources
 
 logger = logging.getLogger(__name__)
@@ -38,7 +43,7 @@ def create_app(
     fakeredis); production builds one from settings during startup.
     """
     app_settings = settings or get_settings()
-    configure_logging(app_settings.log_level)
+    configure_logging(app_settings.log_level, app_settings.log_format)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -82,12 +87,22 @@ def create_app(
     )
     app.include_router(v1_router)
     app.include_router(ws_router)
+    if app_settings.rate_limit_per_minute > 0:
+        app.add_middleware(
+            RateLimitMiddleware,
+            limit_per_minute=app_settings.rate_limit_per_minute,
+            burst=app_settings.rate_limit_burst,
+        )
+    if configure_tracing("metropulse-api"):
+        instrument_app(app)
 
     @app.get("/health", response_model=HealthOut, tags=["ops"])
     async def health() -> HealthOut:
-        """Liveness/readiness: verifies database and Redis connectivity."""
+        """Readiness: database, Redis, and GTFS feed freshness."""
         db_ok = False
         redis_ok = False
+        feed_status = "unknown"
+        feed_age: float | None = None
         try:
             async with app.state.session_factory() as session:
                 await session.execute(text("SELECT 1"))
@@ -96,10 +111,60 @@ def create_app(
             logger.exception("health check: database unreachable")
         try:
             redis_ok = await app.state.vehicle_store.ping()
+            feed_age = await app.state.vehicle_store.feed_age_seconds(utcnow())
         except Exception:
             logger.exception("health check: redis unreachable")
-        status = "ok" if db_ok and redis_ok else "degraded"
-        return HealthOut(status=status, database=db_ok, redis=redis_ok)
+        if feed_age is not None:
+            max_age = app.state.settings.feed_health_max_age_seconds
+            feed_status = "ok" if feed_age <= max_age else "stale"
+        status = "ok" if db_ok and redis_ok and feed_status != "stale" else "degraded"
+        return HealthOut(
+            status=status,
+            database=db_ok,
+            redis=redis_ok,
+            feed=feed_status,
+            feed_age_seconds=feed_age,
+        )
+
+    @app.get("/metrics", response_class=PlainTextResponse, tags=["ops"])
+    async def metrics() -> str:
+        """Prometheus text-format metrics (dependency-free exposition)."""
+        connections = app.state.live_hub.manager.count
+        vehicles = 0
+        sequence = 0
+        redis_up = 0
+        try:
+            vehicles = await app.state.vehicle_store.vehicle_count()
+            sequence = await app.state.vehicle_store.current_sequence()
+            redis_up = 1
+        except Exception:
+            logger.exception("metrics: redis unreachable")
+        db_up = 0
+        try:
+            async with app.state.session_factory() as session:
+                await session.execute(text("SELECT 1"))
+            db_up = 1
+        except Exception:
+            logger.exception("metrics: database unreachable")
+        lines = [
+            "# HELP metropulse_ws_connections Connected WebSocket clients.",
+            "# TYPE metropulse_ws_connections gauge",
+            f"metropulse_ws_connections {connections}",
+            "# HELP metropulse_tracked_vehicles Vehicles in the live snapshot.",
+            "# TYPE metropulse_tracked_vehicles gauge",
+            f"metropulse_tracked_vehicles {vehicles}",
+            "# HELP metropulse_diff_sequence Latest published diff sequence.",
+            "# TYPE metropulse_diff_sequence counter",
+            f"metropulse_diff_sequence {sequence}",
+            "# HELP metropulse_redis_up Redis reachability (1 = up).",
+            "# TYPE metropulse_redis_up gauge",
+            f"metropulse_redis_up {redis_up}",
+            "# HELP metropulse_database_up Database reachability (1 = up).",
+            "# TYPE metropulse_database_up gauge",
+            f"metropulse_database_up {db_up}",
+            metrics_registry.render(),
+        ]
+        return "\n".join(lines) + "\n"
 
     return app
 

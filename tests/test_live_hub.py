@@ -103,3 +103,34 @@ def test_hub_submit_before_run_drops_message() -> None:
     hub = LiveHub(ConnectionManager(), ReplayBuffer())
     hub.submit(_diff(1))  # must not raise
     assert hub.buffer.latest_sequence is None
+
+
+async def test_hub_queue_is_bounded_and_drops_overflow() -> None:
+    hub = LiveHub(ConnectionManager(), ReplayBuffer(), max_queue=2)
+    hub._loop = asyncio.get_running_loop()  # simulate a started hub, run() not draining
+
+    hub.submit(_diff(1))
+    hub.submit(_diff(2))
+    hub.submit(_diff(3))  # dropped, not queued and not raising
+
+    assert hub._queue.qsize() == 2
+
+
+class HangingConnection:
+    """A client that accepts the frame but never finishes reading it."""
+
+    async def send_text(self, data: str) -> None:
+        await asyncio.sleep(60)
+
+
+async def test_broadcast_times_out_hung_connections() -> None:
+    manager = ConnectionManager(send_timeout_seconds=0.05)
+    healthy = FakeConnection()
+    hung = HangingConnection()
+    await manager.connect(healthy)
+    await manager.connect(hung)
+
+    await asyncio.wait_for(manager.broadcast("ping"), timeout=2)
+
+    assert healthy.sent == ["ping"]
+    assert manager.count == 1  # the hung connection was dropped

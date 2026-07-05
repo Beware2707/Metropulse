@@ -114,6 +114,7 @@ class RouteResolver:
         self._station_radius_m = station_radius_m
         self._trip_cache: dict[str, TripContext | None] = {}
         self._route_cache: dict[str, ResolvedRoute | None] = {}
+        self._inflight: dict[str, asyncio.Task[TripContext | None]] = {}
         self._lock = asyncio.Lock()
 
     def clear_cache(self) -> None:
@@ -124,14 +125,27 @@ class RouteResolver:
     async def resolve_trip(self, realtime_trip_id: str) -> TripContext | None:
         """Resolve a realtime trip ID to a full :class:`TripContext`.
 
-        Returns None when no candidate matches a static trip.
+        Returns None when no candidate matches a static trip. Concurrent
+        misses for the same trip share one build (single-flight), so a cold
+        cache under load issues one set of queries per trip, not one per
+        caller.
         """
         async with self._lock:
             if realtime_trip_id in self._trip_cache:
                 return self._trip_cache[realtime_trip_id]
-        context = await self._build_context(realtime_trip_id)
+            task = self._inflight.get(realtime_trip_id)
+            if task is None:
+                task = asyncio.create_task(self._build_context(realtime_trip_id))
+                self._inflight[realtime_trip_id] = task
+        try:
+            context = await asyncio.shield(task)
+        except Exception:
+            async with self._lock:
+                self._inflight.pop(realtime_trip_id, None)
+            raise
         async with self._lock:
             self._trip_cache[realtime_trip_id] = context
+            self._inflight.pop(realtime_trip_id, None)
         if context is None:
             logger.warning("could not resolve realtime trip_id %r", realtime_trip_id)
         return context

@@ -16,7 +16,47 @@ async def test_health(api_client: httpx.AsyncClient) -> None:
     response = await api_client.get("/health")
     assert response.status_code == 200
     body = response.json()
-    assert body == {"status": "ok", "database": True, "redis": True}
+    assert body == {
+        "status": "ok",
+        "database": True,
+        "redis": True,
+        "feed": "unknown",  # the worker has never polled in this test app
+        "feed_age_seconds": None,
+    }
+
+
+async def test_health_reports_feed_freshness(
+    api_client: httpx.AsyncClient, resources: AppResources
+) -> None:
+    from datetime import timedelta
+
+    from metropulse.domain.entities import utcnow
+
+    await resources.vehicle_store.record_feed_success(utcnow())
+    fresh = (await api_client.get("/health")).json()
+    assert fresh["feed"] == "ok"
+    assert fresh["status"] == "ok"
+    assert fresh["feed_age_seconds"] is not None
+
+    await resources.vehicle_store.record_feed_success(utcnow() - timedelta(minutes=10))
+    stale = (await api_client.get("/health")).json()
+    assert stale["feed"] == "stale"
+    assert stale["status"] == "degraded"
+
+
+async def test_metrics_exposition(
+    api_client: httpx.AsyncClient, resources: AppResources
+) -> None:
+    await resources.vehicle_store.apply({"v1": make_vehicle("v1")}, [])
+
+    response = await api_client.get("/metrics")
+    assert response.status_code == 200
+    text = response.text
+    assert "metropulse_tracked_vehicles 1" in text
+    assert "metropulse_ws_connections 0" in text
+    assert "metropulse_redis_up 1" in text
+    assert "metropulse_database_up 1" in text
+    assert "# TYPE metropulse_diff_sequence counter" in text
 
 
 async def test_list_routes(api_client: httpx.AsyncClient) -> None:

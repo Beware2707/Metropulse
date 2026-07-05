@@ -207,8 +207,24 @@ protocol (snapshot/replay/heartbeat) — no live services required.
 
 ## Operations notes
 
+- **Event pipeline**: feed polls append durable events to the `mp:updates`
+  Redis Stream (MAXLEN-trimmed). Consumer groups — `notify` (alerts,
+  journeys), `eta` (cache warming), `analytics` (feed telemetry) — process
+  every event independently and recover unacknowledged entries after a
+  crash; API replicas tail-read the same stream for WebSocket fan-out.
 - Migrations: `alembic upgrade head` (the compose `migrate` service runs this
   automatically before API/worker start).
+- **Monitoring**: `GET /metrics` exposes Prometheus text-format gauges
+  (WS connections, tracked vehicles, diff sequence, Redis/DB reachability);
+  `GET /health` is the readiness probe (also wired as the Docker
+  healthcheck).
+- **Rate limiting**: per-client token bucket per replica
+  (`RATE_LIMIT_PER_MINUTE`/`RATE_LIMIT_BURST`, `0` disables); ops endpoints
+  are exempt. Enforce global limits at your edge gateway.
+- **Logging**: `LOG_FORMAT=json` switches to one-line JSON logs for
+  aggregation.
+- Secrets (`DMRC_API_KEY`, `ADMIN_API_KEY`) are held as `SecretStr` — they
+  never appear in reprs or logs.
 - After loading a new static GTFS, restart API and worker (or call
   `RouteResolver.clear_cache()` if you wire up an admin hook): trip contexts
   are cached for the process lifetime by design.
