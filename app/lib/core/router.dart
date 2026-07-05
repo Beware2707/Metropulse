@@ -13,14 +13,30 @@ import '../features/settings/settings_screen.dart';
 import '../features/splash/splash_screen.dart';
 import '../features/station/station_detail_screen.dart';
 import '../features/train/train_detail_screen.dart';
+import 'root_shell.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: '/splash',
     routes: [
       GoRoute(path: '/splash', builder: (_, __) => const SplashScreen()),
-      GoRoute(path: '/', builder: (_, __) => const HomeScreen()),
-      GoRoute(path: '/map', builder: (_, __) => const LiveMapScreen()),
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, navigationShell) => RootShell(
+          navigationShell: navigationShell,
+          currentIndex: navigationShell.currentIndex,
+          onTap: (index) => navigationShell.goBranch(
+            index,
+            initialLocation: index == navigationShell.currentIndex,
+          ),
+        ),
+        branches: [
+          StatefulShellBranch(routes: [GoRoute(path: '/', builder: (_, __) => const HomeScreen())]),
+          StatefulShellBranch(routes: [GoRoute(path: '/map', builder: (_, __) => const LiveMapScreen())]),
+          StatefulShellBranch(
+              routes: [GoRoute(path: '/favourites', builder: (_, __) => const FavouritesScreen())]),
+          StatefulShellBranch(routes: [GoRoute(path: '/settings', builder: (_, __) => const SettingsScreen())]),
+        ],
+      ),
       GoRoute(
         path: '/station/:stopId',
         builder: (_, state) =>
@@ -40,10 +56,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: '/journey', builder: (_, __) => const JourneyModeScreen()),
       GoRoute(path: '/search', builder: (_, __) => const SearchScreen()),
-      GoRoute(path: '/favourites', builder: (_, __) => const FavouritesScreen()),
       GoRoute(path: '/journeys/history', builder: (_, __) => const JourneyHistoryScreen()),
       GoRoute(path: '/notifications', builder: (_, __) => const NotificationsScreen()),
-      GoRoute(path: '/settings', builder: (_, __) => const SettingsScreen()),
     ],
   );
 });

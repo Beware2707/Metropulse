@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/design/app_spacing.dart';
 import '../../core/formatters.dart';
+import '../../core/widgets/ambient_background.dart';
+import '../../core/widgets/empty_state.dart';
+import '../../core/widgets/glass_surface.dart';
+import '../../core/widgets/icon_badge.dart';
+import '../../core/widgets/shimmer_skeleton.dart';
 import '../../domain/models/journey.dart';
 import '../../providers/core_providers.dart';
-import '../shared/async_section.dart';
 
 /// The full journey history (as opposed to Home's short "recent" preview),
 /// offline-cached so it remains browsable without connectivity.
@@ -22,68 +27,82 @@ class JourneyHistoryScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Journey history')),
-      body: RefreshIndicator(
-        onRefresh: () async => ref.invalidate(journeyHistoryFullProvider),
-        child: journeys.when(
-          loading: () => ListView(
-            padding: const EdgeInsets.all(16),
-            children: const [
-              SkeletonBlock(height: 64),
-              SizedBox(height: 8),
-              SkeletonBlock(height: 64),
-              SizedBox(height: 8),
-              SkeletonBlock(height: 64),
-            ],
-          ),
-          error: (error, _) => ListView(
-            children: [
-              const SizedBox(height: 64),
-              Icon(Icons.cloud_off, size: 48, color: Theme.of(context).colorScheme.outline),
-              const SizedBox(height: 12),
-              const Center(child: Text('Could not load journey history.')),
-              Center(
-                child: TextButton(
-                  onPressed: () => ref.invalidate(journeyHistoryFullProvider),
-                  child: const Text('Retry'),
-                ),
+      body: AmbientBackground(
+        intensity: 0.4,
+        child: SafeArea(
+          child: RefreshIndicator(
+            onRefresh: () async => ref.invalidate(journeyHistoryFullProvider),
+            child: journeys.when(
+              loading: () => ListView(
+                padding: const EdgeInsets.all(AppSpacing.lg),
+                children: const [
+                  ShimmerBlock(height: 72),
+                  SizedBox(height: AppSpacing.sm),
+                  ShimmerBlock(height: 72),
+                  SizedBox(height: AppSpacing.sm),
+                  ShimmerBlock(height: 72),
+                ],
               ),
-            ],
+              error: (error, _) => ListView(
+                padding: const EdgeInsets.all(AppSpacing.lg),
+                children: [
+                  const SizedBox(height: 64),
+                  EmptyState(
+                    icon: Icons.cloud_off_rounded,
+                    message: 'Could not load journey history.',
+                    actionLabel: 'Retry',
+                    onAction: () => ref.invalidate(journeyHistoryFullProvider),
+                  ),
+                ],
+              ),
+              data: (data) => data.isEmpty
+                  ? ListView(
+                      padding: const EdgeInsets.all(AppSpacing.lg),
+                      children: const [
+                        SizedBox(height: 96),
+                        EmptyState(icon: Icons.history_rounded, message: 'Journeys you take will appear here.'),
+                      ],
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.all(AppSpacing.lg),
+                      itemCount: data.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.sm),
+                      itemBuilder: (_, index) {
+                        final journey = data[index];
+                        return GlassSurface(
+                          child: Row(
+                            children: [
+                              IconBadge(
+                                icon: switch (journey.status) {
+                                  'completed' => Icons.check_circle_rounded,
+                                  'missed' => Icons.error_rounded,
+                                  'abandoned' => Icons.remove_circle_rounded,
+                                  _ => Icons.pending_rounded,
+                                },
+                              ),
+                              const SizedBox(width: AppSpacing.md),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '${stations[journey.originStopId]?.name ?? journey.originStopId}'
+                                      ' → '
+                                      '${stations[journey.destinationStopId]?.name ?? journey.destinationStopId}',
+                                      style: Theme.of(context).textTheme.titleMedium,
+                                    ),
+                                    Text('${journey.status} · ${clockTime(journey.startedAt)}',
+                                        style: Theme.of(context).textTheme.bodySmall),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+            ),
           ),
-          data: (data) => data.isEmpty
-              ? ListView(
-                  children: const [
-                    SizedBox(height: 96),
-                    Icon(Icons.history, size: 48),
-                    SizedBox(height: 12),
-                    Center(child: Text('No journeys yet.')),
-                    Center(child: Text('Journeys you take will appear here.')),
-                  ],
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: data.length,
-                  itemBuilder: (_, index) {
-                    final journey = data[index];
-                    return Card(
-                      child: ListTile(
-                        leading: Icon(switch (journey.status) {
-                          'completed' => Icons.check_circle_outline,
-                          'missed' => Icons.error_outline,
-                          'abandoned' => Icons.remove_circle_outline,
-                          _ => Icons.pending_outlined,
-                        }),
-                        title: Text(
-                          '${stations[journey.originStopId]?.name ?? journey.originStopId}'
-                          ' → '
-                          '${stations[journey.destinationStopId]?.name ?? journey.destinationStopId}',
-                        ),
-                        subtitle: Text(
-                          '${journey.status} · ${clockTime(journey.startedAt)}',
-                        ),
-                      ),
-                    );
-                  },
-                ),
         ),
       ),
     );

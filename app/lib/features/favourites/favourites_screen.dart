@@ -2,6 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/design/app_colors.dart';
+import '../../core/design/app_spacing.dart';
+import '../../core/widgets/ambient_background.dart';
+import '../../core/widgets/empty_state.dart';
+import '../../core/widgets/glass_surface.dart';
+import '../../core/widgets/gradient_button.dart';
+import '../../core/widgets/icon_badge.dart';
+import '../../core/widgets/section_header.dart';
 import '../../providers/core_providers.dart';
 import '../home/home_providers.dart' show favouriteStationsProvider, pinnedJourneysProvider;
 
@@ -22,106 +30,101 @@ class FavouritesScreen extends ConsumerWidget {
     final pinnedJourneys = ref.watch(pinnedJourneysProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Favourites')),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.push('/search'),
-        icon: const Icon(Icons.add),
-        label: const Text('Add station'),
-      ),
-      body: favourites.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) =>
-            Center(child: Text('Could not load favourites: $error')),
-        data: (rows) => ListView(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-          children: [
-            Text('Stations', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            if (rows.isEmpty)
-              const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text(
-                    'Add your Home and Work stations to unlock the commute '
-                    'card on the home screen.',
-                  ),
-                ),
-              )
-            else
-              for (final row in rows)
-                Card(
-                  child: ListTile(
-                    leading: Icon(switch ('${row['label']}'.toLowerCase()) {
-                      'home' => Icons.home_outlined,
-                      'work' => Icons.work_outline,
-                      'college' => Icons.school_outlined,
-                      _ => Icons.star_outline,
-                    }),
-                    title: Text(
-                      stations['${row['stop_id']}']?.name ?? '${row['stop_id']}',
+      body: AmbientBackground(
+        intensity: 0.5,
+        child: SafeArea(
+          child: Stack(
+            children: [
+              favourites.when(
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (error, _) => Center(child: Text('Could not load favourites: $error')),
+                data: (rows) => ListView(
+                  padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, 180),
+                  children: [
+                    Text('Saved', style: Theme.of(context).textTheme.displaySmall),
+                    const SectionHeader(title: 'Stations', padding: EdgeInsets.only(top: AppSpacing.xl)),
+                    if (rows.isEmpty)
+                      const EmptyState(
+                        icon: Icons.home_work_rounded,
+                        message:
+                            'Add your Home and Work stations to unlock the commute card on the home screen.',
+                      )
+                    else
+                      for (final row in rows)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                          child: _FavouriteRow(
+                            row: row,
+                            name: stations['${row['stop_id']}']?.name ?? '${row['stop_id']}',
+                            onAction: (choice) => _onStationAction(context, ref, row, choice),
+                            onTap: () => context.push('/station/${row['stop_id']}'),
+                          ),
+                        ),
+                    SectionHeader(
+                      title: 'Pinned journeys',
+                      trailing: TextButton.icon(
+                        onPressed: () => context.push('/planner'),
+                        icon: const Icon(Icons.add_rounded, size: 18),
+                        label: const Text('New'),
+                      ),
                     ),
-                    subtitle: row['label'] == null ? null : Text('${row['label']}'),
-                    trailing: PopupMenuButton<String>(
-                      onSelected: (choice) => _onStationAction(context, ref, row, choice),
-                      itemBuilder: (_) => [
-                        for (final label in _quickLabels)
-                          PopupMenuItem(value: 'label:$label', child: Text('Label as $label')),
-                        const PopupMenuItem(value: 'custom', child: Text('Custom label…')),
-                        const PopupMenuItem(value: 'remove', child: Text('Remove')),
-                      ],
-                    ),
-                    onTap: () => context.push('/station/${row['stop_id']}'),
-                  ),
+                    if (pinnedJourneys.isEmpty)
+                      const EmptyState(
+                        icon: Icons.push_pin_rounded,
+                        message: 'Pin a journey from the planner for one-tap access to routes you take often.',
+                      )
+                    else
+                      for (var i = 0; i < pinnedJourneys.length; i++)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                          child: GlassSurface(
+                            onTap: () => context.push(
+                              '/planner?origin=${pinnedJourneys[i]['origin_stop_id']}'
+                              '&destination=${pinnedJourneys[i]['destination_stop_id']}',
+                            ),
+                            child: Row(
+                              children: [
+                                IconBadge(icon: Icons.push_pin_rounded, gradient: AppColors.heroGradientFor()),
+                                const SizedBox(width: AppSpacing.md),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('${pinnedJourneys[i]['label']}', style: Theme.of(context).textTheme.titleMedium),
+                                      Text(
+                                        '${stations['${pinnedJourneys[i]['origin_stop_id']}']?.name ?? pinnedJourneys[i]['origin_stop_id']}'
+                                        ' → '
+                                        '${stations['${pinnedJourneys[i]['destination_stop_id']}']?.name ?? pinnedJourneys[i]['destination_stop_id']}',
+                                        style: Theme.of(context).textTheme.bodyMedium,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.close_rounded, size: 18),
+                                  onPressed: () async {
+                                    await ref.read(localStoreProvider).removePinnedJourneyAt(i);
+                                    ref.invalidate(pinnedJourneysProvider);
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                  ],
                 ),
-            const SizedBox(height: 24),
-            Row(
-              children: [
-                Expanded(
-                  child: Text('Pinned journeys', style: Theme.of(context).textTheme.titleMedium),
+              ),
+              Positioned(
+                right: AppSpacing.lg,
+                bottom: 108,
+                child: PrimaryButton(
+                  label: 'Add station',
+                  icon: Icons.add_rounded,
+                  onPressed: () => context.push('/search'),
                 ),
-                TextButton.icon(
-                  onPressed: () => context.push('/planner'),
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text('New'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            if (pinnedJourneys.isEmpty)
-              const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text(
-                    'Pin a journey from the planner for one-tap access to '
-                    'routes you take often.',
-                  ),
-                ),
-              )
-            else
-              for (var i = 0; i < pinnedJourneys.length; i++)
-                Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.push_pin_outlined),
-                    title: Text('${pinnedJourneys[i]['label']}'),
-                    subtitle: Text(
-                      '${stations['${pinnedJourneys[i]['origin_stop_id']}']?.name ?? pinnedJourneys[i]['origin_stop_id']}'
-                      ' → '
-                      '${stations['${pinnedJourneys[i]['destination_stop_id']}']?.name ?? pinnedJourneys[i]['destination_stop_id']}',
-                    ),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.close, size: 18),
-                      onPressed: () async {
-                        await ref.read(localStoreProvider).removePinnedJourneyAt(i);
-                        ref.invalidate(pinnedJourneysProvider);
-                      },
-                    ),
-                    onTap: () => context.push(
-                      '/planner?origin=${pinnedJourneys[i]['origin_stop_id']}'
-                      '&destination=${pinnedJourneys[i]['destination_stop_id']}',
-                    ),
-                  ),
-                ),
-          ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -147,10 +150,7 @@ class FavouritesScreen extends ConsumerWidget {
           title: const Text('Custom label'),
           content: TextField(controller: controller, autofocus: true),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
-            ),
+            TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel')),
             FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(controller.text.trim()),
               child: const Text('Save'),
@@ -166,5 +166,53 @@ class FavouritesScreen extends ConsumerWidget {
       await repository.save(stopId, label: label, position: position);
     }
     ref.invalidate(favouriteStationsProvider);
+  }
+}
+
+class _FavouriteRow extends StatelessWidget {
+  const _FavouriteRow({required this.row, required this.name, required this.onAction, required this.onTap});
+
+  final Map<String, dynamic> row;
+  final String name;
+  final ValueChanged<String> onAction;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = '${row['label'] ?? ''}'.toLowerCase();
+    final icon = switch (label) {
+      'home' => Icons.home_rounded,
+      'work' => Icons.work_rounded,
+      'college' => Icons.school_rounded,
+      _ => Icons.star_rounded,
+    };
+    return GlassSurface(
+      onTap: onTap,
+      child: Row(
+        children: [
+          IconBadge(icon: icon, gradient: AppColors.heroGradientFor()),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name, style: Theme.of(context).textTheme.titleMedium),
+                if (row['label'] != null)
+                  Text('${row['label']}', style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ),
+          ),
+          PopupMenuButton<String>(
+            onSelected: onAction,
+            itemBuilder: (_) => [
+              for (final label in FavouritesScreen._quickLabels)
+                PopupMenuItem(value: 'label:$label', child: Text('Label as $label')),
+              const PopupMenuItem(value: 'custom', child: Text('Custom label…')),
+              const PopupMenuItem(value: 'remove', child: Text('Remove')),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 }

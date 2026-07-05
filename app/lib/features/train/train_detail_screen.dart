@@ -2,12 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/design/app_spacing.dart';
 import '../../core/formatters.dart';
 import '../../core/theme.dart';
+import '../../core/widgets/ambient_background.dart';
+import '../../core/widgets/empty_state.dart';
+import '../../core/widgets/glass_surface.dart';
+import '../../core/widgets/line_chip.dart';
+import '../../core/widgets/live_indicator.dart';
+import '../../core/widgets/section_header.dart';
+import '../../core/widgets/stat_pill.dart';
 import '../../domain/models/eta.dart';
 import '../../providers/core_providers.dart';
 import '../../providers/live_providers.dart';
-import '../shared/widgets.dart';
 
 final _etaProvider = FutureProvider.autoDispose
     .family<VehicleEta?, (String, String)>((ref, key) async {
@@ -25,94 +32,84 @@ class TrainDetailScreen extends ConsumerWidget {
     final train = ref.watch(liveTrainProvider(vehicleId));
     final eta = train == null
         ? null
-        : ref
-            .watch(_etaProvider(
-                (vehicleId, train.vehicle.timestamp.toIso8601String())))
-            .valueOrNull;
+        : ref.watch(_etaProvider((vehicleId, train.vehicle.timestamp.toIso8601String()))).valueOrNull;
 
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: Text(train?.lineLabel ?? 'Train'),
-        actions: const [
-          Padding(
-              padding: EdgeInsets.only(right: 16),
-              child: Center(child: LiveIndicator())),
-        ],
+        actions: const [Padding(padding: EdgeInsets.only(right: 16), child: Center(child: LiveIndicator()))],
       ),
-      body: train == null
-          ? const Center(child: Text('This train is no longer tracked.'))
-          : ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        LineBadge(
-                            label: train.lineLabel,
-                            colorHex: train.routeColor),
-                        const SizedBox(height: 12),
-                        if (train.headsign != null)
-                          Text('Towards ${train.headsign}',
-                              style: Theme.of(context).textTheme.titleLarge),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 24,
-                          runSpacing: 12,
-                          children: [
-                            StatTile(
-                              label: 'Status',
-                              value: train.atStation
-                                  ? 'At ${train.currentStation?.name ?? '…'}'
-                                  : 'Moving',
-                            ),
-                            if (train.destination != null)
-                              StatTile(
-                                  label: 'Destination',
-                                  value: train.destination!.name),
-                            if (eta?.delaySeconds != null)
-                              StatTile(
-                                label: 'Schedule',
-                                value: eta!.delaySeconds! > 60
-                                    ? '${minutesLabel(eta.delaySeconds)} late'
-                                    : 'On time',
+      body: AmbientBackground(
+        intensity: 0.5,
+        child: SafeArea(
+          child: train == null
+              ? const Center(child: Text('This train is no longer tracked.'))
+              : ListView(
+                  padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 100, AppSpacing.lg, AppSpacing.xxl),
+                  children: [
+                    GlassSurface(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          LineChip(label: train.lineLabel, colorHex: train.routeColor),
+                          const SizedBox(height: AppSpacing.md),
+                          if (train.headsign != null)
+                            Text('Towards ${train.headsign}', style: Theme.of(context).textTheme.headlineSmall),
+                          const SizedBox(height: AppSpacing.lg),
+                          Wrap(
+                            spacing: AppSpacing.md,
+                            runSpacing: AppSpacing.md,
+                            children: [
+                              StatPill(
+                                icon: Icons.train_rounded,
+                                label: 'Status',
+                                value: train.atStation ? 'At ${train.currentStation?.name ?? '…'}' : 'Moving',
                               ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text('Upcoming stations',
-                    style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 8),
-                if (eta == null || eta.stations.isEmpty)
-                  const Card(
-                    child: Padding(
-                      padding: EdgeInsets.all(16),
-                      child: Text('Arrival times unavailable.'),
-                    ),
-                  )
-                else
-                  for (final station in eta.stations)
-                    ListTile(
-                      leading: Icon(Icons.circle,
-                          size: 12, color: routeColor(train.routeColor)),
-                      title: Text(station.stopName),
-                      trailing: Text(
-                        minutesLabel(station.etaSeconds),
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w700),
+                              if (train.destination != null)
+                                StatPill(icon: Icons.flag_rounded, label: 'Destination', value: train.destination!.name),
+                              if (eta?.delaySeconds != null)
+                                StatPill(
+                                  icon: Icons.schedule_rounded,
+                                  label: 'Schedule',
+                                  value: eta!.delaySeconds! > 60 ? '${minutesLabel(eta.delaySeconds)} late' : 'On time',
+                                ),
+                            ],
+                          ),
+                        ],
                       ),
-                      onTap: () => context.push('/station/${station.stopId}'),
                     ),
-              ],
-            ),
+                    const SectionHeader(title: 'Upcoming stations'),
+                    if (eta == null || eta.stations.isEmpty)
+                      const EmptyState(icon: Icons.info_rounded, message: 'Arrival times unavailable.')
+                    else
+                      for (final station in eta.stations)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                          child: GlassSurface(
+                            onTap: () => context.push('/station/${station.stopId}'),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 10,
+                                  height: 10,
+                                  decoration: BoxDecoration(
+                                    color: routeColor(train.routeColor, train.lineLabel),
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: AppSpacing.md),
+                                Expanded(child: Text(station.stopName, style: Theme.of(context).textTheme.titleMedium)),
+                                Text(minutesLabel(station.etaSeconds),
+                                    style: Theme.of(context).textTheme.titleMedium),
+                              ],
+                            ),
+                          ),
+                        ),
+                  ],
+                ),
+        ),
+      ),
     );
   }
 }

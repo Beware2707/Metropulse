@@ -31,6 +31,11 @@
 
   <title>MetroPulse</title>
   <link rel="manifest" href="manifest.json">
+
+  <!-- Required by maplibre_gl_web 0.26.x: the JS engine isn't bundled, so it
+       must be loaded here — version must match maplibre_gl_web's pubspec. -->
+  <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+  <link href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet"/>
 </head>
 <body>
   <!--

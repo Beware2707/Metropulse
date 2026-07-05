@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/design/app_colors.dart';
+import '../../core/design/app_spacing.dart';
+import '../../core/widgets/glass_surface.dart';
+import '../../core/widgets/icon_badge.dart';
 import '../../domain/models/station.dart';
 import '../../domain/search_index.dart';
 import '../../providers/core_providers.dart';
@@ -9,7 +13,7 @@ import '../search/search_providers.dart';
 /// A modal station picker shared by the Journey Planner and anywhere else
 /// that needs one: offline search over stations + curated aliases +
 /// curated exit landmarks, boosted by favourites/recents, with Recent /
-/// Favourite / Nearby quick-pick chips when the query is empty.
+/// Favourite quick-pick rows when the query is empty.
 class StationSearchSheet extends ConsumerStatefulWidget {
   const StationSearchSheet({super.key, this.title = 'Search stations'});
 
@@ -43,46 +47,51 @@ class _StationSearchSheetState extends ConsumerState<StationSearchSheet> {
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: SizedBox(
-        height: MediaQuery.of(context).size.height * 0.8,
+        height: MediaQuery.of(context).size.height * 0.85,
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, AppSpacing.sm),
               child: TextField(
                 autofocus: true,
-                decoration: InputDecoration(
-                  prefixIcon: const Icon(Icons.search),
-                  hintText: widget.title,
-                  border: const OutlineInputBorder(),
-                ),
+                decoration: InputDecoration(prefixIcon: const Icon(Icons.search_rounded), hintText: widget.title),
                 onChanged: (value) => setState(() => _query = value),
               ),
             ),
             Expanded(
               child: trimmed.isEmpty
-                  ? _QuickPicks(
-                      favouriteIds: favouriteIds,
-                      recentIds: recentIds,
-                      byId: byId,
-                      onPick: _pick,
-                    )
+                  ? _QuickPicks(favouriteIds: favouriteIds, recentIds: recentIds, byId: byId, onPick: _pick)
                   : hits.isEmpty
                       ? const Center(child: Text('No stations match that search.'))
-                      : ListView.builder(
+                      : ListView.separated(
+                          padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.xxl),
                           itemCount: hits.length,
+                          separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.sm),
                           itemBuilder: (_, index) {
                             final hit = hits[index];
-                            return ListTile(
-                              leading: const Icon(Icons.place_outlined),
-                              title: Text(hit.station.name),
-                              subtitle: hit.matchedText == null
-                                  ? null
-                                  : Text(
-                                      hit.reason == SearchMatchReason.alias
-                                          ? 'Also known as "${hit.matchedText}"'
-                                          : 'Near ${hit.matchedText}',
-                                    ),
+                            return GlassSurface(
                               onTap: () => _pick(hit.station),
+                              child: Row(
+                                children: [
+                                  const IconBadge(icon: Icons.place_rounded),
+                                  const SizedBox(width: AppSpacing.md),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(hit.station.name, style: Theme.of(context).textTheme.titleMedium),
+                                        if (hit.matchedText != null)
+                                          Text(
+                                            hit.reason == SearchMatchReason.alias
+                                                ? 'Also known as "${hit.matchedText}"'
+                                                : 'Near ${hit.matchedText}',
+                                            style: Theme.of(context).textTheme.bodySmall,
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
                             );
                           },
                         ),
@@ -125,33 +134,48 @@ class _QuickPicks extends StatelessWidget {
     if (favourites.isEmpty && recents.isEmpty) {
       return const Center(
         child: Padding(
-          padding: EdgeInsets.all(24),
+          padding: EdgeInsets.all(AppSpacing.xxl),
           child: Text('Start typing a station name, alias or nearby landmark.'),
         ),
       );
     }
     return ListView(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, AppSpacing.xxl),
       children: [
         if (favourites.isNotEmpty) ...[
           const _SectionLabel('Favourites'),
-          for (final station in favourites)
-            ListTile(
-              leading: const Icon(Icons.star, size: 20),
-              title: Text(station.name),
-              onTap: () => onPick(station),
-            ),
+          for (final station in favourites) _Row(station: station, icon: Icons.star_rounded, onTap: onPick),
         ],
         if (recents.isNotEmpty) ...[
           const _SectionLabel('Recent'),
-          for (final station in recents)
-            ListTile(
-              leading: const Icon(Icons.history, size: 20),
-              title: Text(station.name),
-              onTap: () => onPick(station),
-            ),
+          for (final station in recents) _Row(station: station, icon: Icons.history_rounded, onTap: onPick),
         ],
       ],
+    );
+  }
+}
+
+class _Row extends StatelessWidget {
+  const _Row({required this.station, required this.icon, required this.onTap});
+
+  final Station station;
+  final IconData icon;
+  final void Function(Station) onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: GlassSurface(
+        onTap: () => onTap(station),
+        child: Row(
+          children: [
+            IconBadge(icon: icon, color: AppColors.brandBlue.withValues(alpha: 0.14), foreground: AppColors.brandBlue),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(child: Text(station.name, style: Theme.of(context).textTheme.titleMedium)),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -163,14 +187,8 @@ class _SectionLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-      child: Text(
-        text.toUpperCase(),
-        style: Theme.of(context)
-            .textTheme
-            .labelSmall
-            ?.copyWith(color: Theme.of(context).colorScheme.outline, letterSpacing: 1),
-      ),
+      padding: const EdgeInsets.fromLTRB(4, AppSpacing.md, 4, AppSpacing.sm),
+      child: Text(text.toUpperCase(), style: Theme.of(context).textTheme.labelSmall),
     );
   }
 }

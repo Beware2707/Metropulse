@@ -4,14 +4,18 @@ import 'package:go_router/go_router.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 
 import '../../core/config.dart';
+import '../../core/design/app_spacing.dart';
 import '../../core/formatters.dart';
 import '../../core/theme.dart';
+import '../../core/widgets/gradient_button.dart';
+import '../../core/widgets/line_chip.dart';
+import '../../core/widgets/live_indicator.dart';
+import '../../core/widgets/stat_pill.dart';
 import '../../domain/models/eta.dart';
 import '../../domain/models/station.dart';
 import '../../domain/models/train.dart';
 import '../../providers/core_providers.dart';
 import '../../providers/live_providers.dart';
-import '../shared/widgets.dart';
 import 'train_animator.dart';
 
 /// The live network map: coloured line geometry, stations, and trains that
@@ -64,21 +68,23 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
     ref.listen(liveTrainsProvider, (_, trains) => _onTrains(trains));
 
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('Live map'),
         actions: [
-          IconButton(
-            tooltip: 'Download offline map area',
-            icon: _downloadingTiles
-                ? const SizedBox(
-                    width: 18, height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.download_for_offline_outlined),
-            onPressed: _downloadingTiles ? null : _downloadOfflineTiles,
-          ),
-          const Padding(
-              padding: EdgeInsets.only(right: 16),
-              child: Center(child: LiveIndicator())),
+          _downloadingTiles
+              ? const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                )
+              : IconPillButton(
+                  icon: Icons.download_for_offline_rounded,
+                  tooltip: 'Download offline map area',
+                  onPressed: _downloadOfflineTiles,
+                ),
+          const SizedBox(width: AppSpacing.sm),
+          const Center(child: LiveIndicator()),
+          const SizedBox(width: AppSpacing.lg),
         ],
       ),
       body: MapLibreMap(
@@ -259,8 +265,10 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
               'type': 'Feature',
               'properties': {
                 'vehicleId': entry.key,
-                'color':
-                    '#${(_latestTrains[entry.key]?.routeColor ?? '1F6FEB').replaceAll('#', '')}',
+                'color': routeColorHex(
+                  _latestTrains[entry.key]?.routeColor,
+                  _latestTrains[entry.key]?.lineLabel,
+                ),
               },
               'geometry': {
                 'type': 'Point',
@@ -289,6 +297,7 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
     if (bundle == null) return const {'type': 'FeatureCollection', 'features': []};
     final byId = {for (final s in bundle.stations) s.stopId: s};
     final colors = {for (final r in bundle.routes) r.routeId: r.color};
+    final names = {for (final r in bundle.routes) r.routeId: r.longName ?? r.shortName};
     final features = <Map<String, dynamic>>[];
     for (final entry in bundle.routeStations.entries) {
       final sequence = entry.value['0'] ?? entry.value.values.firstOrNull;
@@ -296,7 +305,7 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
       features.add({
         'type': 'Feature',
         'properties': {
-          'color': '#${(colors[entry.key] ?? '1F6FEB').replaceAll('#', '')}',
+          'color': routeColorHex(colors[entry.key], names[entry.key]),
         },
         'geometry': {
           'type': 'LineString',
@@ -340,79 +349,74 @@ class _TrainSheet extends ConsumerWidget {
     final next = train.nextStation;
     final speed = train.vehicle.speedMps;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 0, 24, 32),
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          LineBadge(label: train.lineLabel, colorHex: train.routeColor),
-          const SizedBox(height: 12),
+          LineChip(label: train.lineLabel, colorHex: train.routeColor),
+          const SizedBox(height: AppSpacing.md),
           Row(
             children: [
               Icon(
-                train.atStation ? Icons.subway : Icons.directions_subway_filled,
-                color: routeColor(train.routeColor),
+                train.atStation ? Icons.subway_rounded : Icons.directions_subway_filled,
+                color: routeColor(train.routeColor, train.lineLabel),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Text(
-                  train.atStation
-                      ? 'At ${train.currentStation?.name ?? 'station'}'
-                      : 'Moving train',
+                  train.atStation ? 'At ${train.currentStation?.name ?? 'station'}' : 'Moving train',
                   style: theme.textTheme.titleMedium,
                 ),
               ),
-              if (train.isStale) const Icon(Icons.signal_wifi_off, size: 16),
+              if (train.isStale) const Icon(Icons.signal_wifi_off_rounded, size: 16),
             ],
           ),
           if (next != null) ...[
-            const SizedBox(height: 12),
-            Text('Next: ${next.name}', style: theme.textTheme.titleLarge),
+            const SizedBox(height: AppSpacing.md),
+            Text('Next: ${next.name}', style: theme.textTheme.headlineSmall),
             _NextStopEta(vehicleId: vehicleId),
           ],
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.lg),
           Wrap(
-            spacing: 24,
-            runSpacing: 12,
+            spacing: AppSpacing.md,
+            runSpacing: AppSpacing.md,
             children: [
               if (train.currentStation != null)
-                StatTile(label: 'Current', value: train.currentStation!.name),
+                StatPill(icon: Icons.my_location_rounded, label: 'Current', value: train.currentStation!.name),
               if (speed != null)
-                StatTile(
-                    label: 'Speed',
-                    value: '${(speed * 3.6).round()} km/h'),
+                StatPill(icon: Icons.speed_rounded, label: 'Speed', value: '${(speed * 3.6).round()} km/h'),
               if (train.headsign != null)
-                StatTile(label: 'Direction', value: train.headsign!),
+                StatPill(icon: Icons.explore_rounded, label: 'Direction', value: train.headsign!),
               if (train.destination != null)
-                StatTile(label: 'Destination', value: train.destination!.name),
+                StatPill(icon: Icons.flag_rounded, label: 'Destination', value: train.destination!.name),
             ],
           ),
           if (train.remainingStations.isNotEmpty) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.lg),
             Text('Remaining stations', style: theme.textTheme.labelMedium),
-            const SizedBox(height: 6),
+            const SizedBox(height: AppSpacing.sm),
             SizedBox(
               height: 36,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 itemCount: train.remainingStations.length,
-                separatorBuilder: (_, __) =>
-                    const Icon(Icons.chevron_right, size: 16),
+                separatorBuilder: (_, __) => const Icon(Icons.chevron_right_rounded, size: 16),
                 itemBuilder: (_, index) => Chip(
                   visualDensity: VisualDensity.compact,
-                  label: Text(train.remainingStations[index].name,
-                      style: const TextStyle(fontSize: 12)),
+                  label: Text(train.remainingStations[index].name, style: const TextStyle(fontSize: 12)),
                 ),
               ),
             ),
           ],
-          const SizedBox(height: 16),
-          FilledButton.tonal(
+          const SizedBox(height: AppSpacing.xl),
+          PrimaryButton(
+            label: 'Train details',
+            expand: true,
             onPressed: () {
               Navigator.of(context).pop();
               context.push('/train/$vehicleId');
             },
-            child: const Text('Train details'),
           ),
         ],
       ),

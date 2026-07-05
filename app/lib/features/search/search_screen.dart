@@ -2,6 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/design/app_colors.dart';
+import '../../core/design/app_spacing.dart';
+import '../../core/widgets/ambient_background.dart';
+import '../../core/widgets/empty_state.dart';
+import '../../core/widgets/glass_surface.dart';
+import '../../core/widgets/icon_badge.dart';
 import '../../domain/models/station.dart';
 import '../../domain/search_index.dart';
 import '../../providers/core_providers.dart';
@@ -19,6 +25,13 @@ class SearchScreen extends ConsumerStatefulWidget {
 
 class _SearchScreenState extends ConsumerState<SearchScreen> {
   String _query = '';
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -39,72 +52,96 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           );
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Search stations')),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: TextField(
-              autofocus: true,
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.search),
-                hintText: 'Station, alias or nearby landmark',
-                border: OutlineInputBorder(),
-              ),
-              onChanged: (value) => setState(() => _query = value),
-            ),
-          ),
-          if (bundle.isLoading)
-            const Expanded(child: Center(child: CircularProgressIndicator()))
-          else if (stations.isEmpty)
-            const Expanded(
-              child: Center(
-                child: Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Text(
-                    'Station data not downloaded yet.\n'
-                    'Connect once to cache the network for offline use.',
-                    textAlign: TextAlign.center,
-                  ),
+      body: AmbientBackground(
+        intensity: 0.5,
+        child: SafeArea(
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, AppSpacing.sm),
+                child: Row(
+                  children: [
+                    IconButton(onPressed: () => context.pop(), icon: const Icon(Icons.arrow_back_rounded)),
+                    Expanded(
+                      child: TextField(
+                        controller: _controller,
+                        autofocus: true,
+                        decoration: const InputDecoration(
+                          prefixIcon: Icon(Icons.search_rounded),
+                          hintText: 'Station, alias or nearby landmark',
+                        ),
+                        onChanged: (value) => setState(() => _query = value),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            )
-          else if (trimmed.isEmpty)
-            Expanded(
-              child: _RecentAndFavourites(
-                favouriteIds: favouriteIds,
-                recentIds: recentIds,
-                byId: byId,
-                onTap: _openStation,
-              ),
-            )
-          else if (hits.isEmpty)
-            const Expanded(
-              child: Center(child: Text('No stations match that search.')),
-            )
-          else
-            Expanded(
-              child: ListView.builder(
-                itemCount: hits.length,
-                itemBuilder: (_, index) {
-                  final hit = hits[index];
-                  return ListTile(
-                    leading: const Icon(Icons.place_outlined),
-                    title: Text(hit.station.name),
-                    subtitle: hit.matchedText == null
-                        ? null
-                        : Text(
-                            hit.reason == SearchMatchReason.alias
-                                ? 'Also known as "${hit.matchedText}"'
-                                : 'Near ${hit.matchedText}',
-                          ),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => _openStation(hit.station),
-                  );
-                },
-              ),
-            ),
-        ],
+              if (bundle.isLoading)
+                const Expanded(child: Center(child: CircularProgressIndicator()))
+              else if (stations.isEmpty)
+                const Expanded(
+                  child: Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(AppSpacing.xxl),
+                      child: EmptyState(
+                        icon: Icons.cloud_off_rounded,
+                        message: 'Station data not downloaded yet. Connect once to cache the network for offline use.',
+                      ),
+                    ),
+                  ),
+                )
+              else if (trimmed.isEmpty)
+                Expanded(
+                  child: _RecentAndFavourites(
+                    favouriteIds: favouriteIds,
+                    recentIds: recentIds,
+                    byId: byId,
+                    onTap: _openStation,
+                  ),
+                )
+              else if (hits.isEmpty)
+                const Expanded(
+                  child: Center(child: Text('No stations match that search.')),
+                )
+              else
+                Expanded(
+                  child: ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, AppSpacing.xxl),
+                    itemCount: hits.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.sm),
+                    itemBuilder: (_, index) {
+                      final hit = hits[index];
+                      return GlassSurface(
+                        onTap: () => _openStation(hit.station),
+                        child: Row(
+                          children: [
+                            const IconBadge(icon: Icons.place_rounded),
+                            const SizedBox(width: AppSpacing.md),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(hit.station.name, style: Theme.of(context).textTheme.titleMedium),
+                                  if (hit.matchedText != null)
+                                    Text(
+                                      hit.reason == SearchMatchReason.alias
+                                          ? 'Also known as "${hit.matchedText}"'
+                                          : 'Near ${hit.matchedText}',
+                                      style: Theme.of(context).textTheme.bodySmall,
+                                    ),
+                                ],
+                              ),
+                            ),
+                            const Icon(Icons.chevron_right_rounded),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -140,50 +177,63 @@ class _RecentAndFavourites extends StatelessWidget {
     if (favourites.isEmpty && recents.isEmpty) {
       return const Center(
         child: Padding(
-          padding: EdgeInsets.all(24),
+          padding: EdgeInsets.all(AppSpacing.xxl),
           child: Text('Start typing a station name, alias or nearby landmark.'),
         ),
       );
     }
     return ListView(
+      padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, AppSpacing.xxl),
       children: [
         if (favourites.isNotEmpty) ...[
-          const _SectionHeader('Favourites'),
-          for (final station in favourites)
-            ListTile(
-              leading: const Icon(Icons.star),
-              title: Text(station.name),
-              onTap: () => onTap(station),
-            ),
+          const _SectionLabel('Favourites'),
+          for (final station in favourites) _StationRow(station: station, icon: Icons.star_rounded, onTap: onTap),
         ],
         if (recents.isNotEmpty) ...[
-          const _SectionHeader('Recent searches'),
-          for (final station in recents)
-            ListTile(
-              leading: const Icon(Icons.history),
-              title: Text(station.name),
-              onTap: () => onTap(station),
-            ),
+          const _SectionLabel('Recent searches'),
+          for (final station in recents) _StationRow(station: station, icon: Icons.history_rounded, onTap: onTap),
         ],
       ],
     );
   }
 }
 
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader(this.text);
+class _StationRow extends StatelessWidget {
+  const _StationRow({required this.station, required this.icon, required this.onTap});
+
+  final Station station;
+  final IconData icon;
+  final void Function(Station) onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: GlassSurface(
+        onTap: () => onTap(station),
+        child: Row(
+          children: [
+            IconBadge(icon: icon, color: AppColors.brandBlue.withValues(alpha: 0.14), foreground: AppColors.brandBlue),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(child: Text(station.name, style: Theme.of(context).textTheme.titleMedium)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel(this.text);
   final String text;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      padding: const EdgeInsets.fromLTRB(4, AppSpacing.lg, 4, AppSpacing.sm),
       child: Text(
         text.toUpperCase(),
-        style: Theme.of(context)
-            .textTheme
-            .labelSmall
-            ?.copyWith(color: Theme.of(context).colorScheme.outline, letterSpacing: 1),
+        style: Theme.of(context).textTheme.labelSmall,
       ),
     );
   }

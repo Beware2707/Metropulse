@@ -2,14 +2,24 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/design/app_colors.dart';
+import '../../core/design/app_radius.dart';
+import '../../core/design/app_spacing.dart';
 import '../../core/formatters.dart';
 import '../../core/l10n_ext.dart';
+import '../../core/theme.dart';
+import '../../core/widgets/ambient_background.dart';
+import '../../core/widgets/glass_surface.dart';
+import '../../core/widgets/gradient_button.dart';
+import '../../core/widgets/journey_progress_track.dart';
+import '../../core/widgets/line_chip.dart';
+import '../../core/widgets/live_indicator.dart';
+import '../../core/widgets/stat_pill.dart';
 import '../../domain/companion_messages.dart';
 import '../../domain/journey_progress.dart';
 import '../../domain/models/journey.dart';
 import '../../providers/core_providers.dart';
 import '../home/home_providers.dart';
-import '../shared/widgets.dart';
 import 'journey_mode_providers.dart';
 
 /// The best exit at the destination for this line/direction (fetched once
@@ -24,9 +34,11 @@ final _exitProvider = FutureProvider.autoDispose
 
 /// Journey Mode: the persistent live trip card — MetroPulse's flagship
 /// screen. Everything on it is driven by [JourneyProgressSnapshot], which is
-/// itself sourced from a live WS-tracked vehicle when one is bound and fresh,
-/// falling back to a GTFS-timetable simulation otherwise (see
-/// `journey_mode_providers.dart`). No fake GPS is ever synthesised.
+/// itself sourced from a live WS-tracked vehicle when one is bound and
+/// fresh, falling back to a GTFS-timetable simulation otherwise (see
+/// `journey_mode_providers.dart`). No fake GPS is ever synthesised — the
+/// progress track's animated dot glides between whatever real fractions the
+/// snapshot provides, and the source is always labelled honestly.
 ///
 /// Recovery model: the server owns the journey session (auto-complete,
 /// missed-stop, interchange and delay detection); Hive holds the
@@ -40,21 +52,20 @@ class JourneyModeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final journeyAsync = ref.watch(activeJourneyProvider);
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('Journey mode'),
-        actions: const [
-          Padding(
-              padding: EdgeInsets.only(right: 16),
-              child: Center(child: LiveIndicator())),
-        ],
+        actions: const [Padding(padding: EdgeInsets.only(right: 16), child: Center(child: LiveIndicator()))],
       ),
-      body: journeyAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) =>
-            Center(child: Text('Could not load journey: $error')),
-        data: (journey) => journey == null
-            ? const _NoJourney()
-            : _JourneyView(journey: journey),
+      body: AmbientBackground(
+        intensity: 1.1,
+        child: SafeArea(
+          child: journeyAsync.when(
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (error, _) => Center(child: Text('Could not load journey: $error')),
+            data: (journey) => journey == null ? const _NoJourney() : _JourneyView(journey: journey),
+          ),
+        ),
       ),
     );
   }
@@ -66,18 +77,27 @@ class _NoJourney extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.route_outlined, size: 56),
-          const SizedBox(height: 12),
-          Text(context.t.journeyNoJourney),
-          const SizedBox(height: 16),
-          FilledButton(
-            onPressed: () => context.go('/planner'),
-            child: Text(context.t.journeyPlanCta),
-          ),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.xxl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 96,
+              height: 96,
+              decoration: BoxDecoration(gradient: AppColors.heroGradientFor(), shape: BoxShape.circle),
+              child: const Icon(Icons.route_rounded, size: 44, color: Colors.white),
+            ),
+            const SizedBox(height: AppSpacing.xxl),
+            Text(context.t.journeyNoJourney, style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: AppSpacing.xxl),
+            PrimaryButton(
+              label: context.t.journeyPlanCta,
+              icon: Icons.alt_route_rounded,
+              onPressed: () => context.go('/planner'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -94,8 +114,6 @@ class _JourneyView extends ConsumerWidget {
     final journeyContext = ref.watch(journeyContextProvider(journey.id));
     final snapshot = ref.watch(journeyProgressProvider(journey));
 
-    // Best-effort: reinforce the in-app banner with a real backend push
-    // once a live vehicle is bound. Fire-and-forget; result unused here.
     if (journey.vehicleId != null) {
       ref.watch(destinationAlertCreationProvider(
         (journey.id, journey.vehicleId!, journey.destinationStopId),
@@ -115,8 +133,7 @@ class _JourneyView extends ConsumerWidget {
     final exitName = exit == null ? null : '${exit['name']}';
 
     final origin = stations[journey.originStopId]?.name ?? journey.originStopId;
-    final destination =
-        stations[journey.destinationStopId]?.name ?? journey.destinationStopId;
+    final destination = stations[journey.destinationStopId]?.name ?? journey.destinationStopId;
 
     final message = buildCompanionMessage(
       arrived: snapshot?.arrived ?? false,
@@ -131,112 +148,141 @@ class _JourneyView extends ConsumerWidget {
     );
 
     final theme = Theme.of(context);
+    final lineColor = routeColor(journeyContext?.routeColor, journeyContext?.routeLongName);
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 640),
         child: ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 100, AppSpacing.lg, AppSpacing.xxl),
           children: [
-            if (message != null) _CompanionBanner(message: message),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(origin, style: theme.textTheme.titleLarge),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Icon(Icons.arrow_downward,
-                          color: theme.colorScheme.outline),
-                    ),
-                    Text(destination,
-                        style: theme.textTheme.titleLarge
-                            ?.copyWith(fontWeight: FontWeight.w800)),
-                    const SizedBox(height: 16),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: LinearProgressIndicator(
-                        value: snapshot?.fractionComplete,
-                        minHeight: 8,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            snapshot?.remainingStations == null
-                                ? '–'
-                                : '${snapshot!.remainingStations} station(s) remaining',
-                            style: theme.textTheme.labelMedium,
-                          ),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 350),
+              transitionBuilder: (child, animation) => FadeTransition(
+                opacity: animation,
+                child: SlideTransition(
+                  position: Tween(begin: const Offset(0, -0.15), end: Offset.zero).animate(animation),
+                  child: child,
+                ),
+              ),
+              child: message == null
+                  ? const SizedBox.shrink(key: ValueKey('no-message'))
+                  : _CompanionBanner(key: ValueKey(message.text), message: message),
+            ),
+            GlassSurface(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [lineColor.withValues(alpha: 0.22), lineColor.withValues(alpha: 0.06)],
+              ),
+              padding: const EdgeInsets.all(AppSpacing.xxl),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (journeyContext?.routeLongName != null) ...[
+                    LineChip(label: journeyContext!.routeLongName!, colorHex: journeyContext.routeColor),
+                    const SizedBox(height: AppSpacing.md),
+                  ],
+                  Text(origin, style: theme.textTheme.titleMedium),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 2),
+                    child: Icon(Icons.arrow_downward_rounded, size: 18),
+                  ),
+                  Text(destination, style: theme.textTheme.headlineMedium),
+                  const SizedBox(height: AppSpacing.xl),
+                  JourneyProgressTrack(fraction: snapshot?.fractionComplete, color: lineColor),
+                  const SizedBox(height: AppSpacing.sm),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          snapshot?.remainingStations == null
+                              ? '–'
+                              : '${snapshot!.remainingStations} station(s) remaining',
+                          style: theme.textTheme.labelMedium,
                         ),
-                        if (snapshot != null)
-                          Text(
+                      ),
+                      if (snapshot != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: (snapshot.source == JourneyProgressSource.liveVehicle
+                                    ? AppColors.live
+                                    : theme.colorScheme.outline)
+                                .withValues(alpha: 0.15),
+                            borderRadius: AppRadius.pillR,
+                          ),
+                          child: Text(
                             snapshot.source == JourneyProgressSource.liveVehicle
                                 ? 'LIVE TRACKING'
                                 : 'ESTIMATED FROM TIMETABLE',
                             style: theme.textTheme.labelSmall?.copyWith(
-                              color: theme.colorScheme.outline,
-                              letterSpacing: 0.5,
+                              color: snapshot.source == JourneyProgressSource.liveVehicle
+                                  ? AppColors.live
+                                  : theme.colorScheme.outline,
                             ),
                           ),
-                      ],
-                    ),
-                    const Divider(height: 32),
-                    Wrap(
-                      spacing: 24,
-                      runSpacing: 16,
-                      children: [
-                        StatTile(
-                          label: context.t.journeyBoard,
-                          value: journeyContext?.routeLongName ?? '–',
                         ),
-                        if (journeyContext?.recommendedCoach != null)
-                          StatTile(
-                            label: context.t.journeyCoach,
-                            value: '${journeyContext!.recommendedCoach! + 1}',
-                          ),
-                        if (exitName != null)
-                          StatTile(label: context.t.journeyExit, value: exitName),
-                        StatTile(
-                          label: context.t.journeyTimeRemaining,
-                          value: snapshot?.etaToDestination == null
-                              ? '–'
-                              : minutesLabel(
-                                  snapshot!.etaToDestination!.inSeconds.toDouble()),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.xxl),
+                  Wrap(
+                    spacing: AppSpacing.md,
+                    runSpacing: AppSpacing.md,
+                    children: [
+                      StatPill(
+                        icon: Icons.directions_subway_filled_rounded,
+                        label: context.t.journeyBoard,
+                        value: journeyContext?.routeLongName ?? '–',
+                        accent: lineColor,
+                      ),
+                      if (journeyContext?.recommendedCoach != null)
+                        StatPill(
+                          icon: Icons.event_seat_rounded,
+                          label: context.t.journeyCoach,
+                          value: '${journeyContext!.recommendedCoach! + 1}',
                         ),
-                        StatTile(
-                          label: context.t.journeyStationsRemaining,
-                          value: snapshot?.remainingStations?.toString() ?? '–',
+                      if (exitName != null)
+                        StatPill(icon: Icons.exit_to_app_rounded, label: context.t.journeyExit, value: exitName),
+                      StatPill(
+                        icon: Icons.timer_outlined,
+                        label: context.t.journeyTimeRemaining,
+                        value: snapshot?.etaToDestination == null
+                            ? '–'
+                            : minutesLabel(snapshot!.etaToDestination!.inSeconds.toDouble()),
+                      ),
+                      StatPill(
+                        icon: Icons.list_alt_rounded,
+                        label: context.t.journeyStationsRemaining,
+                        value: snapshot?.remainingStations?.toString() ?? '–',
+                      ),
+                      if (snapshot?.delaySeconds != null && snapshot!.delaySeconds! > 120)
+                        StatPill(
+                          icon: Icons.warning_amber_rounded,
+                          label: context.t.journeyRunningLate,
+                          value: minutesLabel(snapshot.delaySeconds),
+                          accent: AppColors.warning,
                         ),
-                        if (snapshot?.delaySeconds != null &&
-                            snapshot!.delaySeconds! > 120)
-                          StatTile(
-                            label: context.t.journeyRunningLate,
-                            value: minutesLabel(snapshot.delaySeconds),
-                          ),
-                      ],
-                    ),
-                  ],
-                ),
+                    ],
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: AppSpacing.xxl),
             Row(
               children: [
                 Expanded(
-                  child: OutlinedButton(
+                  child: GhostButton(
+                    label: context.t.journeyAbandon,
+                    expand: true,
                     onPressed: () => _end(context, ref, completed: false),
-                    child: Text(context.t.journeyAbandon),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: AppSpacing.md),
                 Expanded(
-                  child: FilledButton(
+                  child: PrimaryButton(
+                    label: context.t.journeyArrived,
+                    expand: true,
                     onPressed: () => _end(context, ref, completed: true),
-                    child: Text(context.t.journeyArrived),
                   ),
                 ),
               ],
@@ -247,11 +293,8 @@ class _JourneyView extends ConsumerWidget {
     );
   }
 
-  Future<void> _end(BuildContext context, WidgetRef ref,
-      {required bool completed}) async {
-    await ref
-        .read(journeyRepositoryProvider)
-        .end(journey.id, completed: completed);
+  Future<void> _end(BuildContext context, WidgetRef ref, {required bool completed}) async {
+    await ref.read(journeyRepositoryProvider).end(journey.id, completed: completed);
     await ref.read(localStoreProvider).clearJourneyContext();
     ref
       ..invalidate(activeJourneyProvider)
@@ -261,29 +304,33 @@ class _JourneyView extends ConsumerWidget {
 }
 
 class _CompanionBanner extends StatelessWidget {
-  const _CompanionBanner({required this.message});
+  const _CompanionBanner({super.key, required this.message});
 
   final CompanionMessage message;
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final (color, icon) = switch (message.kind) {
-      CompanionMessageKind.arrived => (scheme.primaryContainer, Icons.flag_circle_outlined),
-      CompanionMessageKind.arriving =>
-        (scheme.primaryContainer, Icons.notifications_active_outlined),
-      CompanionMessageKind.interchange =>
-        (scheme.tertiaryContainer, Icons.transfer_within_a_station),
-      CompanionMessageKind.boarding => (scheme.secondaryContainer, Icons.directions_subway_filled),
-      CompanionMessageKind.nextStation => (scheme.surfaceContainerHighest, Icons.arrow_forward),
+    final (colors, icon) = switch (message.kind) {
+      CompanionMessageKind.arrived => ([AppColors.success, AppColors.live], Icons.flag_circle_rounded),
+      CompanionMessageKind.arriving => (AppColors.heroGradient, Icons.notifications_active_rounded),
+      CompanionMessageKind.interchange => ([AppColors.brandViolet, AppColors.brandPink], Icons.transfer_within_a_station_rounded),
+      CompanionMessageKind.boarding => (AppColors.heroGradient, Icons.directions_subway_filled),
+      CompanionMessageKind.nextStation => ([AppColors.brandBlue, AppColors.brandBlue], Icons.arrow_forward_rounded),
     };
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Card(
-        color: color,
-        child: ListTile(
-          leading: Icon(icon),
-          title: Text(message.text, style: const TextStyle(fontWeight: FontWeight.w600)),
+      padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+      child: GlassSurface(
+        border: false,
+        gradient: LinearGradient(colors: colors),
+        child: Row(
+          children: [
+            Icon(icon, color: Colors.white),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Text(message.text,
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 15)),
+            ),
+          ],
         ),
       ),
     );

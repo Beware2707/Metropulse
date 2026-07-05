@@ -2,8 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/design/app_colors.dart';
+import '../../core/design/app_radius.dart';
+import '../../core/design/app_spacing.dart';
 import '../../core/formatters.dart';
 import '../../core/theme.dart';
+import '../../core/widgets/ambient_background.dart';
+import '../../core/widgets/glass_surface.dart';
+import '../../core/widgets/gradient_button.dart';
+import '../../core/widgets/icon_badge.dart';
+import '../../core/widgets/line_chip.dart';
+import '../../core/widgets/reveal_animations.dart';
 import '../../data/repositories.dart';
 import '../../domain/fare.dart';
 import '../../domain/models/journey.dart';
@@ -11,7 +20,6 @@ import '../../domain/models/station.dart';
 import '../../providers/core_providers.dart';
 import '../home/home_providers.dart';
 import '../shared/station_search_sheet.dart';
-import '../shared/widgets.dart';
 
 /// Journey planner: pick two stations, choose a route preference, get a
 /// visualised route with legs/interchanges/fare/timing, and hand the plan
@@ -40,8 +48,6 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Resolve id -> Station once the offline bundle is available, without
-    // blocking first frame on it.
     if (!_resolvedInitialStations) {
       final stations = ref.watch(stationIndexProvider);
       if (stations.isNotEmpty) {
@@ -55,54 +61,88 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
     }
 
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('Plan journey'),
         actions: [
-          IconButton(
+          IconPillButton(
+            icon: Icons.swap_vert_rounded,
             tooltip: 'Swap origin and destination',
-            icon: const Icon(Icons.swap_vert),
             onPressed: _origin == null || _destination == null ? null : _swap,
           ),
+          const SizedBox(width: AppSpacing.lg),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          _EndpointTile(label: 'From', station: _origin, onTap: () => _pick(true)),
-          const SizedBox(height: 8),
-          _EndpointTile(label: 'To', station: _destination, onTap: () => _pick(false)),
-          const SizedBox(height: 16),
-          _PreferenceSelector(
-            preference: _preference,
-            wheelchairRequested: _wheelchairRequested,
-            onPreferenceChanged: (value) {
-              setState(() => _preference = value);
-              _planJourney();
-            },
-            onWheelchairToggled: (value) => setState(() => _wheelchairRequested = value),
+      body: AmbientBackground(
+        intensity: 0.6,
+        child: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 100, AppSpacing.lg, 48),
+            children: [
+              _EndpointTile(
+                label: 'From',
+                icon: Icons.trip_origin_rounded,
+                station: _origin,
+                onTap: () => _pick(true),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              _EndpointTile(
+                label: 'To',
+                icon: Icons.flag_rounded,
+                station: _destination,
+                onTap: () => _pick(false),
+              ),
+              const SizedBox(height: AppSpacing.xl),
+              _PreferenceSelector(
+                preference: _preference,
+                wheelchairRequested: _wheelchairRequested,
+                onPreferenceChanged: (value) {
+                  setState(() => _preference = value);
+                  _planJourney();
+                },
+                onWheelchairToggled: (value) => setState(() => _wheelchairRequested = value),
+              ),
+              const SizedBox(height: AppSpacing.xl),
+              if (_loading)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: AppSpacing.xxl),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+                  child: GlassSurface(
+                    color: AppColors.danger.withValues(alpha: 0.12),
+                    child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                  ),
+                ),
+              if (_plan != null) ...[
+                DelayedReveal(child: _PlanSummary(plan: _plan!, onPin: _pinJourney)),
+                const SizedBox(height: AppSpacing.lg),
+                DelayedReveal(
+                  delay: const Duration(milliseconds: 80),
+                  child: _RouteVisualization(plan: _plan!),
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                for (var i = 0; i < _plan!.legs.length; i++)
+                  DelayedReveal(
+                    delay: Duration(milliseconds: 120 + 60 * i),
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                      child: _LegTile(leg: _plan!.legs[i]),
+                    ),
+                  ),
+                const SizedBox(height: AppSpacing.lg),
+                PrimaryButton(
+                  label: 'Start journey mode',
+                  icon: Icons.navigation_rounded,
+                  expand: true,
+                  onPressed: _startJourney,
+                ),
+              ],
+            ],
           ),
-          const SizedBox(height: 16),
-          if (_loading) const Center(child: CircularProgressIndicator()),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Text(_error!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error)),
-            ),
-          if (_plan != null) ...[
-            _PlanSummary(plan: _plan!, onPin: _pinJourney),
-            const SizedBox(height: 12),
-            _RouteVisualization(plan: _plan!),
-            const SizedBox(height: 12),
-            for (final leg in _plan!.legs) _LegTile(leg: leg),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: _startJourney,
-              icon: const Icon(Icons.navigation_outlined),
-              label: const Text('Start journey mode'),
-            ),
-          ],
-        ],
+        ),
       ),
     );
   }
@@ -112,6 +152,8 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl))),
       builder: (_) => StationSearchSheet(title: 'Choose ${isOrigin ? 'origin' : 'destination'}'),
     );
     if (station == null) return;
@@ -205,9 +247,6 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
       interchangeStopIds: plan.interchangeStopIds,
     );
 
-    // Persist the plan snapshot + start time so Journey Mode's GTFS-
-    // timetable simulation survives backgrounding and a full restart, and
-    // the coach recommendation so it can guide boarding immediately.
     final coach = await repository.coachRecommendation(
       origin: plan.origin.stopId,
       destination: plan.destination.stopId,
@@ -233,20 +272,33 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
 }
 
 class _EndpointTile extends StatelessWidget {
-  const _EndpointTile({required this.label, required this.station, required this.onTap});
+  const _EndpointTile({required this.label, required this.icon, required this.station, required this.onTap});
 
   final String label;
+  final IconData icon;
   final Station? station;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: ListTile(
-        leading: Icon(label == 'From' ? Icons.trip_origin : Icons.flag_outlined),
-        title: Text(station?.name ?? 'Choose $label station'),
-        trailing: const Icon(Icons.chevron_right),
-        onTap: onTap,
+    final theme = Theme.of(context);
+    return GlassSurface(
+      onTap: onTap,
+      child: Row(
+        children: [
+          IconBadge(icon: icon, gradient: AppColors.heroGradientFor()),
+          const SizedBox(width: AppSpacing.lg),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label.toUpperCase(), style: theme.textTheme.labelSmall),
+                Text(station?.name ?? 'Choose $label station', style: theme.textTheme.titleLarge),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_right_rounded),
+        ],
       ),
     );
   }
@@ -271,7 +323,8 @@ class _PreferenceSelector extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Wrap(
-          spacing: 8,
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.sm,
           children: [
             for (final (value, label) in const [
               (RoutePreference.fastest, 'Fastest'),
@@ -281,25 +334,24 @@ class _PreferenceSelector extends StatelessWidget {
               ChoiceChip(
                 label: Text(label),
                 selected: preference == value,
+                showCheckmark: false,
                 onSelected: (_) => onPreferenceChanged(value),
               ),
             FilterChip(
               label: const Text('Wheelchair-friendly'),
               selected: wheelchairRequested,
+              showCheckmark: false,
               onSelected: onWheelchairToggled,
             ),
           ],
         ),
         if (wheelchairRequested)
           Padding(
-            padding: const EdgeInsets.only(top: 8),
+            padding: const EdgeInsets.only(top: AppSpacing.sm),
             child: Text(
-              "Wheelchair-accessible routing isn't available for this network "
-              'yet — showing the standard route instead.',
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(color: Theme.of(context).colorScheme.error),
+              "Wheelchair-accessible routing isn't available for this network yet — showing the standard "
+              'route instead.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.error),
             ),
           ),
       ],
@@ -316,38 +368,70 @@ class _PlanSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fare = estimateFare(plan);
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    final theme = Theme.of(context);
+    return GlassSurface(
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [AppColors.brandBlue.withValues(alpha: 0.94), AppColors.brandViolet.withValues(alpha: 0.94)],
+      ),
+      border: false,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Wrap(
-                    spacing: 24,
-                    runSpacing: 12,
-                    children: [
-                      StatTile(
-                          label: 'Travel time',
-                          value: minutesLabel(plan.expectedTravelSeconds)),
-                      StatTile(label: 'Arrive', value: clockTime(plan.expectedArrivalAt)),
-                      StatTile(label: 'Fare (est.)', value: '₹${fare.rupees}'),
-                      StatTile(
-                          label: 'Interchanges', value: '${plan.interchangeCount}'),
-                      StatTile(
-                          label: 'Walking', value: distanceLabel(plan.walkingDistanceM)),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Pin this journey',
-                  icon: const Icon(Icons.push_pin_outlined),
-                  onPressed: onPin,
+                Text('TRAVEL TIME',
+                    style: theme.textTheme.labelSmall?.copyWith(color: Colors.white70)),
+                Text(minutesLabel(plan.expectedTravelSeconds),
+                    style: theme.textTheme.displaySmall?.copyWith(color: Colors.white)),
+                const SizedBox(height: AppSpacing.lg),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    _MiniStat(label: 'Arrive', value: clockTime(plan.expectedArrivalAt)),
+                    _MiniStat(label: 'Fare (est.)', value: '₹${fare.rupees}'),
+                    _MiniStat(label: 'Interchanges', value: '${plan.interchangeCount}'),
+                    _MiniStat(label: 'Walking', value: distanceLabel(plan.walkingDistanceM)),
+                  ],
                 ),
               ],
             ),
+          ),
+          IconPillButton(icon: Icons.push_pin_rounded, tooltip: 'Pin this journey', onPressed: onPin),
+        ],
+      ),
+    );
+  }
+}
+
+class _MiniStat extends StatelessWidget {
+  const _MiniStat({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.16), borderRadius: AppRadius.mdR),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 160),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(label.toUpperCase(),
+                style: const TextStyle(
+                    color: Colors.white70, fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
+            Text(value,
+                style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w800),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis),
           ],
         ),
       ),
@@ -355,8 +439,8 @@ class _PlanSummary extends StatelessWidget {
   }
 }
 
-/// A simple, legible route visualisation: a coloured vertical line per ride
-/// leg with its stations, and a dashed connector for walking transfers.
+/// The animated route visualisation: each ride leg "draws" itself in as a
+/// bold coloured bar, walking transfers shown as a dotted connector.
 class _RouteVisualization extends StatelessWidget {
   const _RouteVisualization({required this.plan});
 
@@ -365,57 +449,51 @@ class _RouteVisualization extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            for (final leg in plan.legs)
-              if (leg.isRide)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 10,
-                        height: 10,
-                        decoration: BoxDecoration(
-                          color: routeColor(leg.routeColor),
-                          shape: BoxShape.circle,
-                        ),
+    return GlassSurface(
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < plan.legs.length; i++)
+            if (plan.legs[i].isRide)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: routeColor(plan.legs[i].routeColor, plan.legs[i].routeLongName),
+                        shape: BoxShape.circle,
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Container(
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: routeColor(leg.routeColor),
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: DrawnBar(
+                        key: ValueKey('${plan.origin.stopId}-${plan.destination.stopId}-leg-$i'),
+                        color: routeColor(plan.legs[i].routeColor, plan.legs[i].routeLongName),
+                        delay: Duration(milliseconds: 100 * i),
                       ),
-                      const SizedBox(width: 8),
-                      Text('${(leg.stations?.length ?? 1) - 1} stops',
-                          style: theme.textTheme.labelSmall),
-                    ],
-                  ),
-                )
-              else
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: Row(
-                    children: [
-                      Icon(Icons.more_vert, size: 16, color: theme.colorScheme.outline),
-                      const SizedBox(width: 8),
-                      Text('Walk ${distanceLabel(leg.distanceM)}',
-                          style: theme.textTheme.labelSmall
-                              ?.copyWith(color: theme.colorScheme.outline)),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Text('${(plan.legs[i].stations?.length ?? 1) - 1} stops', style: theme.textTheme.labelSmall),
+                  ],
                 ),
-          ],
-        ),
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  children: [
+                    Icon(Icons.more_vert_rounded, size: 16, color: theme.colorScheme.outline),
+                    const SizedBox(width: AppSpacing.sm),
+                    Text('Walk ${distanceLabel(plan.legs[i].distanceM)}',
+                        style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.outline)),
+                  ],
+                ),
+              ),
+        ],
       ),
     );
   }
@@ -428,27 +506,51 @@ class _LegTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     if (!leg.isRide) {
-      return ListTile(
-        leading: const Icon(Icons.directions_walk),
-        title: Text('Walk to ${leg.alight.name}'),
-        subtitle: Text(
-          '${distanceLabel(leg.distanceM)} · about ${minutesLabel(leg.seconds)} on foot',
+      return GlassSurface(
+        child: Row(
+          children: [
+            const IconBadge(icon: Icons.directions_walk_rounded),
+            const SizedBox(width: AppSpacing.lg),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Walk to ${leg.alight.name}', style: theme.textTheme.titleMedium),
+                  Text('${distanceLabel(leg.distanceM)} · about ${minutesLabel(leg.seconds)} on foot',
+                      style: theme.textTheme.bodyMedium),
+                ],
+              ),
+            ),
+          ],
         ),
       );
     }
-    return ListTile(
-      leading: const Icon(Icons.directions_subway_filled),
-      title: LineBadge(
-        label: leg.routeLongName ?? leg.routeId ?? 'Line',
-        colorHex: leg.routeColor,
+    return GlassSurface(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          IconBadge(icon: Icons.directions_subway_filled, gradient: AppColors.heroGradientFor()),
+          const SizedBox(width: AppSpacing.lg),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                LineChip(label: leg.routeLongName ?? leg.routeId ?? 'Line', colorHex: leg.routeColor),
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  '${leg.board.name} → ${leg.alight.name}'
+                  '${leg.platformHint != null ? '  ·  ${leg.platformHint}' : ''}',
+                  style: theme.textTheme.bodyMedium,
+                ),
+                Text('${(leg.stations?.length ?? 1) - 1} stops · ${minutesLabel(leg.seconds)}',
+                    style: theme.textTheme.bodySmall),
+              ],
+            ),
+          ),
+        ],
       ),
-      subtitle: Text(
-        '${leg.board.name} → ${leg.alight.name}'
-        '${leg.platformHint != null ? '  ·  ${leg.platformHint}' : ''}\n'
-        '${(leg.stations?.length ?? 1) - 1} stops · ${minutesLabel(leg.seconds)}',
-      ),
-      isThreeLine: true,
     );
   }
 }

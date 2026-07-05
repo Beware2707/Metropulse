@@ -1,12 +1,20 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/design/app_colors.dart';
+import '../../core/design/app_spacing.dart';
 import '../../core/formatters.dart';
+import '../../core/widgets/ambient_background.dart';
+import '../../core/widgets/empty_state.dart';
+import '../../core/widgets/glass_surface.dart';
+import '../../core/widgets/icon_badge.dart';
+import '../../core/widgets/line_chip.dart';
+import '../../core/widgets/live_indicator.dart';
+import '../../core/widgets/section_header.dart';
 import '../../providers/core_providers.dart';
 import '../../providers/live_providers.dart';
 import '../favourites/favourites_screen.dart';
-import '../shared/widgets.dart';
 
 final _lastTrainProvider = FutureProvider.autoDispose
     .family<Map<String, dynamic>?, String>((ref, stopId) async {
@@ -32,16 +40,16 @@ class StationDetailScreen extends ConsumerWidget {
     final lastTrain = ref.watch(_lastTrainProvider(stopId));
     final exits = ref.watch(_exitsProvider(stopId));
     final favourites = ref.watch(favouriteStationsProvider);
-    final isFavourite = favourites.valueOrNull
-            ?.any((f) => f['stop_id'] == stopId) ??
-        false;
+    final isFavourite = favourites.valueOrNull?.any((f) => f['stop_id'] == stopId) ?? false;
 
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: Text(station?.name ?? stopId),
         actions: [
           IconButton(
-            icon: Icon(isFavourite ? Icons.star : Icons.star_outline),
+            icon: Icon(isFavourite ? Icons.star_rounded : Icons.star_outline_rounded,
+                color: isFavourite ? AppColors.warning : null),
             onPressed: () async {
               final repository = ref.read(favouritesRepositoryProvider);
               if (isFavourite) {
@@ -52,89 +60,114 @@ class StationDetailScreen extends ConsumerWidget {
               ref.invalidate(favouriteStationsProvider);
             },
           ),
+          const SizedBox(width: AppSpacing.sm),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Row(
+      body: AmbientBackground(
+        intensity: 0.5,
+        child: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 100, AppSpacing.lg, AppSpacing.xxl),
             children: [
-              Text('Arriving now', style: Theme.of(context).textTheme.titleMedium),
-              const Spacer(),
-              const LiveIndicator(),
-            ],
-          ),
-          const SizedBox(height: 8),
-          if (arrivals.isEmpty)
-            const Card(
-              child: Padding(
-                padding: EdgeInsets.all(16),
-                child: Text('No trains currently approaching this station.'),
+              Row(
+                children: [
+                  Expanded(child: Text('Arriving now', style: Theme.of(context).textTheme.headlineSmall)),
+                  const LiveIndicator(),
+                ],
               ),
-            ),
-          for (final train in arrivals)
-            Card(
-              child: ListTile(
-                leading: LineBadge(
-                    label: train.routeShortName ?? train.lineLabel,
-                    colorHex: train.routeColor),
-                title: Text(train.headsign == null
-                    ? train.lineLabel
-                    : 'Towards ${train.headsign}'),
-                subtitle: Text(train.atStation
-                    ? 'At ${train.currentStation?.name}'
-                    : 'Approaching'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => context.push('/train/${train.id}'),
-              ),
-            ),
-          const SizedBox(height: 16),
-          Text('Tonight', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.nightlight_outlined),
-              title: const Text('Last train'),
-              subtitle: lastTrain.when(
-                data: (data) => Text(data == null
-                    ? 'No service information'
-                    : '${data['headsign'] ?? data['route_id']} at '
-                        '${clockTime(DateTime.tryParse('${data['departure_at']}'))}'),
-                loading: () => const Text('...'),
-                error: (_, __) => const Text('Unavailable offline'),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Text('Exits', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          exits.when(
-            data: (data) => data.isEmpty
-                ? const Card(
-                    child: Padding(
-                      padding: EdgeInsets.all(16),
-                      child: Text('No exit information for this station yet.'),
-                    ),
-                  )
-                : Column(
-                    children: [
-                      for (final exit in data)
-                        Card(
-                          child: ListTile(
-                            leading: const Icon(Icons.exit_to_app),
-                            title: Text('${exit['name']}'),
-                            subtitle: exit['landmarks'] is List &&
-                                    (exit['landmarks'] as List).isNotEmpty
-                                ? Text((exit['landmarks'] as List).join(', '))
-                                : null,
+              const SizedBox(height: AppSpacing.md),
+              if (arrivals.isEmpty)
+                const EmptyState(icon: Icons.train_rounded, message: 'No trains currently approaching this station.'),
+              for (final train in arrivals)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: GlassSurface(
+                    onTap: () => context.push('/train/${train.id}'),
+                    child: Row(
+                      children: [
+                        LineChip(label: train.routeShortName ?? train.lineLabel, colorHex: train.routeColor),
+                        const SizedBox(width: AppSpacing.md),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(train.headsign == null ? train.lineLabel : 'Towards ${train.headsign}',
+                                  style: Theme.of(context).textTheme.titleMedium),
+                              Text(train.atStation ? 'At ${train.currentStation?.name}' : 'Approaching',
+                                  style: Theme.of(context).textTheme.bodySmall),
+                            ],
                           ),
                         ),
-                    ],
+                        const Icon(Icons.chevron_right_rounded),
+                      ],
+                    ),
                   ),
-            loading: () => const SizedBox.shrink(),
-            error: (_, __) => const SizedBox.shrink(),
+                ),
+              const SectionHeader(title: 'Tonight'),
+              GlassSurface(
+                child: Row(
+                  children: [
+                    const IconBadge(icon: Icons.nightlight_rounded),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Last train', style: Theme.of(context).textTheme.titleMedium),
+                          lastTrain.when(
+                            data: (data) => Text(
+                              data == null
+                                  ? 'No service information'
+                                  : '${data['headsign'] ?? data['route_id']} at '
+                                      '${clockTime(DateTime.tryParse('${data['departure_at']}'))}',
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                            loading: () => const Text('…'),
+                            error: (_, __) => const Text('Unavailable offline'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SectionHeader(title: 'Exits'),
+              exits.when(
+                data: (data) => data.isEmpty
+                    ? const EmptyState(icon: Icons.exit_to_app_rounded, message: 'No exit information for this station yet.')
+                    : Column(
+                        children: [
+                          for (final exit in data)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                              child: GlassSurface(
+                                child: Row(
+                                  children: [
+                                    const IconBadge(icon: Icons.exit_to_app_rounded),
+                                    const SizedBox(width: AppSpacing.md),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text('${exit['name']}', style: Theme.of(context).textTheme.titleMedium),
+                                          if (exit['landmarks'] is List && (exit['landmarks'] as List).isNotEmpty)
+                                            Text((exit['landmarks'] as List).join(', '),
+                                                style: Theme.of(context).textTheme.bodySmall),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                loading: () => const SizedBox.shrink(),
+                error: (_, __) => const SizedBox.shrink(),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
