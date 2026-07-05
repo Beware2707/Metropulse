@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
 import '../../core/design/app_colors.dart';
 import '../../core/design/app_radius.dart';
@@ -20,6 +21,7 @@ import '../../core/widgets/reveal_animations.dart';
 import '../../core/widgets/search_entry_pill.dart';
 import '../../core/widgets/shimmer_skeleton.dart';
 import '../../domain/fare.dart';
+import '../../domain/home_context.dart';
 import '../../domain/models/commute_card.dart';
 import '../../domain/models/journey.dart';
 import '../../providers/core_providers.dart';
@@ -28,14 +30,7 @@ import 'home_providers.dart';
 
 export 'home_providers.dart' show activeJourneyProvider, commuteCardProvider;
 
-String _greeting() {
-  final hour = DateTime.now().hour;
-  if (hour < 5) return 'Still up?';
-  if (hour < 12) return 'Good morning';
-  if (hour < 17) return 'Good afternoon';
-  if (hour < 21) return 'Good evening';
-  return 'Good night';
-}
+final _dayCaptionFormat = DateFormat('EEEE, h:mm a');
 
 /// Home: the commuter dashboard. The commute card answers "when do I leave,
 /// what do I board, which platform/coach, am I delayed" before anything
@@ -61,7 +56,8 @@ class HomeScreen extends ConsumerWidget {
                     ..invalidate(recentJourneysProvider)
                     ..invalidate(favouriteStationsProvider)
                     ..invalidate(homeLastTrainProvider)
-                    ..invalidate(nearbyStationsProvider);
+                    ..invalidate(nearbyStationsProvider)
+                    ..invalidate(weatherProvider);
                 },
                 child: LayoutBuilder(
                   builder: (context, constraints) {
@@ -92,21 +88,55 @@ class HomeScreen extends ConsumerWidget {
   }
 }
 
-class _Header extends StatelessWidget {
+/// The home screen's opening moment: not a static "Good morning" but a
+/// single resolved fact for right now (leave-in countdown, last-train
+/// countdown, or an explore prompt), so the app already knows what day it
+/// is before the user asks anything.
+class _Header extends ConsumerWidget {
   const _Header();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    final now = DateTime.now();
+    final dayPart = dayPartFor(now);
+    final card = ref.watch(commuteCardProvider).valueOrNull;
+    final weather = ref.watch(weatherProvider).valueOrNull;
+    final lastTrain = ref.watch(homeLastTrainProvider).valueOrNull;
+    final lastTrainDeparture = DateTime.tryParse('${lastTrain?['departure_at']}');
+
+    final message = resolveHomeContextMessage(
+      now: now,
+      leaveInSeconds: card?.leaveInSeconds?.round(),
+      commuteDestinationName: card?.destinationName,
+      lastTrainInSeconds: lastTrainDeparture?.difference(now).inSeconds,
+    );
+
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(_greeting(), style: theme.textTheme.bodyLarge),
-              Text('MetroPulse', style: theme.textTheme.displaySmall),
+              Text(_dayCaptionFormat.format(now), style: theme.textTheme.labelMedium),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Text(emojiForDayPart(dayPart), style: const TextStyle(fontSize: 18)),
+                  const SizedBox(width: 8),
+                  Flexible(child: Text(greetingForDayPart(dayPart), style: theme.textTheme.bodyLarge)),
+                  if (weather != null) ...[
+                    const SizedBox(width: 10),
+                    Text(
+                      '${weather.emoji} ${weather.roundedTemperatureC}°',
+                      style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 2),
+              Text(message, style: theme.textTheme.titleLarge, maxLines: 2, overflow: TextOverflow.ellipsis),
             ],
           ),
         ),

@@ -1,7 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/config.dart';
 import '../../data/location_service.dart';
 import '../../data/repositories.dart';
+import '../../data/weather_service.dart';
 import '../../domain/models/commute_card.dart';
 import '../../domain/models/intelligence.dart';
 import '../../domain/models/journey.dart';
@@ -86,6 +88,21 @@ final homeLastTrainProvider =
 
 final locationServiceProvider =
     Provider<LocationService>((ref) => const LocationService());
+
+final weatherServiceProvider = Provider<WeatherService>((ref) => WeatherService());
+
+/// Current conditions for the home greeting — the user's location when
+/// available, else the network's home city, so the card always has
+/// something to show. Null (never an error state) when offline or blocked;
+/// weather is decorative context, not something worth interrupting for.
+final weatherProvider = FutureProvider<Weather?>((ref) async {
+  final locationResult = await ref.watch(locationServiceProvider).currentPosition();
+  final (lat, lon) = switch (locationResult) {
+    LocationFix(:final lat, :final lon) => (lat, lon),
+    _ => (AppConfig.initialLat, AppConfig.initialLon),
+  };
+  return ref.watch(weatherServiceProvider).current(lat: lat, lon: lon);
+});
 
 sealed class NearbyState {
   const NearbyState();

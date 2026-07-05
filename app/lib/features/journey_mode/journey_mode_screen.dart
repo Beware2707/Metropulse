@@ -9,6 +9,7 @@ import '../../core/formatters.dart';
 import '../../core/l10n_ext.dart';
 import '../../core/theme.dart';
 import '../../core/widgets/ambient_background.dart';
+import '../../core/widgets/app_bottom_sheet.dart';
 import '../../core/widgets/coach_chip.dart';
 import '../../core/widgets/glass_surface.dart';
 import '../../core/widgets/gradient_button.dart';
@@ -292,12 +293,91 @@ class _JourneyView extends ConsumerWidget {
   }
 
   Future<void> _end(BuildContext context, WidgetRef ref, {required bool completed}) async {
+    if (completed) {
+      final alreadyPinned = ref.read(pinnedJourneysProvider).any(
+            (row) =>
+                row['origin_stop_id'] == journey.originStopId &&
+                row['destination_stop_id'] == journey.destinationStopId,
+          );
+      if (!alreadyPinned && context.mounted) {
+        await _offerSaveJourney(context, ref);
+      }
+    }
+    if (!context.mounted) return;
     await ref.read(journeyRepositoryProvider).end(journey.id, completed: completed);
     await ref.read(localStoreProvider).clearJourneyContext();
     ref
       ..invalidate(activeJourneyProvider)
       ..invalidate(recentJourneysProvider);
     if (context.mounted) context.go('/');
+  }
+
+  /// After arriving is the one moment saving a journey is actually
+  /// relevant — offered once per route, never if it's already pinned.
+  Future<void> _offerSaveJourney(BuildContext context, WidgetRef ref) async {
+    final stations = ref.read(stationIndexProvider);
+    final originName = stations[journey.originStopId]?.name ?? journey.originStopId;
+    final destinationName = stations[journey.destinationStopId]?.name ?? journey.destinationStopId;
+
+    final choice = await showAppBottomSheet<String>(
+      context,
+      builder: (sheetContext) => Padding(
+        padding: const EdgeInsets.fromLTRB(AppSpacing.xl, AppSpacing.lg, AppSpacing.xl, AppSpacing.xxl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text("You've arrived. Save this journey?", style: Theme.of(sheetContext).textTheme.titleLarge),
+            const SizedBox(height: 4),
+            Text('$originName → $destinationName', style: Theme.of(sheetContext).textTheme.bodyMedium),
+            const SizedBox(height: AppSpacing.lg),
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              children: [
+                for (final label in const ['Home', 'Work'])
+                  GhostButton(label: label, onPressed: () => Navigator.of(sheetContext).pop(label)),
+                GhostButton(label: 'Custom name…', onPressed: () => Navigator.of(sheetContext).pop('custom')),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Center(
+              child: TextButton(
+                onPressed: () => Navigator.of(sheetContext).pop(),
+                child: const Text('Not now'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (choice == null || !context.mounted) return;
+    final label = choice == 'custom' ? await _promptCustomLabel(context) : choice;
+    if (label == null || label.isEmpty) return;
+    await ref.read(localStoreProvider).addPinnedJourney(
+          originStopId: journey.originStopId,
+          destinationStopId: journey.destinationStopId,
+          label: label,
+        );
+  }
+
+  Future<String?> _promptCustomLabel(BuildContext context) {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Name this journey'),
+        content: TextField(controller: controller, autofocus: true),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
   }
 }
 
