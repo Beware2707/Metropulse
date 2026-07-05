@@ -26,7 +26,7 @@ class JourneyHistoryScreen extends ConsumerWidget {
     final stations = ref.watch(stationIndexProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Journey history')),
+      appBar: AppBar(title: const Text('Where you\'ve been')),
       body: AmbientBackground(
         intensity: 0.4,
         child: SafeArea(
@@ -49,8 +49,8 @@ class JourneyHistoryScreen extends ConsumerWidget {
                   const SizedBox(height: 64),
                   EmptyState(
                     icon: Icons.cloud_off_rounded,
-                    message: 'Could not load journey history.',
-                    actionLabel: 'Retry',
+                    message: "We couldn't load your trips.",
+                    actionLabel: 'Try again',
                     onAction: () => ref.invalidate(journeyHistoryFullProvider),
                   ),
                 ],
@@ -60,7 +60,7 @@ class JourneyHistoryScreen extends ConsumerWidget {
                       padding: const EdgeInsets.all(AppSpacing.lg),
                       children: const [
                         SizedBox(height: 96),
-                        EmptyState(icon: Icons.history_rounded, message: 'Journeys you take will appear here.'),
+                        EmptyState(icon: Icons.history_rounded, message: 'Your trips will show up here once you take one.'),
                       ],
                     )
                   : ListView.separated(

@@ -76,6 +76,11 @@ class Settings(BaseSettings):
     crowd_lookback_days: int = Field(default=28, ge=1)
     crowd_hour_window: int = Field(default=1, ge=0)
 
+    # Metro Intelligence: commute prediction and delay estimation lookback
+    # windows (see application/intelligence/).
+    commute_prediction_lookback_days: float = Field(default=90.0, gt=0)
+    delay_prediction_lookback_days: float = Field(default=60.0, gt=0)
+
     # Ops: rate limiting is per-replica defence in depth (0 disables); real
     # deployments should still enforce global limits at the edge/gateway.
     rate_limit_per_minute: int = Field(default=600, ge=0)

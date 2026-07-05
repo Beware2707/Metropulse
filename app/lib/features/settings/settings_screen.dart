@@ -181,11 +181,10 @@ class SettingsScreen extends ConsumerWidget {
                     const SizedBox(width: AppSpacing.md),
                     Expanded(
                       child: Text(
-                        'MetroPulse identifies your device with an anonymous token — no name, email or '
-                        'phone number is collected. Your location is used only on this device to find '
-                        'nearby stations and is never sent to the server. Favourites, journeys and '
-                        'notifications are stored against your anonymous account so they sync across app '
-                        'restarts.',
+                        'We only know you by an anonymous device token — no name, email or phone number '
+                        "needed. Your location stays on this device and just helps us show what's nearby; "
+                        "it's never sent anywhere. Your favourites, journeys and notifications are tied to "
+                        "that anonymous token, so they're still here next time you open the app.",
                         style: Theme.of(context).textTheme.bodyMedium,
                       ),
                     ),
@@ -240,10 +239,10 @@ class SettingsScreen extends ConsumerWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Clear cached data?'),
+        title: const Text('Clear your cached data?'),
         content: const Text(
-          'This removes cached favourites, journey history and recent searches on this device. Nothing '
-          'is deleted from your account.',
+          "This clears your favourites, journey history and recent searches from this device. Don't "
+          'worry — nothing is deleted from your account.',
         ),
         actions: [
           TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Cancel')),
@@ -262,7 +261,7 @@ class SettingsScreen extends ConsumerWidget {
       ..invalidate(favouriteStationsProvider)
       ..invalidate(recentSearchIdsProvider);
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cache cleared.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('All cleared!')));
     }
   }
 }

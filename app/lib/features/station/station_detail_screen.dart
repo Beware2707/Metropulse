@@ -77,7 +77,7 @@ class StationDetailScreen extends ConsumerWidget {
               ),
               const SizedBox(height: AppSpacing.md),
               if (arrivals.isEmpty)
-                const EmptyState(icon: Icons.train_rounded, message: 'No trains currently approaching this station.'),
+                const EmptyState(icon: Icons.train_rounded, message: 'No trains headed this way right now.'),
               for (final train in arrivals)
                 Padding(
                   padding: const EdgeInsets.only(bottom: AppSpacing.sm),
@@ -117,13 +117,13 @@ class StationDetailScreen extends ConsumerWidget {
                           lastTrain.when(
                             data: (data) => Text(
                               data == null
-                                  ? 'No service information'
+                                  ? "We don't have tonight's service info yet"
                                   : '${data['headsign'] ?? data['route_id']} at '
                                       '${clockTime(DateTime.tryParse('${data['departure_at']}'))}',
                               style: Theme.of(context).textTheme.bodyMedium,
                             ),
                             loading: () => const Text('…'),
-                            error: (_, __) => const Text('Unavailable offline'),
+                            error: (_, __) => const Text('Not available offline'),
                           ),
                         ],
                       ),
@@ -134,7 +134,7 @@ class StationDetailScreen extends ConsumerWidget {
               const SectionHeader(title: 'Exits'),
               exits.when(
                 data: (data) => data.isEmpty
-                    ? const EmptyState(icon: Icons.exit_to_app_rounded, message: 'No exit information for this station yet.')
+                    ? const EmptyState(icon: Icons.exit_to_app_rounded, message: "We don't have exit info for this station yet.")
                     : Column(
                         children: [
                           for (final exit in data)

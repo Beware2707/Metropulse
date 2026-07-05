@@ -35,6 +35,13 @@ from metropulse.application.commuter.offline import OfflineBundleService
 from metropulse.application.commuter.users import UserService
 from metropulse.application.eta_engine import EtaEngine, EtaParameters
 from metropulse.application.eta_service import CachedEtaService
+from metropulse.application.intelligence.commute_predictor import (
+    CommutePredictionService,
+)
+from metropulse.application.intelligence.delay_predictor import DelayPredictionService
+from metropulse.application.intelligence.smart_recommendations import (
+    SmartRecommendationService,
+)
 from metropulse.application.journey_planner import JourneyPlanner
 from metropulse.application.live_hub import ConnectionManager, LiveHub, ReplayBuffer
 from metropulse.application.route_resolver import IdMapper, MappingRule, RouteResolver
@@ -67,6 +74,9 @@ class CommuterServices:
     analytics: AnalyticsService
     planner: JourneyPlanner
     commute_card: CommuteCardService
+    commute_predictor: CommutePredictionService
+    delay_predictor: DelayPredictionService
+    smart_recommendations: SmartRecommendationService
 
 
 @dataclass
@@ -129,6 +139,10 @@ def build_commuter_services(
     coach = CoachRecommendationService(
         predictor, default_coach_count=settings.default_coach_count
     )
+    exits = ExitService()
+    delay_predictor = DelayPredictionService(
+        planner, lookback_days=settings.delay_prediction_lookback_days
+    )
     return CommuterServices(
         users=UserService(),
         favourites=favourites,
@@ -140,11 +154,19 @@ def build_commuter_services(
         last_train=last_train,
         journeys=JourneyService(event_publisher=event_publisher),
         coach=coach,
-        exits=ExitService(),
+        exits=exits,
         offline=OfflineBundleService(session_factory, redis),
         analytics=AnalyticsService(max_batch=settings.analytics_max_batch),
         planner=planner,
         commute_card=CommuteCardService(favourites, last_train, planner, coach),
+        commute_predictor=CommutePredictionService(
+            planner,
+            coach,
+            exits,
+            lookback_days=settings.commute_prediction_lookback_days,
+        ),
+        delay_predictor=delay_predictor,
+        smart_recommendations=SmartRecommendationService(planner, coach, exits, delay_predictor),
     )
 
 

@@ -4,9 +4,12 @@ import 'package:go_router/go_router.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 
 import '../../core/config.dart';
+import '../../core/design/app_radius.dart';
 import '../../core/design/app_spacing.dart';
 import '../../core/formatters.dart';
 import '../../core/theme.dart';
+import '../../core/widgets/app_bottom_sheet.dart';
+import '../../core/widgets/glass_surface.dart';
 import '../../core/widgets/gradient_button.dart';
 import '../../core/widgets/line_chip.dart';
 import '../../core/widgets/live_indicator.dart';
@@ -67,37 +70,67 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
   Widget build(BuildContext context) {
     ref.listen(liveTrainsProvider, (_, trains) => _onTrains(trains));
 
+    // The map is the hero: full-bleed behind everything, with a couple of
+    // small floating pills for status/controls rather than a solid app bar.
     return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        title: const Text('Live map'),
-        actions: [
-          _downloadingTiles
-              ? const Padding(
-                  padding: EdgeInsets.all(12),
-                  child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-                )
-              : IconPillButton(
-                  icon: Icons.download_for_offline_rounded,
-                  tooltip: 'Download offline map area',
-                  onPressed: _downloadOfflineTiles,
-                ),
-          const SizedBox(width: AppSpacing.sm),
-          const Center(child: LiveIndicator()),
-          const SizedBox(width: AppSpacing.lg),
+      extendBody: true,
+      body: Stack(
+        children: [
+          MapLibreMap(
+            styleString: AppConfig.mapStyleUrl,
+            initialCameraPosition: const CameraPosition(
+              target: LatLng(AppConfig.initialLat, AppConfig.initialLon),
+              zoom: AppConfig.initialZoom,
+            ),
+            onMapCreated: (controller) => _map = controller,
+            onStyleLoadedCallback: _onStyleLoaded,
+            onMapClick: _onMapClick,
+            compassEnabled: false,
+            rotateGesturesEnabled: false,
+          ),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, 0),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  GlassSurface(
+                    blur: true,
+                    borderRadius: AppRadius.pillR,
+                    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.md),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.map_rounded, size: 18, color: Theme.of(context).colorScheme.onSurface),
+                        const SizedBox(width: AppSpacing.sm),
+                        Text('Live map', style: Theme.of(context).textTheme.titleSmall),
+                        const SizedBox(width: AppSpacing.sm),
+                        const LiveIndicator(),
+                      ],
+                    ),
+                  ),
+                  const Spacer(),
+                  _downloadingTiles
+                      ? const GlassSurface(
+                          blur: true,
+                          borderRadius: AppRadius.pillR,
+                          padding: EdgeInsets.all(AppSpacing.md),
+                          child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : IconPillButton(
+                          icon: Icons.download_for_offline_rounded,
+                          tooltip: 'Download offline map area',
+                          onPressed: _downloadOfflineTiles,
+                        ),
+                ],
+              ),
+            ),
+          ),
         ],
-      ),
-      body: MapLibreMap(
-        styleString: AppConfig.mapStyleUrl,
-        initialCameraPosition: const CameraPosition(
-          target: LatLng(AppConfig.initialLat, AppConfig.initialLon),
-          zoom: AppConfig.initialZoom,
-        ),
-        onMapCreated: (controller) => _map = controller,
-        onStyleLoadedCallback: _onStyleLoaded,
-        onMapClick: _onMapClick,
-        compassEnabled: false,
-        rotateGesturesEnabled: false,
       ),
     );
   }
@@ -213,10 +246,10 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
         metadata: {'name': 'delhi-metro'},
       );
       messenger.showSnackBar(
-          const SnackBar(content: Text('Offline map area downloaded.')));
-    } on Exception catch (error) {
+          const SnackBar(content: Text('Map saved for offline use!')));
+    } on Exception {
       messenger.showSnackBar(
-          SnackBar(content: Text('Offline download failed: $error')));
+          const SnackBar(content: Text("We couldn't save the map for offline use. Please try again.")));
     } finally {
       if (mounted) setState(() => _downloadingTiles = false);
     }
@@ -322,9 +355,8 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
   // -- train sheet -------------------------------------------------------------
 
   void _showTrainSheet(String vehicleId) {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
+    showAppBottomSheet<void>(
+      context,
       builder: (_) => _TrainSheet(vehicleId: vehicleId),
     );
   }
@@ -343,7 +375,7 @@ class _TrainSheet extends ConsumerWidget {
     if (train == null) {
       return const Padding(
         padding: EdgeInsets.all(32),
-        child: Text('This train is no longer tracked.'),
+        child: Text("We've lost track of this train — it may have finished its trip."),
       );
     }
     final next = train.nextStation;
@@ -411,7 +443,7 @@ class _TrainSheet extends ConsumerWidget {
           ],
           const SizedBox(height: AppSpacing.xl),
           PrimaryButton(
-            label: 'Train details',
+            label: 'See train details',
             expand: true,
             onPressed: () {
               Navigator.of(context).pop();

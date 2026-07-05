@@ -44,7 +44,8 @@
       "Bash(find 'C:\\\\Users\\\\riddl/AppData/Local/Pub/Cache/hosted/pub.dev' -maxdepth 1 -iname maplibre_gl_web*)",
       "Bash(find 'C:\\\\Users\\\\riddl/AppData/Local/Pub/Cache/hosted/pub.dev' -maxdepth 1 -iname maplibre_gl-*)",
       "Bash(curl -s http://localhost:8000/api/v1/routes)",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(.venv/Scripts/python.exe -c \"from metropulse.main import app; print\\('OK', len\\(app.routes\\)\\)\")"
     ]
   }
 }

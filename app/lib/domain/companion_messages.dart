@@ -45,31 +45,31 @@ CompanionMessage? buildCompanionMessage({
   String? nextStationName,
 }) {
   if (arrived) {
-    return const CompanionMessage(kind: CompanionMessageKind.arrived, text: 'You have arrived.');
+    return const CompanionMessage(kind: CompanionMessageKind.arrived, text: "You've made it!");
   }
   if (arrivingSoon) {
     final text = exitName == null
-        ? 'Get ready to alight — this is your stop.'
-        : 'Get ready to alight — exit via $exitName.';
+        ? 'Almost there — this is your stop.'
+        : 'Almost there — head out via $exitName.';
     return CompanionMessage(kind: CompanionMessageKind.arriving, text: text);
   }
   if (approachingInterchange && interchangeStationName != null) {
     return CompanionMessage(
       kind: CompanionMessageKind.interchange,
-      text: 'Prepare to interchange at $interchangeStationName.',
+      text: 'Time to change trains at $interchangeStationName.',
     );
   }
   if (justBoarded && recommendedCoach != null) {
     final platform = platformHint == null ? '' : ' — platform for $platformHint';
     return CompanionMessage(
       kind: CompanionMessageKind.boarding,
-      text: 'Board Coach ${recommendedCoach + 1}$platform.',
+      text: 'Hop on Coach ${recommendedCoach + 1}$platform.',
     );
   }
   if (nextStationName != null) {
     return CompanionMessage(
       kind: CompanionMessageKind.nextStation,
-      text: 'Next station is $nextStationName.',
+      text: 'Next up: $nextStationName.',
     );
   }
   return null;

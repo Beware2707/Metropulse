@@ -85,7 +85,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen> with SingleTickerPr
               const SizedBox(height: 8),
               FadeTransition(
                 opacity: CurvedAnimation(parent: _controller, curve: const Interval(0.6, 1.0, curve: Curves.easeOut)),
-                child: Text('Your Delhi Metro companion', style: theme.textTheme.bodyMedium),
+                child: Text('Your smart travel companion', style: theme.textTheme.bodyMedium),
               ),
               const SizedBox(height: 40),
               FadeTransition(

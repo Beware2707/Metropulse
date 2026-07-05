@@ -133,7 +133,7 @@ class _HomeContent extends ConsumerWidget {
     final primaryRaw = <Widget>[
       const _Header(),
       const SizedBox(height: AppSpacing.xl),
-      SearchEntryPill(hint: 'Search stations, aliases, landmarks…', onTap: () => context.push('/search')),
+      SearchEntryPill(hint: 'Where to?', onTap: () => context.push('/search')),
       if (journey != null) const _ActiveJourneyBanner(),
       const _CommuteHero(),
       const _AlertsSection(),

@@ -13,6 +13,12 @@ from metropulse.domain.commuter import (
     LastTrainInfo,
     OfflineManifest,
 )
+from metropulse.domain.intelligence import (
+    CommutePrediction,
+    DelayEstimate,
+    RouteRecommendation,
+    SmartRecommendation,
+)
 from metropulse.domain.journey import JourneyPlan, RideLeg
 
 
@@ -606,3 +612,120 @@ class NotificationListOut(BaseModel):
 
     count: int
     notifications: list[NotificationOut]
+
+
+# --- Metro Intelligence -------------------------------------------------------
+
+
+class CommutePredictionOut(BaseModel):
+    """Predicted next commute, learned from the user's own journey history."""
+
+    origin_stop_id: str
+    origin_name: str
+    destination_stop_id: str
+    destination_name: str
+    route_id: str | None
+    route_long_name: str | None
+    predicted_departure_at: datetime
+    predicted_duration_seconds: float | None
+    recommended_coach: int | None
+    recommended_exit_name: str | None
+    confidence: float
+    sample_size: int
+    basis: str
+
+    @classmethod
+    def from_domain(cls, prediction: CommutePrediction) -> "CommutePredictionOut":
+        """Build from the domain value."""
+        return cls(
+            origin_stop_id=prediction.origin_stop_id,
+            origin_name=prediction.origin_name,
+            destination_stop_id=prediction.destination_stop_id,
+            destination_name=prediction.destination_name,
+            route_id=prediction.route_id,
+            route_long_name=prediction.route_long_name,
+            predicted_departure_at=prediction.predicted_departure_at,
+            predicted_duration_seconds=prediction.predicted_duration_seconds,
+            recommended_coach=prediction.recommended_coach,
+            recommended_exit_name=prediction.recommended_exit_name,
+            confidence=prediction.confidence,
+            sample_size=prediction.sample_size,
+            basis=prediction.basis,
+        )
+
+
+class DelayEstimateOut(BaseModel):
+    """Typical delay for a route around an hour of day."""
+
+    route_id: str
+    direction_id: int | None
+    hour_of_day: int
+    expected_delay_seconds: float
+    confidence: float
+    sample_size: int
+
+    @classmethod
+    def from_domain(cls, estimate: DelayEstimate) -> "DelayEstimateOut":
+        """Build from the domain value."""
+        return cls(
+            route_id=estimate.route_id,
+            direction_id=estimate.direction_id,
+            hour_of_day=estimate.hour_of_day,
+            expected_delay_seconds=estimate.expected_delay_seconds,
+            confidence=estimate.confidence,
+            sample_size=estimate.sample_size,
+        )
+
+
+class RouteRecommendationOut(BaseModel):
+    """One scored route option inside a smart-recommendation bundle."""
+
+    preference: str
+    travel_seconds: float
+    interchange_count: int
+    walking_distance_m: float
+    delay_adjusted_seconds: float
+    reasons: list[str]
+
+    @classmethod
+    def from_domain(cls, rec: RouteRecommendation) -> "RouteRecommendationOut":
+        """Build from the domain value."""
+        return cls(
+            preference=rec.preference,
+            travel_seconds=rec.travel_seconds,
+            interchange_count=rec.interchange_count,
+            walking_distance_m=rec.walking_distance_m,
+            delay_adjusted_seconds=rec.delay_adjusted_seconds,
+            reasons=list(rec.reasons),
+        )
+
+
+class SmartRecommendationOut(BaseModel):
+    """Best route / departure / coach / exit for an origin-destination pair."""
+
+    origin_stop_id: str
+    destination_stop_id: str
+    best_departure_at: datetime | None
+    best_route: RouteRecommendationOut | None
+    alternatives: list[RouteRecommendationOut]
+    recommended_coach: int | None
+    recommended_exit_name: str | None
+    least_crowded_available: bool
+
+    @classmethod
+    def from_domain(cls, rec: SmartRecommendation) -> "SmartRecommendationOut":
+        """Build from the domain value."""
+        return cls(
+            origin_stop_id=rec.origin_stop_id,
+            destination_stop_id=rec.destination_stop_id,
+            best_departure_at=rec.best_departure_at,
+            best_route=(
+                RouteRecommendationOut.from_domain(rec.best_route)
+                if rec.best_route is not None
+                else None
+            ),
+            alternatives=[RouteRecommendationOut.from_domain(a) for a in rec.alternatives],
+            recommended_coach=rec.recommended_coach,
+            recommended_exit_name=rec.recommended_exit_name,
+            least_crowded_available=rec.least_crowded_available,
+        )

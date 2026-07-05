@@ -9,12 +9,12 @@ import '../../core/formatters.dart';
 import '../../core/l10n_ext.dart';
 import '../../core/theme.dart';
 import '../../core/widgets/ambient_background.dart';
+import '../../core/widgets/coach_chip.dart';
 import '../../core/widgets/glass_surface.dart';
 import '../../core/widgets/gradient_button.dart';
 import '../../core/widgets/journey_progress_track.dart';
 import '../../core/widgets/line_chip.dart';
 import '../../core/widgets/live_indicator.dart';
-import '../../core/widgets/stat_pill.dart';
 import '../../domain/companion_messages.dart';
 import '../../domain/journey_progress.dart';
 import '../../domain/models/journey.dart';
@@ -54,7 +54,7 @@ class JourneyModeScreen extends ConsumerWidget {
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: const Text('Journey mode'),
+        title: const Text("You're on your way"),
         actions: const [Padding(padding: EdgeInsets.only(right: 16), child: Center(child: LiveIndicator()))],
       ),
       body: AmbientBackground(
@@ -62,7 +62,7 @@ class JourneyModeScreen extends ConsumerWidget {
         child: SafeArea(
           child: journeyAsync.when(
             loading: () => const Center(child: CircularProgressIndicator()),
-            error: (error, _) => Center(child: Text('Could not load journey: $error')),
+            error: (error, _) => const Center(child: Text("We couldn't load your journey. Please try again.")),
             data: (journey) => journey == null ? const _NoJourney() : _JourneyView(journey: journey),
           ),
         ),
@@ -149,9 +149,13 @@ class _JourneyView extends ConsumerWidget {
 
     final theme = Theme.of(context);
     final lineColor = routeColor(journeyContext?.routeColor, journeyContext?.routeLongName);
+    final currentName = snapshot?.currentStationName ?? origin;
+    final nextName = snapshot?.arrived == true ? destination : (snapshot?.nextStationName ?? destination);
+    final isLive = snapshot?.source == JourneyProgressSource.liveVehicle;
+
     return Center(
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 640),
+        constraints: const BoxConstraints(maxWidth: 560),
         child: ListView(
           padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 100, AppSpacing.lg, AppSpacing.xxl),
           children: [
@@ -168,105 +172,97 @@ class _JourneyView extends ConsumerWidget {
                   ? const SizedBox.shrink(key: ValueKey('no-message'))
                   : _CompanionBanner(key: ValueKey(message.text), message: message),
             ),
-            GlassSurface(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [lineColor.withValues(alpha: 0.22), lineColor.withValues(alpha: 0.06)],
-              ),
-              padding: const EdgeInsets.all(AppSpacing.xxl),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (journeyContext?.routeLongName != null) ...[
-                    LineChip(label: journeyContext!.routeLongName!, colorHex: journeyContext.routeColor),
-                    const SizedBox(height: AppSpacing.md),
-                  ],
-                  Text(origin, style: theme.textTheme.titleMedium),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 2),
-                    child: Icon(Icons.arrow_downward_rounded, size: 18),
-                  ),
-                  Text(destination, style: theme.textTheme.headlineMedium),
-                  const SizedBox(height: AppSpacing.xl),
-                  JourneyProgressTrack(fraction: snapshot?.fractionComplete, color: lineColor),
-                  const SizedBox(height: AppSpacing.sm),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          snapshot?.remainingStations == null
-                              ? '–'
-                              : '${snapshot!.remainingStations} station(s) remaining',
-                          style: theme.textTheme.labelMedium,
-                        ),
-                      ),
-                      if (snapshot != null)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                          decoration: BoxDecoration(
-                            color: (snapshot.source == JourneyProgressSource.liveVehicle
-                                    ? AppColors.live
-                                    : theme.colorScheme.outline)
-                                .withValues(alpha: 0.15),
-                            borderRadius: AppRadius.pillR,
-                          ),
-                          child: Text(
-                            snapshot.source == JourneyProgressSource.liveVehicle
-                                ? 'LIVE TRACKING'
-                                : 'ESTIMATED FROM TIMETABLE',
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: snapshot.source == JourneyProgressSource.liveVehicle
-                                  ? AppColors.live
-                                  : theme.colorScheme.outline,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: AppSpacing.xxl),
-                  Wrap(
-                    spacing: AppSpacing.md,
-                    runSpacing: AppSpacing.md,
-                    children: [
-                      StatPill(
-                        icon: Icons.directions_subway_filled_rounded,
-                        label: context.t.journeyBoard,
-                        value: journeyContext?.routeLongName ?? '–',
-                        accent: lineColor,
-                      ),
-                      if (journeyContext?.recommendedCoach != null)
-                        StatPill(
-                          icon: Icons.event_seat_rounded,
-                          label: context.t.journeyCoach,
-                          value: '${journeyContext!.recommendedCoach! + 1}',
-                        ),
-                      if (exitName != null)
-                        StatPill(icon: Icons.exit_to_app_rounded, label: context.t.journeyExit, value: exitName),
-                      StatPill(
-                        icon: Icons.timer_outlined,
-                        label: context.t.journeyTimeRemaining,
-                        value: snapshot?.etaToDestination == null
-                            ? '–'
-                            : minutesLabel(snapshot!.etaToDestination!.inSeconds.toDouble()),
-                      ),
-                      StatPill(
-                        icon: Icons.list_alt_rounded,
-                        label: context.t.journeyStationsRemaining,
-                        value: snapshot?.remainingStations?.toString() ?? '–',
-                      ),
-                      if (snapshot?.delaySeconds != null && snapshot!.delaySeconds! > 120)
-                        StatPill(
-                          icon: Icons.warning_amber_rounded,
-                          label: context.t.journeyRunningLate,
-                          value: minutesLabel(snapshot.delaySeconds),
-                          accent: AppColors.warning,
-                        ),
-                    ],
-                  ),
-                ],
-              ),
+            if (journeyContext?.routeLongName != null) ...[
+              LineChip(label: journeyContext!.routeLongName!, colorHex: journeyContext.routeColor),
+              const SizedBox(height: AppSpacing.lg),
+            ],
+
+            // -- Current -> Next: the two-line "where am I" moment, Apple
+            // Maps turn-by-turn style. Big, bold, nothing competing for
+            // attention.
+            Text('NOW AT', style: theme.textTheme.labelMedium),
+            Text(currentName, style: theme.textTheme.headlineLarge),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+              child: Icon(Icons.arrow_downward_rounded, color: lineColor, size: 22),
             ),
+            Text(snapshot?.arrived == true ? 'ARRIVED' : 'NEXT STATION', style: theme.textTheme.labelMedium),
+            Text(nextName, style: theme.textTheme.headlineLarge?.copyWith(color: lineColor)),
+
+            const SizedBox(height: AppSpacing.xxl),
+
+            // -- Progress.
+            JourneyProgressTrack(fraction: snapshot?.fractionComplete, color: lineColor),
+            const SizedBox(height: AppSpacing.sm),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    snapshot?.remainingStations == null
+                        ? '–'
+                        : '${snapshot!.remainingStations} station(s) remaining',
+                    style: theme.textTheme.labelMedium,
+                  ),
+                ),
+                if (snapshot != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: (isLive ? AppColors.live : theme.colorScheme.outline).withValues(alpha: 0.15),
+                      borderRadius: AppRadius.pillR,
+                    ),
+                    child: Text(
+                      isLive ? 'LIVE TRACKING' : 'ESTIMATED FROM TIMETABLE',
+                      style: theme.textTheme.labelSmall
+                          ?.copyWith(color: isLive ? AppColors.live : theme.colorScheme.outline),
+                    ),
+                  ),
+              ],
+            ),
+
+            const SizedBox(height: AppSpacing.xxl),
+
+            // -- Coach / Exit / ETA: a minimal vertical info list, not a
+            // stat grid.
+            Builder(builder: (context) {
+              final rows = <Widget>[
+                if (journeyContext?.recommendedCoach != null)
+                  _InfoRow(
+                    icon: Icons.event_seat_rounded,
+                    label: context.t.journeyCoach,
+                    trailing: CoachChip(coach: journeyContext!.recommendedCoach! + 1, dense: true),
+                  ),
+                if (exitName != null)
+                  _InfoRow(icon: Icons.exit_to_app_rounded, label: context.t.journeyExit, value: exitName),
+                _InfoRow(
+                  icon: Icons.timer_outlined,
+                  label: context.t.journeyTimeRemaining,
+                  value: snapshot?.etaToDestination == null
+                      ? '–'
+                      : minutesLabel(snapshot!.etaToDestination!.inSeconds.toDouble()),
+                  valueStyle: theme.textTheme.headlineSmall?.copyWith(color: lineColor),
+                ),
+                if (snapshot?.delaySeconds != null && snapshot!.delaySeconds! > 120)
+                  _InfoRow(
+                    icon: Icons.warning_amber_rounded,
+                    label: context.t.journeyRunningLate,
+                    value: minutesLabel(snapshot.delaySeconds),
+                    iconColor: AppColors.warning,
+                  ),
+              ];
+              return GlassSurface(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl, vertical: AppSpacing.sm),
+                child: Column(
+                  children: [
+                    for (var i = 0; i < rows.length; i++) ...[
+                      if (i > 0) Divider(height: 1, color: theme.colorScheme.outlineVariant),
+                      rows[i],
+                    ],
+                  ],
+                ),
+              );
+            }),
+
             const SizedBox(height: AppSpacing.xxl),
             Row(
               children: [
@@ -332,6 +328,45 @@ class _CompanionBanner extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// One line of the minimal Coach / Exit / ETA info list: an icon, a label,
+/// and either a plain value or a custom trailing widget (a [CoachChip]).
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({
+    required this.icon,
+    required this.label,
+    this.value,
+    this.trailing,
+    this.valueStyle,
+    this.iconColor,
+  });
+
+  final IconData icon;
+  final String label;
+  final String? value;
+  final Widget? trailing;
+  final TextStyle? valueStyle;
+  final Color? iconColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.lg),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: iconColor ?? theme.colorScheme.onSurfaceVariant),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(child: Text(label, style: theme.textTheme.bodyLarge)),
+          if (trailing != null)
+            trailing!
+          else if (value != null)
+            Text(value!, style: valueStyle ?? theme.textTheme.titleLarge),
+        ],
       ),
     );
   }

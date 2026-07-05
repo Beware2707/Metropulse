@@ -34,7 +34,7 @@ void main() {
       interchangeStationName: 'X',
       nextStationName: 'Y',
     );
-    expect(message, const CompanionMessage(kind: CompanionMessageKind.arrived, text: 'You have arrived.'));
+    expect(message, const CompanionMessage(kind: CompanionMessageKind.arrived, text: "You've made it!"));
   });
 
   test('arriving soon mentions the exit when known', () {
@@ -60,7 +60,7 @@ void main() {
     final message = _build(approachingInterchange: true, interchangeStationName: 'Rajiv Chowk');
     expect(message, const CompanionMessage(
       kind: CompanionMessageKind.interchange,
-      text: 'Prepare to interchange at Rajiv Chowk.',
+      text: 'Time to change trains at Rajiv Chowk.',
     ));
   });
 
@@ -71,18 +71,18 @@ void main() {
 
   test('boarding message never invents a platform number', () {
     final withHint = _build(justBoarded: true, recommendedCoach: 4, platformHint: 'Towards Delta');
-    expect(withHint?.text, 'Board Coach 5 — platform for Towards Delta.');
+    expect(withHint?.text, 'Hop on Coach 5 — platform for Towards Delta.');
     expect(withHint?.text, isNot(contains('Platform 2')));
 
     final withoutHint = _build(justBoarded: true, recommendedCoach: 4);
-    expect(withoutHint?.text, 'Board Coach 5.');
+    expect(withoutHint?.text, 'Hop on Coach 5.');
   });
 
   test('next station is the routine fallback', () {
     final message = _build(nextStationName: 'Hauz Khas');
     expect(message, const CompanionMessage(
       kind: CompanionMessageKind.nextStation,
-      text: 'Next station is Hauz Khas.',
+      text: 'Next up: Hauz Khas.',
     ));
   });
 

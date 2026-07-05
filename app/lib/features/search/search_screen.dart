@@ -3,11 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/design/app_colors.dart';
+import '../../core/design/app_radius.dart';
 import '../../core/design/app_spacing.dart';
 import '../../core/widgets/ambient_background.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/glass_surface.dart';
+import '../../core/widgets/gradient_button.dart';
 import '../../core/widgets/icon_badge.dart';
+import '../../core/widgets/search_entry_pill.dart';
 import '../../domain/models/station.dart';
 import '../../domain/search_index.dart';
 import '../../providers/core_providers.dart';
@@ -61,16 +64,47 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, AppSpacing.sm),
                 child: Row(
                   children: [
-                    IconButton(onPressed: () => context.pop(), icon: const Icon(Icons.arrow_back_rounded)),
+                    IconPillButton(icon: Icons.arrow_back_rounded, onPressed: () => context.pop()),
+                    const SizedBox(width: AppSpacing.sm),
                     Expanded(
-                      child: TextField(
-                        controller: _controller,
-                        autofocus: true,
-                        decoration: const InputDecoration(
-                          prefixIcon: Icon(Icons.search_rounded),
-                          hintText: 'Station, alias or nearby landmark',
+                      child: Hero(
+                        tag: kSearchHeroTag,
+                        child: Material(
+                          type: MaterialType.transparency,
+                          child: GlassSurface(
+                            borderRadius: AppRadius.pillR,
+                            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl, vertical: 2),
+                            child: Row(
+                              children: [
+                                Icon(Icons.search_rounded, size: 24, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                                const SizedBox(width: AppSpacing.md),
+                                Expanded(
+                                  child: TextField(
+                                    controller: _controller,
+                                    autofocus: true,
+                                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+                                    decoration: const InputDecoration(
+                                      hintText: 'Where to?',
+                                      border: InputBorder.none,
+                                      isDense: true,
+                                      contentPadding: EdgeInsets.symmetric(vertical: 16),
+                                    ),
+                                    onChanged: (value) => setState(() => _query = value),
+                                  ),
+                                ),
+                                if (_query.isNotEmpty)
+                                  GestureDetector(
+                                    onTap: () {
+                                      _controller.clear();
+                                      setState(() => _query = '');
+                                    },
+                                    child: Icon(Icons.close_rounded,
+                                        size: 20, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                                  ),
+                              ],
+                            ),
+                          ),
                         ),
-                        onChanged: (value) => setState(() => _query = value),
                       ),
                     ),
                   ],
@@ -85,7 +119,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                       padding: EdgeInsets.all(AppSpacing.xxl),
                       child: EmptyState(
                         icon: Icons.cloud_off_rounded,
-                        message: 'Station data not downloaded yet. Connect once to cache the network for offline use.',
+                        message: "We haven't downloaded station data yet — connect once and we'll take care of it.",
                       ),
                     ),
                   ),
@@ -101,7 +135,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 )
               else if (hits.isEmpty)
                 const Expanded(
-                  child: Center(child: Text('No stations match that search.')),
+                  child: Center(child: Text("We couldn't find that one — try a different name or landmark.")),
                 )
               else
                 Expanded(
@@ -178,7 +212,7 @@ class _RecentAndFavourites extends StatelessWidget {
       return const Center(
         child: Padding(
           padding: EdgeInsets.all(AppSpacing.xxl),
-          child: Text('Start typing a station name, alias or nearby landmark.'),
+          child: Text("Start typing and we'll find it."),
         ),
       );
     }

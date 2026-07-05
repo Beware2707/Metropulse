@@ -8,6 +8,7 @@ from metropulse.api.v1.analytics import router as analytics_router
 from metropulse.api.v1.commute import router as commute_router
 from metropulse.api.v1.eta import router as eta_router
 from metropulse.api.v1.favourites import router as favourites_router
+from metropulse.api.v1.intelligence import router as intelligence_router
 from metropulse.api.v1.journey_plan import router as journey_plan_router
 from metropulse.api.v1.journeys import router as journeys_router
 from metropulse.api.v1.notifications import router as notifications_router
@@ -35,4 +36,5 @@ router.include_router(offline_router)
 router.include_router(analytics_router)
 router.include_router(notifications_router)
 router.include_router(commute_router)
+router.include_router(intelligence_router)
 router.include_router(admin_stats_router)

@@ -44,7 +44,7 @@ class TrainDetailScreen extends ConsumerWidget {
         intensity: 0.5,
         child: SafeArea(
           child: train == null
-              ? const Center(child: Text('This train is no longer tracked.'))
+              ? const Center(child: Text("We've lost track of this train — it may have finished its trip."))
               : ListView(
                   padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 100, AppSpacing.lg, AppSpacing.xxl),
                   children: [
@@ -81,7 +81,7 @@ class TrainDetailScreen extends ConsumerWidget {
                     ),
                     const SectionHeader(title: 'Upcoming stations'),
                     if (eta == null || eta.stations.isEmpty)
-                      const EmptyState(icon: Icons.info_rounded, message: 'Arrival times unavailable.')
+                      const EmptyState(icon: Icons.info_rounded, message: "We don't have arrival times for this train yet.")
                     else
                       for (final station in eta.stations)
                         Padding(

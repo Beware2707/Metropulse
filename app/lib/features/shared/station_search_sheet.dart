@@ -15,7 +15,7 @@ import '../search/search_providers.dart';
 /// curated exit landmarks, boosted by favourites/recents, with Recent /
 /// Favourite quick-pick rows when the query is empty.
 class StationSearchSheet extends ConsumerStatefulWidget {
-  const StationSearchSheet({super.key, this.title = 'Search stations'});
+  const StationSearchSheet({super.key, this.title = 'Where to?'});
 
   final String title;
 
@@ -62,7 +62,7 @@ class _StationSearchSheetState extends ConsumerState<StationSearchSheet> {
               child: trimmed.isEmpty
                   ? _QuickPicks(favouriteIds: favouriteIds, recentIds: recentIds, byId: byId, onPick: _pick)
                   : hits.isEmpty
-                      ? const Center(child: Text('No stations match that search.'))
+                      ? const Center(child: Text("We couldn't find that one — try a different name or landmark."))
                       : ListView.separated(
                           padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.xxl),
                           itemCount: hits.length,
@@ -135,7 +135,7 @@ class _QuickPicks extends StatelessWidget {
       return const Center(
         child: Padding(
           padding: EdgeInsets.all(AppSpacing.xxl),
-          child: Text('Start typing a station name, alias or nearby landmark.'),
+          child: Text("Start typing and we'll find it."),
         ),
       );
     }

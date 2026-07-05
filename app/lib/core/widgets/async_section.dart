@@ -46,8 +46,8 @@ class AsyncSection<T> extends ConsumerWidget {
           loading: () => ShimmerBlock(height: skeletonHeight),
           error: (error, _) => EmptyState(
             icon: Icons.cloud_off_rounded,
-            message: "Couldn't load this section.",
-            actionLabel: onRetry == null ? null : 'Retry',
+            message: "Hmm, that didn't load.",
+            actionLabel: onRetry == null ? null : 'Try again',
             onAction: onRetry,
           ),
           data: (data) =>

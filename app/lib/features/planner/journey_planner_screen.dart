@@ -8,6 +8,7 @@ import '../../core/design/app_spacing.dart';
 import '../../core/formatters.dart';
 import '../../core/theme.dart';
 import '../../core/widgets/ambient_background.dart';
+import '../../core/widgets/app_bottom_sheet.dart';
 import '../../core/widgets/glass_surface.dart';
 import '../../core/widgets/gradient_button.dart';
 import '../../core/widgets/icon_badge.dart';
@@ -63,7 +64,7 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: const Text('Plan journey'),
+        title: const Text('Where are you going?'),
         actions: [
           IconPillButton(
             icon: Icons.swap_vert_rounded,
@@ -134,7 +135,7 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
                   ),
                 const SizedBox(height: AppSpacing.lg),
                 PrimaryButton(
-                  label: 'Start journey mode',
+                  label: "Let's go",
                   icon: Icons.navigation_rounded,
                   expand: true,
                   onPressed: _startJourney,
@@ -148,13 +149,9 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
   }
 
   Future<void> _pick(bool isOrigin) async {
-    final station = await showModalBottomSheet<Station>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl))),
-      builder: (_) => StationSearchSheet(title: 'Choose ${isOrigin ? 'origin' : 'destination'}'),
+    final station = await showAppBottomSheet<Station>(
+      context,
+      builder: (_) => StationSearchSheet(title: isOrigin ? 'Where from?' : 'Where to?'),
     );
     if (station == null) return;
     setState(() {
@@ -195,7 +192,7 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
       setState(() => _plan = plan);
     } on Exception {
       if (!mounted) return;
-      setState(() => _error = 'No route found between these stations.');
+      setState(() => _error = "We couldn't find a route between these stations.");
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -209,7 +206,7 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
       builder: (dialogContext) {
         final controller = TextEditingController(text: '${origin.name} → ${destination.name}');
         return AlertDialog(
-          title: const Text('Pin this journey'),
+          title: const Text('Save this route'),
           content: TextField(controller: controller, autofocus: true),
           actions: [
             TextButton(
@@ -218,7 +215,7 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
             ),
             FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(controller.text.trim()),
-              child: const Text('Pin'),
+              child: const Text('Save'),
             ),
           ],
         );
@@ -232,7 +229,7 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
         );
     if (mounted) {
       ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Journey pinned to Favourites.')));
+          .showSnackBar(const SnackBar(content: Text('Saved to your favourites!')));
     }
   }
 
@@ -328,7 +325,7 @@ class _PreferenceSelector extends StatelessWidget {
           children: [
             for (final (value, label) in const [
               (RoutePreference.fastest, 'Fastest'),
-              (RoutePreference.fewerTransfers, 'Fewer interchanges'),
+              (RoutePreference.fewerTransfers, 'Fewer changes'),
               (RoutePreference.lessWalking, 'Less walking'),
             ])
               ChoiceChip(
@@ -349,7 +346,7 @@ class _PreferenceSelector extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: AppSpacing.sm),
             child: Text(
-              "Wheelchair-accessible routing isn't available for this network yet — showing the standard "
+              "We don't have wheelchair-accessible routing for this network yet — here's the standard "
               'route instead.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.error),
             ),
@@ -394,14 +391,14 @@ class _PlanSummary extends StatelessWidget {
                   children: [
                     _MiniStat(label: 'Arrive', value: clockTime(plan.expectedArrivalAt)),
                     _MiniStat(label: 'Fare (est.)', value: '₹${fare.rupees}'),
-                    _MiniStat(label: 'Interchanges', value: '${plan.interchangeCount}'),
+                    _MiniStat(label: 'Changes', value: '${plan.interchangeCount}'),
                     _MiniStat(label: 'Walking', value: distanceLabel(plan.walkingDistanceM)),
                   ],
                 ),
               ],
             ),
           ),
-          IconPillButton(icon: Icons.push_pin_rounded, tooltip: 'Pin this journey', onPressed: onPin),
+          IconPillButton(icon: Icons.push_pin_rounded, tooltip: 'Save this route', onPressed: onPin),
         ],
       ),
     );

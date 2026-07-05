@@ -37,7 +37,7 @@ class FavouritesScreen extends ConsumerWidget {
             children: [
               favourites.when(
                 loading: () => const Center(child: CircularProgressIndicator()),
-                error: (error, _) => Center(child: Text('Could not load favourites: $error')),
+                error: (error, _) => const Center(child: Text("We couldn't load your favourites. Pull to try again.")),
                 data: (rows) => ListView(
                   padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, 180),
                   children: [
@@ -46,8 +46,7 @@ class FavouritesScreen extends ConsumerWidget {
                     if (rows.isEmpty)
                       const EmptyState(
                         icon: Icons.home_work_rounded,
-                        message:
-                            'Add your Home and Work stations to unlock the commute card on the home screen.',
+                        message: "Add your Home and Work stations and we'll build your commute card for you.",
                       )
                     else
                       for (final row in rows)
@@ -71,7 +70,7 @@ class FavouritesScreen extends ConsumerWidget {
                     if (pinnedJourneys.isEmpty)
                       const EmptyState(
                         icon: Icons.push_pin_rounded,
-                        message: 'Pin a journey from the planner for one-tap access to routes you take often.',
+                        message: "Save a route from the planner and it'll be one tap away.",
                       )
                     else
                       for (var i = 0; i < pinnedJourneys.length; i++)
@@ -118,7 +117,7 @@ class FavouritesScreen extends ConsumerWidget {
                 right: AppSpacing.lg,
                 bottom: 108,
                 child: PrimaryButton(
-                  label: 'Add station',
+                  label: 'Add a station',
                   icon: Icons.add_rounded,
                   onPressed: () => context.push('/search'),
                 ),
@@ -147,7 +146,7 @@ class FavouritesScreen extends ConsumerWidget {
       final label = await showDialog<String>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('Custom label'),
+          title: const Text('Give it a name'),
           content: TextField(controller: controller, autofocus: true),
           actions: [
             TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel')),
@@ -207,7 +206,7 @@ class _FavouriteRow extends StatelessWidget {
             itemBuilder: (_) => [
               for (final label in FavouritesScreen._quickLabels)
                 PopupMenuItem(value: 'label:$label', child: Text('Label as $label')),
-              const PopupMenuItem(value: 'custom', child: Text('Custom label…')),
+              const PopupMenuItem(value: 'custom', child: Text('Custom name…')),
               const PopupMenuItem(value: 'remove', child: Text('Remove')),
             ],
           ),

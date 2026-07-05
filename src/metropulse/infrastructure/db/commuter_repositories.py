@@ -319,6 +319,27 @@ class JourneyRepository:
         )
         return result.scalars().all()
 
+    async def completed_by_route(
+        self, route_id: str, since: datetime, limit: int = 200
+    ) -> Sequence[Journey]:
+        """Completed journeys on a route since a moment, newest first.
+
+        System-wide (not user-scoped) — feeds delay estimation, which treats
+        delay as a property of the route/time-of-day, not of any one rider.
+        """
+        result = await self._session.execute(
+            select(Journey)
+            .where(
+                Journey.route_id == route_id,
+                Journey.status == "completed",
+                Journey.ended_at.is_not(None),
+                Journey.started_at >= since,
+            )
+            .order_by(Journey.started_at.desc())
+            .limit(limit)
+        )
+        return result.scalars().all()
+
     async def events_for(self, journey_id: int) -> Sequence[JourneyEvent]:
         """Events for one journey in chronological order."""
         result = await self._session.execute(

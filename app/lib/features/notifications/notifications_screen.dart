@@ -43,8 +43,8 @@ class NotificationsScreen extends ConsumerWidget {
                   const SizedBox(height: 64),
                   EmptyState(
                     icon: Icons.cloud_off_rounded,
-                    message: 'Could not load notifications.',
-                    actionLabel: 'Retry',
+                    message: "We couldn't load your notifications.",
+                    actionLabel: 'Try again',
                     onAction: () => ref.invalidate(notificationsListProvider),
                   ),
                 ],
