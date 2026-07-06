@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 
 import '../../core/config.dart';
+import '../../core/design/app_motion.dart';
 import '../../core/design/app_radius.dart';
 import '../../core/design/app_spacing.dart';
 import '../../core/formatters.dart';
@@ -148,6 +150,12 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
                         ),
                       ),
                       const Spacer(),
+                      IconPillButton(
+                        icon: Icons.search_rounded,
+                        tooltip: 'Search stations and places',
+                        onPressed: () => context.push('/search'),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
                       _downloadingTiles
                           ? const GlassSurface(
                               blur: true,
@@ -159,29 +167,37 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
                                 child: CircularProgressIndicator(strokeWidth: 2),
                               ),
                             )
-                          : IconPillButton(
-                              icon: _hasOfflineRegion == true
-                                  ? Icons.offline_pin_rounded
-                                  : Icons.download_for_offline_rounded,
-                              tooltip: _hasOfflineRegion == true
-                                  ? 'Offline map saved — tap to refresh'
-                                  : 'Download offline map area',
-                              onPressed: _downloadOfflineTiles,
+                          : Opacity(
+                              opacity: 0.7,
+                              child: IconPillButton(
+                                icon: _hasOfflineRegion == true
+                                    ? Icons.offline_pin_rounded
+                                    : Icons.download_for_offline_rounded,
+                                tooltip: _hasOfflineRegion == true
+                                    ? 'Offline map saved — tap to refresh'
+                                    : 'Download offline map area',
+                                onPressed: _downloadOfflineTiles,
+                              ),
                             ),
                     ],
                   ),
-                  if (_showMapHint) ...[
-                    const SizedBox(height: AppSpacing.sm),
-                    GestureDetector(
-                      onTap: _dismissMapHint,
-                      child: GlassSurface(
-                        blur: true,
-                        borderRadius: AppRadius.pillR,
-                        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.sm),
-                        child: Text('Dots are trains, moving live', style: Theme.of(context).textTheme.labelSmall),
-                      ),
+                  if (MediaQuery.of(context).disableAnimations) ...[
+                    if (_showMapHint) ...[
+                      const SizedBox(height: AppSpacing.sm),
+                      _MapHintPill(onDismiss: _dismissMapHint),
+                    ],
+                  ] else
+                    AnimatedSwitcher(
+                      duration: AppMotion.fast,
+                      transitionBuilder: (child, animation) => FadeTransition(opacity: animation, child: child),
+                      child: _showMapHint
+                          ? Padding(
+                              key: const ValueKey('map-hint'),
+                              padding: const EdgeInsets.only(top: AppSpacing.sm),
+                              child: _MapHintPill(onDismiss: _dismissMapHint),
+                            )
+                          : const SizedBox.shrink(key: ValueKey('no-map-hint')),
                     ),
-                  ],
                 ],
               ),
             ),
@@ -344,14 +360,21 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
   /// has churned). A train opens its live card; a station jumps straight to
   /// its detail screen; a cluster zooms in on itself rather than requiring a
   /// manual pinch.
-  Future<void> _onMapClick(dynamic point, LatLng latLng) async {
+  Future<void> _onMapClick(Point<double> point, LatLng latLng) async {
     final map = _map;
     if (map == null) return;
-    final features = await map.queryRenderedFeatures(
-      point,
-      ['mp-trains-layer', 'mp-stations-layer', 'mp-train-clusters'],
-      null,
-    );
+    const layers = ['mp-trains-layer', 'mp-stations-layer', 'mp-train-clusters'];
+    var features = await map.queryRenderedFeatures(point, layers, null);
+    if (features.isEmpty) {
+      // Trains are small circles — a slightly-off tap can miss the exact
+      // pixel. Widen the hit-test to a small screen-space box around the
+      // tap before giving up entirely.
+      features = await map.queryRenderedFeaturesInRect(
+        Rect.fromCenter(center: Offset(point.x, point.y), width: 24, height: 24),
+        layers,
+        null,
+      );
+    }
     if (features.isEmpty) return;
     final first = features.first;
     final properties =
@@ -469,6 +492,26 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
   }
 }
 
+/// The one-time "dots are trains" pill shown until the user taps it away.
+class _MapHintPill extends StatelessWidget {
+  const _MapHintPill({required this.onDismiss});
+
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onDismiss,
+      child: GlassSurface(
+        blur: true,
+        borderRadius: AppRadius.pillR,
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.sm),
+        child: Text('Dots are trains, moving live', style: Theme.of(context).textTheme.labelSmall),
+      ),
+    );
+  }
+}
+
 /// The tap-a-train card: line, motion state, next station, minutes away.
 class _TrainSheet extends ConsumerWidget {
   const _TrainSheet({required this.vehicleId});
@@ -486,7 +529,6 @@ class _TrainSheet extends ConsumerWidget {
       );
     }
     final next = train.nextStation;
-    final speed = train.vehicle.speedMps;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
       child: Column(
@@ -508,7 +550,14 @@ class _TrainSheet extends ConsumerWidget {
                   style: theme.textTheme.titleMedium,
                 ),
               ),
-              if (train.isStale) const Icon(Icons.signal_wifi_off_rounded, size: 16),
+              if (train.isStale) ...[
+                const Icon(Icons.signal_wifi_off_rounded, size: 16),
+                const SizedBox(width: AppSpacing.xs),
+                Text(
+                  'Position may be a few minutes old',
+                  style: theme.textTheme.labelSmall,
+                ),
+              ],
             ],
           ),
           if (next != null) ...[
@@ -520,23 +569,11 @@ class _TrainSheet extends ConsumerWidget {
           Wrap(
             spacing: AppSpacing.md,
             runSpacing: AppSpacing.md,
-            // Current/Destination stay full-weight; Speed/Direction recede
-            // (they're trivia next to the Next-stop ETA above, not decisions).
             children: [
               if (train.currentStation != null)
                 StatPill(icon: Icons.my_location_rounded, label: 'Current', value: train.currentStation!.name),
               if (train.destination != null)
                 StatPill(icon: Icons.flag_rounded, label: 'Destination', value: train.destination!.name),
-              if (speed != null)
-                Opacity(
-                  opacity: 0.7,
-                  child: StatPill(icon: Icons.speed_rounded, label: 'Speed', value: '${(speed * 3.6).round()} km/h'),
-                ),
-              if (train.headsign != null)
-                Opacity(
-                  opacity: 0.7,
-                  child: StatPill(icon: Icons.explore_rounded, label: 'Direction', value: train.headsign!),
-                ),
             ],
           ),
           if (train.remainingStations.isNotEmpty) ...[

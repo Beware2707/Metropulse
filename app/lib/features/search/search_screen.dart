@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/design/app_colors.dart';
+import '../../core/design/app_motion.dart';
 import '../../core/design/app_radius.dart';
 import '../../core/design/app_spacing.dart';
 import '../../core/widgets/ambient_background.dart';
@@ -111,89 +112,20 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                   ],
                 ),
               ),
-              if (bundle.isLoading)
-                const Expanded(child: Center(child: CircularProgressIndicator()))
-              else if (stations.isEmpty)
-                const Expanded(
-                  child: Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(AppSpacing.xxl),
-                      child: EmptyState(
-                        icon: Icons.cloud_off_rounded,
-                        message: "We haven't downloaded station data yet — connect once and we'll take care of it.",
-                      ),
-                    ),
-                  ),
-                )
-              else if (trimmed.isEmpty)
-                Expanded(
-                  child: _RecentAndFavourites(
+              Expanded(
+                child: AnimatedSwitcher(
+                  duration: AppMotion.medium,
+                  child: _buildBody(
+                    bundle: bundle,
+                    stations: stations,
+                    trimmed: trimmed,
+                    hits: hits,
                     favouriteIds: favouriteIds,
                     recentIds: recentIds,
                     byId: byId,
-                    onTap: _openStation,
-                  ),
-                )
-              else if (hits.isEmpty)
-                const Expanded(
-                  child: Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(AppSpacing.xxl),
-                      child: EmptyState(
-                        icon: Icons.search_off_rounded,
-                        message: "We couldn't find that one — try a different name or landmark.",
-                      ),
-                    ),
-                  ),
-                )
-              else
-                Expanded(
-                  child: ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, AppSpacing.xxl),
-                    itemCount: hits.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.sm),
-                    itemBuilder: (_, index) {
-                      final hit = hits[index];
-                      return GlassSurface(
-                        onTap: () => _openStation(hit.station),
-                        child: Row(
-                          children: [
-                            const IconBadge(icon: Icons.place_rounded),
-                            const SizedBox(width: AppSpacing.md),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(hit.station.name, style: Theme.of(context).textTheme.titleMedium),
-                                  if (hit.matchedText != null)
-                                    Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        if (hit.reason == SearchMatchReason.landmark) ...[
-                                          Icon(Icons.near_me_rounded,
-                                              size: 14, color: Theme.of(context).colorScheme.onSurfaceVariant),
-                                          const SizedBox(width: 4),
-                                        ],
-                                        Flexible(
-                                          child: Text(
-                                            hit.reason == SearchMatchReason.alias
-                                                ? 'Also known as "${hit.matchedText}"'
-                                                : 'Near ${hit.matchedText}',
-                                            style: Theme.of(context).textTheme.bodySmall,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                ],
-                              ),
-                            ),
-                            const Icon(Icons.chevron_right_rounded),
-                          ],
-                        ),
-                      );
-                    },
                   ),
                 ),
+              ),
             ],
           ),
         ),
@@ -205,6 +137,99 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     ref.read(localStoreProvider).recordSearchVisit(station.stopId);
     ref.invalidate(recentSearchIdsProvider);
     context.push('/station/${station.stopId}');
+  }
+
+  Widget _buildBody({
+    required AsyncValue<OfflineBundle?> bundle,
+    required List<Station> stations,
+    required String trimmed,
+    required List<SearchHit> hits,
+    required Set<String> favouriteIds,
+    required List<String> recentIds,
+    required Map<String, Station> byId,
+  }) {
+    if (bundle.isLoading) {
+      return const KeyedSubtree(
+        key: ValueKey('loading'),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (stations.isEmpty) {
+      return const KeyedSubtree(
+        key: ValueKey('no-offline-data'),
+        child: Center(
+          child: Padding(
+            padding: EdgeInsets.all(AppSpacing.xxl),
+            child: EmptyState(
+              icon: Icons.cloud_off_rounded,
+              message: "We haven't downloaded station data yet — connect once and we'll take care of it.",
+            ),
+          ),
+        ),
+      );
+    }
+    if (trimmed.isEmpty) {
+      return KeyedSubtree(
+        key: const ValueKey('recents-and-favourites'),
+        child: _RecentAndFavourites(
+          favouriteIds: favouriteIds,
+          recentIds: recentIds,
+          byId: byId,
+          onTap: _openStation,
+        ),
+      );
+    }
+    if (hits.isEmpty) {
+      return const KeyedSubtree(
+        key: ValueKey('no-results'),
+        child: Center(
+          child: Padding(
+            padding: EdgeInsets.all(AppSpacing.xxl),
+            child: EmptyState(
+              icon: Icons.search_off_rounded,
+              message: "We couldn't find that one — try a different name or landmark.",
+            ),
+          ),
+        ),
+      );
+    }
+    return KeyedSubtree(
+      key: const ValueKey('results'),
+      child: _ResultsList(hits: hits, onTap: _openStation),
+    );
+  }
+}
+
+class _ResultsList extends StatelessWidget {
+  const _ResultsList({required this.hits, required this.onTap});
+
+  final List<SearchHit> hits;
+  final void Function(Station) onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, AppSpacing.xxl),
+      itemCount: hits.length,
+      separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.sm),
+      itemBuilder: (_, index) {
+        final hit = hits[index];
+        return StationRow(
+          station: hit.station,
+          icon: switch (hit.reason) {
+            SearchMatchReason.alias => Icons.label_outline_rounded,
+            SearchMatchReason.landmark => Icons.near_me_rounded,
+            SearchMatchReason.name => Icons.place_rounded,
+          },
+          subtitle: hit.matchedText == null
+              ? null
+              : (hit.reason == SearchMatchReason.alias ? 'Also known as "${hit.matchedText}"' : 'Near ${hit.matchedText}'),
+          subtitleIcon: hit.reason == SearchMatchReason.landmark ? Icons.near_me_rounded : null,
+          dimmed: hit.reason == SearchMatchReason.landmark,
+          onTap: onTap,
+        );
+      },
+    );
   }
 }
 
@@ -233,7 +258,7 @@ class _RecentAndFavourites extends StatelessWidget {
       return const Center(
         child: Padding(
           padding: EdgeInsets.all(AppSpacing.xxl),
-          child: Text("Start typing and we'll find it."),
+          child: EmptyState(icon: Icons.search_rounded, message: "Start typing and we'll find it."),
         ),
       );
     }

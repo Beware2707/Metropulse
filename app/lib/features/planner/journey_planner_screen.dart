@@ -49,6 +49,52 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
   bool _loading = false;
   bool _resolvedInitialStations = false;
 
+  /// The plan in place right before the *current* re-plan was kicked off,
+  /// paired with the preference it was computed under. Used to show a
+  /// one-line "why" caption (e.g. "+4 min, 1 fewer change than Fastest")
+  /// under the preference selector once the new plan lands — but only when
+  /// a preference change (not a fresh origin/destination pick) triggered
+  /// the re-plan.
+  JourneyPlan? _previousPlan;
+  RoutePreference? _previousPlanPreference;
+  bool _comparingPreferenceChange = false;
+
+  /// A short "why" caption comparing the current plan against the plan that
+  /// was showing right before the route preference changed — e.g. "+4 min,
+  /// 1 fewer change than Fastest". Null whenever there's nothing meaningful
+  /// to compare (no previous plan, or the plan change wasn't caused by a
+  /// preference switch).
+  String? get _preferenceDeltaCaption {
+    if (!_comparingPreferenceChange) return null;
+    final previous = _previousPlan;
+    final previousPreference = _previousPlanPreference;
+    final current = _plan;
+    if (previous == null || previousPreference == null || current == null) return null;
+
+    final secondsDelta = current.expectedTravelSeconds - previous.expectedTravelSeconds;
+    final changesDelta = current.interchangeCount - previous.interchangeCount;
+    if (secondsDelta == 0 && changesDelta == 0) return null;
+
+    final parts = <String>[];
+    final minutesDelta = (secondsDelta / 60).round();
+    if (minutesDelta != 0) {
+      parts.add('${minutesDelta > 0 ? '+' : ''}$minutesDelta min');
+    }
+    if (changesDelta != 0) {
+      final count = changesDelta.abs();
+      final noun = count == 1 ? 'change' : 'changes';
+      parts.add('${changesDelta < 0 ? '$count fewer' : '$count more'} $noun');
+    }
+    if (parts.isEmpty) return null;
+    return '${parts.join(', ')} than ${_preferenceLabel(previousPreference)}';
+  }
+
+  String _preferenceLabel(RoutePreference preference) => switch (preference) {
+        RoutePreference.fastest => 'Fastest',
+        RoutePreference.fewerTransfers => 'Fewer changes',
+        RoutePreference.lessWalking => 'Less walking',
+      };
+
   @override
   Widget build(BuildContext context) {
     if (!_resolvedInitialStations) {
@@ -67,14 +113,6 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('Where are you going?'),
-        actions: [
-          IconPillButton(
-            icon: Icons.swap_vert_rounded,
-            tooltip: 'Swap origin and destination',
-            onPressed: _origin == null || _destination == null ? null : _swap,
-          ),
-          const SizedBox(width: AppSpacing.lg),
-        ],
       ),
       body: AmbientBackground(
         intensity: 0.6,
@@ -88,7 +126,16 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
                 station: _origin,
                 onTap: () => _pick(true),
               ),
-              const SizedBox(height: AppSpacing.sm),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+                child: Center(
+                  child: IconPillButton(
+                    icon: Icons.swap_vert_rounded,
+                    tooltip: 'Swap origin and destination',
+                    onPressed: _origin == null || _destination == null ? null : _swap,
+                  ),
+                ),
+              ),
               _EndpointTile(
                 label: 'To',
                 icon: Icons.flag_rounded,
@@ -103,9 +150,15 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
               _PreferenceSelector(
                 preference: _preference,
                 wheelchairRequested: _wheelchairRequested,
+                deltaCaption: _preferenceDeltaCaption,
                 onPreferenceChanged: (value) {
                   if (_loading || value == _preference) return;
-                  setState(() => _preference = value);
+                  setState(() {
+                    _previousPlan = _plan;
+                    _previousPlanPreference = _preference;
+                    _comparingPreferenceChange = true;
+                    _preference = value;
+                  });
                   _planJourney();
                 },
                 onWheelchairToggled: (value) => setState(() => _wheelchairRequested = value),
@@ -164,6 +217,9 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
       _destination = stations[destinationStopId];
       _plan = null;
       _error = null;
+      _previousPlan = null;
+      _previousPlanPreference = null;
+      _comparingPreferenceChange = false;
     });
     if (_origin != null && _destination != null) await _planJourney();
   }
@@ -182,6 +238,9 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
       }
       _plan = null;
       _error = null;
+      _previousPlan = null;
+      _previousPlanPreference = null;
+      _comparingPreferenceChange = false;
     });
     if (_origin != null && _destination != null) await _planJourney();
   }
@@ -192,6 +251,9 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
       _origin = _destination;
       _destination = origin;
       _plan = null;
+      _previousPlan = null;
+      _previousPlanPreference = null;
+      _comparingPreferenceChange = false;
     });
     _planJourney();
   }
@@ -212,7 +274,10 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
       setState(() => _plan = plan);
     } on Exception {
       if (!mounted) return;
-      setState(() => _error = "We couldn't find a route between these stations.");
+      setState(() {
+        _error = "We couldn't find a route between these stations.";
+        _comparingPreferenceChange = false;
+      });
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -298,6 +363,8 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
       'platform_hint': firstRide?.platformHint,
       'recommended_coach': coach?['recommended_coach'],
       'crowding': expectedCrowding(coach?['coaches'] as List<dynamic>?),
+      'coach_reasons': recommendedCoachReasons(coach),
+      'crowd_source': crowdSource(coach),
     });
 
     ref
@@ -379,12 +446,14 @@ class _PreferenceSelector extends StatelessWidget {
     required this.wheelchairRequested,
     required this.onPreferenceChanged,
     required this.onWheelchairToggled,
+    this.deltaCaption,
   });
 
   final RoutePreference preference;
   final bool wheelchairRequested;
   final ValueChanged<RoutePreference> onPreferenceChanged;
   final ValueChanged<bool> onWheelchairToggled;
+  final String? deltaCaption;
 
   @override
   Widget build(BuildContext context) {
@@ -414,6 +483,14 @@ class _PreferenceSelector extends StatelessWidget {
             ),
           ],
         ),
+        if (deltaCaption != null)
+          Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.sm),
+            child: Text(
+              deltaCaption!,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline),
+            ),
+          ),
         if (wheelchairRequested)
           Padding(
             padding: const EdgeInsets.only(top: AppSpacing.sm),
@@ -464,7 +541,8 @@ class _PlanSummary extends StatelessWidget {
                     _MiniStat(label: 'Arrive', value: clockTime(plan.expectedArrivalAt)),
                     _MiniStat(label: 'Fare (est.)', value: '₹${fare.rupees}'),
                     _MiniStat(label: 'Changes', value: '${plan.interchangeCount}'),
-                    _MiniStat(label: 'Walking', value: distanceLabel(plan.walkingDistanceM)),
+                    if (plan.walkingDistanceM > 0)
+                      _MiniStat(label: 'Walking', value: distanceLabel(plan.walkingDistanceM)),
                   ],
                 ),
               ],

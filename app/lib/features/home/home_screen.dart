@@ -11,6 +11,7 @@ import '../../core/l10n_ext.dart';
 import '../../core/widgets/ambient_background.dart';
 import '../../core/widgets/app_bottom_sheet.dart';
 import '../../core/widgets/coach_chip.dart';
+import '../../core/widgets/confidence_dots.dart';
 import '../../core/widgets/glass_surface.dart';
 import '../../core/widgets/gradient_button.dart';
 import '../../core/widgets/icon_badge.dart';
@@ -19,6 +20,7 @@ import '../../core/widgets/live_indicator.dart';
 import '../../core/widgets/moment_row.dart';
 import '../../core/widgets/reveal_animations.dart';
 import '../../core/widgets/search_entry_pill.dart';
+import '../../domain/commute_timeline.dart';
 import '../../domain/fare.dart';
 import '../../domain/home_context.dart';
 import '../../domain/models/commute_card.dart';
@@ -142,13 +144,6 @@ class _Header extends ConsumerWidget {
         const LiveIndicator(),
         const SizedBox(width: AppSpacing.sm),
         IconPillButton(
-          icon: Icons.mic_none_rounded,
-          tooltip: 'Metro Assistant',
-          filled: true,
-          onPressed: () => context.push('/assistant'),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        IconPillButton(
           icon: Icons.notifications_none_rounded,
           tooltip: 'Notifications',
           onPressed: () => context.push('/notifications'),
@@ -191,7 +186,7 @@ class _ActiveJourneyBanner extends StatelessWidget {
     return GlassSurface(
       gradient: LinearGradient(colors: [AppColors.live.withValues(alpha: 0.92), AppColors.brandBlue.withValues(alpha: 0.92)]),
       border: false,
-      onTap: () => context.push('/journey'),
+      onTap: () => context.go('/journey'),
       child: Row(
         children: [
           const Icon(Icons.navigation_rounded, color: Colors.white),
@@ -311,20 +306,42 @@ class _MomentsFlow extends ConsumerWidget {
 
 // --- Commute / Smart suggestion / Setup ------------------------------------------
 
-class _CommuteRow extends StatelessWidget {
+class _CommuteRow extends ConsumerWidget {
   const _CommuteRow({required this.card});
 
   final CommuteCard card;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    final delay = ref.watch(commuteDelayEstimateProvider).valueOrNull;
+    final status = card.leaveBy == null
+        ? null
+        : resolveCommuteTimelineStatus(
+            now: DateTime.now(),
+            leaveBy: card.leaveBy!,
+            delaySeconds: delay?.expectedDelaySeconds ?? 0,
+            routeLongName: card.routeLongName,
+            delayConfidence: delay?.confidence,
+          );
+    final isUrgent = status != null && status.urgency != CommuteUrgency.onTime;
+
     final leaveText =
         card.leaveInSeconds != null ? context.t.homeLeaveIn(minutesLabel(card.leaveInSeconds)) : context.t.homeNoDepartures;
+    final routeText = '${card.originName} → ${card.destinationName}';
+
     return MomentRow(
-      leading: IconBadge(icon: Icons.directions_subway_filled_rounded, gradient: AppColors.heroGradientFor()),
-      title: Text(leaveText, style: theme.textTheme.titleLarge),
-      subtitle: Text('${card.originName} → ${card.destinationName}', style: theme.textTheme.bodyMedium),
+      leading: IconBadge(
+        icon: isUrgent ? Icons.warning_amber_rounded : Icons.directions_subway_filled_rounded,
+        gradient: isUrgent ? null : AppColors.heroGradientFor(),
+        color: isUrgent ? AppColors.warning.withValues(alpha: 0.16) : null,
+        foreground: isUrgent ? AppColors.warning : null,
+      ),
+      title: Text(isUrgent ? status.headline : leaveText, style: theme.textTheme.titleLarge),
+      subtitle: Text(
+        status?.subline != null ? '${status!.subline} · $routeText' : routeText,
+        style: theme.textTheme.bodyMedium,
+      ),
       trailing: card.recommendedCoach != null ? CoachChip(coach: card.recommendedCoach! + 1, dense: true) : null,
       onTap: () => _showCommuteDetail(context, card),
     );
@@ -338,32 +355,80 @@ class _CommuteRow extends StatelessWidget {
           final theme = Theme.of(sheetContext);
           final suggestedPlan = ref.watch(homeSuggestedPlanProvider).valueOrNull;
           final fare = suggestedPlan == null ? null : estimateFare(suggestedPlan);
+          final delay = ref.watch(commuteDelayEstimateProvider).valueOrNull;
+          final coachReasons = ref.watch(homeCoachReasonsProvider).valueOrNull ?? const [];
+          final status = card.leaveBy == null
+              ? null
+              : resolveCommuteTimelineStatus(
+                  now: DateTime.now(),
+                  leaveBy: card.leaveBy!,
+                  delaySeconds: delay?.expectedDelaySeconds ?? 0,
+                  routeLongName: card.routeLongName,
+                  delayConfidence: delay?.confidence,
+                );
+          final steps = buildCommuteTimelineSteps(card: card, plan: suggestedPlan);
+          final isUrgent = status != null && status.urgency != CommuteUrgency.onTime;
+
           return Padding(
             padding: const EdgeInsets.fromLTRB(AppSpacing.xl, AppSpacing.lg, AppSpacing.xl, AppSpacing.xxl),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(card.greeting, style: theme.textTheme.bodyMedium),
+                Row(
+                  children: [
+                    Expanded(child: Text('TODAY', style: theme.textTheme.labelMedium)),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.outline.withValues(alpha: 0.15),
+                        borderRadius: AppRadius.pillR,
+                      ),
+                      child: Text('SCHEDULE-BASED',
+                          style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.outline)),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 4),
-                Text('${card.originName} → ${card.destinationName}', style: theme.textTheme.headlineSmall),
+                Text(
+                  status?.headline ?? card.greeting,
+                  style: theme.textTheme.headlineSmall?.copyWith(color: isUrgent ? AppColors.warning : null),
+                ),
+                if (status?.subline != null) ...[
+                  const SizedBox(height: 2),
+                  Text(status!.subline!, style: theme.textTheme.bodyMedium),
+                ],
+                if (status?.reason != null) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  Row(
+                    children: [
+                      Icon(Icons.info_outline_rounded, size: 14, color: theme.colorScheme.onSurfaceVariant),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(status!.reason!,
+                            style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                      ),
+                      if (status.confidence != null) ...[
+                        const SizedBox(width: AppSpacing.sm),
+                        ConfidenceDots(confidence: status.confidence!),
+                      ],
+                    ],
+                  ),
+                ],
                 if (card.routeLongName != null) ...[
                   const SizedBox(height: AppSpacing.md),
                   LineChip(label: card.routeLongName!, colorHex: card.routeColor),
                 ],
                 const SizedBox(height: AppSpacing.lg),
+                if (steps.isNotEmpty) ...[
+                  _CommuteTimeline(steps: steps, coach: card.recommendedCoach, coachReasons: coachReasons),
+                  const SizedBox(height: AppSpacing.lg),
+                ],
                 MomentList(
                   children: [
-                    _DetailRow(label: context.t.nextMetro, value: clockTime(card.nextDepartureAt)),
                     _DetailRow(label: context.t.crowding, value: card.crowding),
                     if (card.platformHint != null) _DetailRow(label: context.t.platform, value: card.platformHint!),
-                    _DetailRow(label: context.t.eta, value: minutesLabel(card.travelSeconds)),
                     if (fare != null) _DetailRow(label: 'Fare (est.)', value: '₹${fare.rupees}'),
-                    if (card.interchangeNames.isNotEmpty)
-                      _DetailRow(
-                        label: context.t.interchange,
-                        value: 'Change at ${card.interchangeNames.join(', ')}',
-                      ),
                   ],
                 ),
                 const SizedBox(height: AppSpacing.lg),
@@ -381,6 +446,93 @@ class _CommuteRow extends StatelessWidget {
           );
         },
       ),
+    );
+  }
+}
+
+/// The "Leave Home → Board → interchange(s) → Destination" timeline: a
+/// timestamp column, a connecting dot-and-line rail, and each step's label —
+/// interchange steps get a violet dot and a small "Change here" caption.
+class _CommuteTimeline extends StatelessWidget {
+  const _CommuteTimeline({required this.steps, this.coach, this.coachReasons = const []});
+
+  final List<CommuteTimelineStep> steps;
+  final int? coach;
+
+  /// Why this coach, straight from the recommendation's own `reasons` list
+  /// (e.g. "typically less crowded") — shown under the Board step, never
+  /// invented when the list is empty.
+  final List<String> coachReasons;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var i = 0; i < steps.length; i++)
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 52,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(clockTime(steps[i].time), style: theme.textTheme.labelMedium),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Column(
+                children: [
+                  Container(
+                    width: 10,
+                    height: 10,
+                    margin: const EdgeInsets.only(top: 6),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: steps[i].isInterchange ? AppColors.brandViolet : theme.colorScheme.primary,
+                    ),
+                  ),
+                  if (i < steps.length - 1)
+                    Expanded(
+                      child: Container(
+                        width: 2,
+                        margin: const EdgeInsets.symmetric(vertical: 2),
+                        color: theme.colorScheme.outlineVariant,
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(steps[i].title, style: theme.textTheme.titleMedium),
+                            if (steps[i].isInterchange)
+                              Text('Change here',
+                                  style: theme.textTheme.labelSmall?.copyWith(color: AppColors.brandViolet)),
+                            if (i == 1 && coachReasons.isNotEmpty)
+                              Text(
+                                coachReasons.first,
+                                style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                              ),
+                          ],
+                        ),
+                      ),
+                      if (i == 1 && coach != null) CoachChip(coach: coach! + 1, dense: true),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+      ],
     );
   }
 }
@@ -421,7 +573,17 @@ class _SmartSuggestionRow extends StatelessWidget {
     return MomentRow(
       leading: IconBadge(icon: Icons.insights_rounded, gradient: AppColors.heroGradientFor()),
       title: Text('${prediction.originName} → ${prediction.destinationName}', style: theme.textTheme.titleLarge),
-      subtitle: Text('Usually around ${clockTime(prediction.predictedDepartureAt)}', style: theme.textTheme.bodyMedium),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('Usually around ${clockTime(prediction.predictedDepartureAt)}', style: theme.textTheme.bodyMedium),
+          Text(
+            prediction.basis[0].toUpperCase() + prediction.basis.substring(1),
+            style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          ),
+        ],
+      ),
       trailing: Container(
         padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.xs),
         decoration: BoxDecoration(color: confidenceColor.withValues(alpha: 0.15), borderRadius: AppRadius.pillR),

@@ -37,4 +37,43 @@ void main() {
     expect(expectedCrowding([{'occupancy': 0.69}]), 'moderate');
     expect(expectedCrowding([{'occupancy': 0.70}]), 'high');
   });
+
+  group('recommendedCoachReasons', () {
+    test('null or missing coach data yields no reasons', () {
+      expect(recommendedCoachReasons(null), isEmpty);
+      expect(recommendedCoachReasons(const {}), isEmpty);
+    });
+
+    test('finds the reasons for the recommended coach specifically, not just the first entry', () {
+      final coach = {
+        'recommended_coach': 3,
+        'coaches': [
+          {'coach_index': 1, 'reasons': ['typically crowded']},
+          {'coach_index': 3, 'reasons': ['typically less crowded', 'short walk to a destination exit']},
+        ],
+      };
+      expect(recommendedCoachReasons(coach), ['typically less crowded', 'short walk to a destination exit']);
+    });
+
+    test('an unmatched recommended_coach yields no reasons rather than a wrong one', () {
+      final coach = {
+        'recommended_coach': 9,
+        'coaches': [
+          {'coach_index': 1, 'reasons': ['typically crowded']},
+        ],
+      };
+      expect(recommendedCoachReasons(coach), isEmpty);
+    });
+  });
+
+  group('crowdSource', () {
+    test('passes through the honesty label as-is', () {
+      expect(crowdSource({'crowd_source': 'observed'}), 'observed');
+      expect(crowdSource({'crowd_source': 'prior'}), 'prior');
+    });
+
+    test('null coach data yields no source claim', () {
+      expect(crowdSource(null), isNull);
+    });
+  });
 }

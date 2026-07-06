@@ -123,7 +123,14 @@
       "Bash(find / -maxdepth 6 -iname \"maplibre_gl*\" -type d 2>/dev/null | head -20; grep -n \"maplibre_gl\" /c/Users/riddl/Downloads/Metro/app/pubspec.lock | head -5)",
       "Bash(grep -A1 \"^  maplibre_gl:$\")",
       "Bash(awk '/^  maplibre_gl:$/,/version:/' /c/Users/riddl/Downloads/Metro/app/pubspec.lock)",
-      "Bash(git --no-pager diff --stat app/lib)"
+      "Bash(git --no-pager diff --stat app/lib)",
+      "Bash(xargs grep -l \"class ReplayRepository\")",
+      "Bash(xargs grep -l \"queryRenderedFeatures\")",
+      "Bash(find / -iname \"maplibre_gl-*\" -type d 2>/dev/null | head -5; find ~ -iname \"*.pub-cache*\" -maxdepth 2 2>/dev/null)",
+      "Bash(grep -rl *)",
+      "Bash(./.venv/Scripts/python.exe -m pytest -q)",
+      "Bash(./.venv/Scripts/python.exe -m pytest tests/test_leave_home.py::test_interchange_reminder_fires_once_then_journey_completes -q)",
+      "Bash(./.venv/Scripts/python.exe -m pytest tests/test_leave_home.py -q)"
     ]
   }
 }

@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 from factories import make_vehicle
+from metropulse.application import eta_engine as eta_engine_module
 from metropulse.application.commuter.journeys import JourneyService
 from metropulse.application.commuter.last_train import LastTrainService
 from metropulse.application.commuter.notifications import NotificationService
@@ -152,8 +153,23 @@ async def test_future_leave_home_reminder_does_not_fire(
 
 
 async def test_interchange_reminder_fires_once_then_journey_completes(
-    resources: AppResources, rule_engine: CommuterRuleEngine
+    resources: AppResources,
+    rule_engine: CommuterRuleEngine,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # The fixture GTFS schedule (tests/gtfs_fixture.py) anchors T1 to a fixed
+    # 08:00-08:09 clock window on whatever date is closest to "now", every
+    # run, forever. EtaEngine compares real utcnow() against that schedule to
+    # compute delay_seconds, so once the real wall clock drifts near or past
+    # 08:06 (S3's scheduled arrival) this test starts seeing a spurious
+    # >5-minute "delay" and an unwanted journey_delay notification alongside
+    # the expected interchange reminder. Freeze the one clock EtaEngine reads
+    # (utcnow is documented as "a single seam for tests" in domain/entities.py)
+    # to a fixed point comfortably before that schedule, so the computed
+    # delay stays negative regardless of the real date or time of day.
+    frozen_now = datetime(2026, 3, 2, 2, 25, 0, tzinfo=UTC)  # 07:55 IST
+    monkeypatch.setattr(eta_engine_module, "utcnow", lambda: frozen_now)
+
     async with resources.session_factory() as session:
         async with session.begin():
             user, _, _ = await resources.commuter.users.register(session, "ic-dev", None)

@@ -8,7 +8,6 @@ import '../../core/design/app_colors.dart';
 import '../../core/design/app_spacing.dart';
 import '../../core/widgets/ambient_background.dart';
 import '../../core/widgets/app_bottom_sheet.dart';
-import '../../core/widgets/glass_surface.dart';
 import '../../core/widgets/gradient_button.dart';
 import '../../core/widgets/icon_badge.dart';
 import '../../core/widgets/section_header.dart';
@@ -42,184 +41,155 @@ class SettingsScreen extends ConsumerWidget {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, 140),
             children: [
-              Text('Settings', style: Theme.of(context).textTheme.displaySmall),
+              Row(
+                children: [
+                  IconPillButton(icon: Icons.arrow_back_rounded, onPressed: () => context.pop()),
+                  const SizedBox(width: AppSpacing.md),
+                  Text('Settings', style: Theme.of(context).textTheme.displaySmall),
+                ],
+              ),
               const SectionHeader(title: 'Appearance'),
-              GlassSurface(
-                padding: EdgeInsets.zero,
+              RadioGroup<ThemeMode>(
+                groupValue: themeMode,
+                onChanged: (selected) {
+                  if (selected != null) ref.read(themeModeProvider.notifier).setMode(selected);
+                },
                 child: Column(
                   children: [
-                    RadioGroup<ThemeMode>(
-                      groupValue: themeMode,
-                      onChanged: (selected) {
-                        if (selected != null) ref.read(themeModeProvider.notifier).setMode(selected);
-                      },
-                      child: Column(
-                        children: [
-                          for (final (mode, label, icon) in [
-                            (ThemeMode.system, 'System', Icons.brightness_auto_rounded),
-                            (ThemeMode.light, 'Light', Icons.light_mode_rounded),
-                            (ThemeMode.dark, 'Dark', Icons.dark_mode_rounded),
-                          ])
-                            RadioListTile<ThemeMode>(
-                              value: mode,
-                              secondary: IconBadge(icon: icon),
-                              title: Text(label),
-                            ),
-                        ],
+                    for (final (mode, label, icon) in [
+                      (ThemeMode.system, 'System', Icons.brightness_auto_rounded),
+                      (ThemeMode.light, 'Light', Icons.light_mode_rounded),
+                      (ThemeMode.dark, 'Dark', Icons.dark_mode_rounded),
+                    ])
+                      RadioListTile<ThemeMode>(
+                        value: mode,
+                        secondary: IconBadge(icon: icon),
+                        title: Text(label),
                       ),
-                    ),
-                    const Divider(height: 1, indent: 20, endIndent: 20),
-                    SwitchListTile(
-                      secondary: const IconBadge(icon: Icons.wallpaper_rounded),
-                      title: const Text('Dynamic colour'),
-                      subtitle: const Text('Match your device wallpaper theme, where supported'),
-                      value: dynamicColorEnabled,
-                      onChanged: (value) async {
-                        await ref.read(localStoreProvider).setDynamicColorEnabled(value);
-                        ref.invalidate(dynamicColorEnabledProvider);
-                      },
-                    ),
                   ],
                 ),
               ),
+              SwitchListTile(
+                secondary: const IconBadge(icon: Icons.wallpaper_rounded),
+                title: const Text('Dynamic colour'),
+                subtitle: const Text('Match your device wallpaper theme, where supported'),
+                value: dynamicColorEnabled,
+                onChanged: (value) async {
+                  await ref.read(localStoreProvider).setDynamicColorEnabled(value);
+                  ref.invalidate(dynamicColorEnabledProvider);
+                },
+              ),
               const SectionHeader(title: 'Accessibility'),
-              GlassSurface(
-                padding: EdgeInsets.zero,
-                child: Column(
-                  children: [
-                    SwitchListTile(
-                      secondary: const IconBadge(icon: Icons.contrast_rounded),
-                      title: const Text('High contrast'),
-                      subtitle: const Text('Increases colour contrast throughout the app'),
-                      value: highContrast,
-                      onChanged: (value) async {
-                        await ref.read(localStoreProvider).setHighContrast(value);
-                        ref.invalidate(highContrastProvider);
-                      },
-                    ),
-                    ListTile(
-                      leading: const IconBadge(icon: Icons.text_fields_rounded),
-                      title: const Text('Text size'),
-                      subtitle: Slider(
-                        value: textScale,
-                        min: 0.85,
-                        max: 1.6,
-                        divisions: 15,
-                        label: '${(textScale * 100).round()}%',
-                        onChanged: (value) async {
-                          await ref.read(localStoreProvider).saveTextScaleFactor(value);
-                          ref.invalidate(textScaleFactorProvider);
-                        },
-                      ),
-                    ),
-                  ],
+              SwitchListTile(
+                secondary: const IconBadge(icon: Icons.contrast_rounded),
+                title: const Text('High contrast'),
+                subtitle: const Text('Increases colour contrast throughout the app'),
+                value: highContrast,
+                onChanged: (value) async {
+                  await ref.read(localStoreProvider).setHighContrast(value);
+                  ref.invalidate(highContrastProvider);
+                },
+              ),
+              ListTile(
+                leading: const IconBadge(icon: Icons.text_fields_rounded),
+                title: const Text('Text size'),
+                subtitle: Slider(
+                  value: textScale,
+                  min: 0.85,
+                  max: 1.6,
+                  divisions: 15,
+                  label: '${(textScale * 100).round()}%',
+                  onChanged: (value) async {
+                    await ref.read(localStoreProvider).saveTextScaleFactor(value);
+                    ref.invalidate(textScaleFactorProvider);
+                  },
                 ),
               ),
               const SectionHeader(title: 'Privacy'),
-              GlassSurface(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const IconBadge(icon: Icons.privacy_tip_rounded),
-                    const SizedBox(width: AppSpacing.md),
-                    Expanded(
-                      child: Text(
-                        'We only know you by an anonymous device token — no name, email or phone number '
-                        "needed. Your location stays on this device and just helps us show what's nearby; "
-                        "it's never sent anywhere. Your favourites, journeys and notifications are tied to "
-                        "that anonymous token, so they're still here next time you open the app.",
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const IconBadge(icon: Icons.privacy_tip_rounded),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: Text(
+                      'We only know you by an anonymous device token — no name, email or phone number '
+                      "needed. Your location stays on this device and just helps us show what's nearby; "
+                      "it's never sent anywhere. Your favourites, journeys and notifications are tied to "
+                      "that anonymous token, so they're still here next time you open the app.",
+                      style: Theme.of(context).textTheme.bodyMedium,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
               const SectionHeader(title: 'Notifications'),
-              GlassSurface(
-                padding: EdgeInsets.zero,
-                child: Column(
-                  children: [
-                    SwitchListTile(
-                      secondary: const IconBadge(icon: Icons.notifications_active_rounded),
-                      title: const Text('Alerts and reminders'),
-                      subtitle: const Text(
-                        'Destination, interchange, last-train, leave-home and service alerts',
-                      ),
-                      value: notificationsEnabled,
-                      onChanged: (value) async {
-                        await ref.read(localStoreProvider).setNotificationsEnabled(value);
-                        ref.invalidate(notificationsEnabledProvider);
-                      },
-                    ),
-                    const Divider(height: 1, indent: 20, endIndent: 20),
-                    ListTile(
-                      leading: const IconBadge(icon: Icons.inbox_rounded),
-                      title: const Text('View all notifications'),
-                      trailing: const Icon(Icons.chevron_right_rounded),
-                      onTap: () => context.push('/notifications'),
-                    ),
-                  ],
+              SwitchListTile(
+                secondary: const IconBadge(icon: Icons.notifications_active_rounded),
+                title: const Text('Alerts and reminders'),
+                subtitle: const Text(
+                  'Destination, interchange, last-train, leave-home and service alerts',
                 ),
+                value: notificationsEnabled,
+                onChanged: (value) async {
+                  await ref.read(localStoreProvider).setNotificationsEnabled(value);
+                  ref.invalidate(notificationsEnabledProvider);
+                },
+              ),
+              ListTile(
+                leading: const IconBadge(icon: Icons.inbox_rounded),
+                title: const Text('View all notifications'),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => context.push('/notifications'),
               ),
               if (kDebugMode) ...[
                 const SectionHeader(title: 'Backend'),
-                GlassSurface(
-                  padding: EdgeInsets.zero,
-                  child: ListTile(
-                    leading: const IconBadge(icon: Icons.dns_rounded),
-                    title: const Text('API server'),
-                    subtitle: Text(apiBase),
-                    trailing: const Icon(Icons.edit_rounded),
-                    onTap: () => _editApiBase(context, ref),
-                  ),
+                ListTile(
+                  leading: const IconBadge(icon: Icons.dns_rounded),
+                  title: const Text('API server'),
+                  subtitle: Text(apiBase),
+                  trailing: const Icon(Icons.edit_rounded),
+                  onTap: () => _editApiBase(context, ref),
                 ),
               ],
               const SectionHeader(title: 'Offline data'),
-              GlassSurface(
-                padding: EdgeInsets.zero,
-                child: Column(
-                  children: [
-                    ListTile(
-                      leading: const IconBadge(icon: Icons.offline_pin_rounded),
-                      title: Text(bundle == null
-                          ? 'Not downloaded'
-                          : '${bundle.stations.length} stations · ${bundle.routes.length} lines cached'),
-                      subtitle: bundle == null ? null : Text('Dataset version ${bundle.version}'),
-                      trailing: bundleLoading
-                          ? const Padding(
-                              padding: EdgeInsets.all(13),
-                              child: SizedBox(
-                                width: 22,
-                                height: 22,
-                                child: CircularProgressIndicator(strokeWidth: 2.5),
-                              ),
-                            )
-                          : IconPillButton(
-                              icon: Icons.refresh_rounded,
-                              tooltip: 'Refresh',
-                              onPressed: () => ref.invalidate(offlineBundleProvider),
-                            ),
-                    ),
-                    const Divider(height: 1, indent: 20, endIndent: 20),
-                    ListTile(
-                      leading: const IconBadge(icon: Icons.delete_outline_rounded),
-                      title: const Text('Clear cached history and searches'),
-                      subtitle: const Text(
-                        'Removes cached favourites, journey history and recent searches (station data is kept)',
+              ListTile(
+                leading: const IconBadge(icon: Icons.offline_pin_rounded),
+                title: Text(bundle == null
+                    ? 'Not downloaded'
+                    : '${bundle.stations.length} stations · ${bundle.routes.length} lines cached'),
+                subtitle: bundle == null ? null : Text('Dataset version ${bundle.version}'),
+                trailing: bundleLoading
+                    ? const Padding(
+                        padding: EdgeInsets.all(13),
+                        child: SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2.5),
+                        ),
+                      )
+                    : IconPillButton(
+                        icon: Icons.refresh_rounded,
+                        tooltip: 'Refresh',
+                        onPressed: () => ref.invalidate(offlineBundleProvider),
                       ),
-                      onTap: () => _confirmClearCache(context, ref),
-                    ),
-                  ],
+              ),
+              ListTile(
+                leading: IconBadge(
+                  icon: Icons.delete_outline_rounded,
+                  color: AppColors.danger.withValues(alpha: 0.16),
+                  foreground: AppColors.danger,
                 ),
+                title: const Text('Clear cached history and searches'),
+                subtitle: const Text(
+                  'Removes cached favourites, journey history and recent searches (station data is kept)',
+                ),
+                onTap: () => _confirmClearCache(context, ref),
               ),
               const SectionHeader(title: 'About'),
-              GlassSurface(
-                padding: EdgeInsets.zero,
-                child: ListTile(
-                  leading: IconBadge(icon: Icons.directions_subway_filled, gradient: AppColors.heroGradientFor()),
-                  title: const Text('MetroPulse'),
-                  subtitle: const Text('Version ${AppConfig.appVersion} · Metro Intelligence inside'),
-                ),
+              ListTile(
+                leading: IconBadge(icon: Icons.directions_subway_filled, gradient: AppColors.heroGradientFor()),
+                title: const Text('MetroPulse'),
+                subtitle: const Text('Version ${AppConfig.appVersion} · Metro Intelligence inside'),
               ),
             ],
           ),

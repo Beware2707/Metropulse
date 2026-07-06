@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/design/app_colors.dart';
+import '../../core/design/app_motion.dart';
 import '../../core/design/app_spacing.dart';
 import '../../core/formatters.dart';
 import '../../core/widgets/ambient_background.dart';
@@ -14,6 +15,7 @@ import '../../core/widgets/live_indicator.dart';
 import '../../core/widgets/moment_row.dart';
 import '../../core/widgets/section_header.dart';
 import '../../data/ws_client.dart';
+import '../../domain/models/eta.dart';
 import '../../providers/core_providers.dart';
 import '../../providers/live_providers.dart';
 import '../favourites/favourites_screen.dart';
@@ -26,6 +28,12 @@ final _lastTrainProvider = FutureProvider.autoDispose
 final _exitsProvider = FutureProvider.autoDispose
     .family<List<Map<String, dynamic>>, String>((ref, stopId) async {
   return ref.watch(stationsRepositoryProvider).exits(stopId);
+});
+
+/// Per-train ETA for an arrivals-board row, keyed by vehicle id — the same
+/// call `train_detail_screen.dart` and `live_map_screen.dart` make.
+final _arrivalEtaProvider = FutureProvider.autoDispose.family<VehicleEta?, String>((ref, vehicleId) async {
+  return ref.watch(trainsRepositoryProvider).eta(vehicleId);
 });
 
 /// Station detail: live arrivals (from the WS stream), lines, last train,
@@ -81,7 +89,15 @@ class StationDetailScreen extends ConsumerWidget {
             children: [
               Row(
                 children: [
-                  Expanded(child: Text('Arriving now', style: Theme.of(context).textTheme.headlineSmall)),
+                  Expanded(
+                    child: Text(
+                      'Arriving now',
+                      style: Theme.of(context)
+                          .textTheme
+                          .headlineMedium
+                          ?.copyWith(fontWeight: FontWeight.w800),
+                    ),
+                  ),
                   const LiveIndicator(),
                 ],
               ),
@@ -102,8 +118,10 @@ class StationDetailScreen extends ConsumerWidget {
                             children: [
                               Text(train.headsign == null ? train.lineLabel : 'Towards ${train.headsign}',
                                   style: Theme.of(context).textTheme.titleMedium),
-                              Text(train.atStation ? 'At ${train.currentStation?.name}' : 'Approaching',
-                                  style: Theme.of(context).textTheme.bodySmall),
+                              train.atStation
+                                  ? Text('At ${train.currentStation?.name}',
+                                      style: Theme.of(context).textTheme.bodySmall)
+                                  : _ArrivalEtaSubtitle(vehicleId: train.id),
                             ],
                           ),
                         ),
@@ -136,7 +154,7 @@ class StationDetailScreen extends ConsumerWidget {
                 loading: () => const SizedBox.shrink(),
                 error: (_, __) => const SizedBox.shrink(),
               ),
-              if (!isNight) ...[
+              if (!isNight && lastTrain.hasValue && lastTrain.value != null) ...[
                 const SizedBox(height: AppSpacing.xxl),
                 MomentList(children: [lastTrainRow]),
               ],
@@ -167,6 +185,22 @@ class _EmptyArrivals extends ConsumerWidget {
   }
 }
 
+/// Real per-row ETA for an approaching train, replacing the bare
+/// "Approaching" label with an actual minutes-away figure once it resolves.
+class _ArrivalEtaSubtitle extends ConsumerWidget {
+  const _ArrivalEtaSubtitle({required this.vehicleId});
+
+  final String vehicleId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final eta = ref.watch(_arrivalEtaProvider(vehicleId));
+    final seconds = eta.valueOrNull?.nextStation?.etaSeconds;
+    final label = seconds == null ? 'Approaching' : '${minutesLabel(seconds)} away';
+    return Text(label, style: Theme.of(context).textTheme.bodySmall);
+  }
+}
+
 /// The favourite-star toggle, kept optimistic: the icon flips the instant
 /// you tap it, the save/remove call happens in the background, and only
 /// then does the favourites provider get invalidated to reconcile with the
@@ -189,9 +223,18 @@ class _FavouriteToggleState extends ConsumerState<_FavouriteToggle> {
     final serverFavourite = favourites.valueOrNull?.any((f) => f['stop_id'] == widget.stopId) ?? false;
     final isFavourite = _optimistic ?? serverFavourite;
 
+    final reduceMotion = MediaQuery.of(context).disableAnimations;
+
     return IconButton(
-      icon: Icon(isFavourite ? Icons.star_rounded : Icons.star_outline_rounded,
-          color: isFavourite ? AppColors.warning : null),
+      icon: AnimatedSwitcher(
+        duration: reduceMotion ? Duration.zero : AppMotion.fast,
+        transitionBuilder: (child, animation) => ScaleTransition(scale: animation, child: child),
+        child: Icon(
+          isFavourite ? Icons.star_rounded : Icons.star_outline_rounded,
+          key: ValueKey(isFavourite),
+          color: isFavourite ? AppColors.warning : null,
+        ),
+      ),
       onPressed: () async {
         final next = !isFavourite;
         setState(() => _optimistic = next);

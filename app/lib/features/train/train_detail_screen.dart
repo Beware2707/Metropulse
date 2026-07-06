@@ -32,7 +32,9 @@ class TrainDetailScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final train = ref.watch(liveTrainProvider(vehicleId));
-    final eta = train == null ? null : ref.watch(_etaProvider(vehicleId)).valueOrNull;
+    final etaAsync = train == null ? null : ref.watch(_etaProvider(vehicleId));
+    final eta = etaAsync?.valueOrNull;
+    final etaLoading = etaAsync != null && etaAsync.isLoading && !etaAsync.hasValue;
 
     return Scaffold(
       extendBodyBehindAppBar: true,
@@ -49,7 +51,7 @@ class TrainDetailScreen extends ConsumerWidget {
                     icon: Icons.train_rounded,
                     message: "We've lost track of this train — it may have finished its trip.",
                     actionLabel: 'Back to map',
-                    onAction: () => context.go('/map'),
+                    onAction: () => context.go('/explore'),
                   ),
                 )
               : ListView(
@@ -71,7 +73,11 @@ class TrainDetailScreen extends ConsumerWidget {
                               _AnimatedStatPill(
                                 icon: Icons.train_rounded,
                                 label: 'Status',
-                                value: train.atStation ? 'At ${train.currentStation?.name ?? '…'}' : 'Moving',
+                                value: train.atStation
+                                    ? 'At ${train.currentStation?.name ?? '…'}'
+                                    : train.nextStation != null
+                                        ? 'Toward ${train.nextStation!.name}'
+                                        : 'Moving',
                               ),
                               if (train.destination != null && train.destination!.name != train.headsign)
                                 StatPill(icon: Icons.flag_rounded, label: 'Destination', value: train.destination!.name),
@@ -81,13 +87,24 @@ class TrainDetailScreen extends ConsumerWidget {
                                   label: 'Schedule',
                                   value: eta!.delaySeconds! > 60 ? '${minutesLabel(eta.delaySeconds)} late' : 'On time',
                                 ),
+                              if (eta?.delaySeconds != null)
+                                _AnimatedStatPill(
+                                  icon: Icons.verified_rounded,
+                                  label: 'Confidence',
+                                  value: eta!.confidence,
+                                ),
                             ],
                           ),
                         ],
                       ),
                     ),
                     const SectionHeader(title: 'Upcoming stations'),
-                    if (eta == null || eta.stations.isEmpty)
+                    if (etaLoading)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: AppSpacing.lg),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    else if (eta == null || eta.stations.isEmpty)
                       const EmptyState(icon: Icons.info_rounded, message: "We don't have arrival times for this train yet.")
                     else
                       MomentList(
@@ -164,7 +181,7 @@ class _StationRowState extends State<_StationRow> {
       trailing: Text(
         minutesLabel(widget.station.etaSeconds),
         style: widget.isNext
-            ? theme.textTheme.headlineSmall?.copyWith(color: widget.accent, fontWeight: FontWeight.w700)
+            ? theme.textTheme.headlineLarge?.copyWith(color: widget.accent, fontWeight: FontWeight.w700)
             : theme.textTheme.titleMedium,
       ),
       onTap: widget.onTap,

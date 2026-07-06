@@ -17,6 +17,7 @@ class StationRow extends StatelessWidget {
     this.subtitle,
     this.subtitleIcon,
     this.dimmed = false,
+    this.titleStyle,
   });
 
   final Station station;
@@ -34,6 +35,11 @@ class StationRow extends StatelessWidget {
   /// Slightly de-emphasises the title — used for weaker (landmark-only)
   /// matches so a daily commuter's exact-name hits still read as primary.
   final bool dimmed;
+
+  /// Optional override merged on top of the default title style — used
+  /// sparingly to give a genuinely dominant top search match a touch more
+  /// visual weight (e.g. `FontWeight.w600`).
+  final TextStyle? titleStyle;
 
   @override
   Widget build(BuildContext context) {
@@ -53,7 +59,9 @@ class StationRow extends StatelessWidget {
                 children: [
                   Text(
                     station.name,
-                    style: theme.textTheme.titleMedium?.copyWith(color: dimmed ? theme.colorScheme.onSurface.withValues(alpha: 0.72) : null),
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(color: dimmed ? theme.colorScheme.onSurface.withValues(alpha: 0.72) : null)
+                        .merge(titleStyle),
                   ),
                   if (subtitle != null) ...[
                     const SizedBox(height: 2),

@@ -4,6 +4,7 @@ import '../../core/config.dart';
 import '../../data/location_service.dart';
 import '../../data/repositories.dart';
 import '../../data/weather_service.dart';
+import '../../domain/crowding.dart';
 import '../../domain/models/commute_card.dart';
 import '../../domain/models/intelligence.dart';
 import '../../domain/models/journey.dart';
@@ -41,6 +42,39 @@ final homeSuggestedPlanProvider = FutureProvider<JourneyPlan?>((ref) async {
   } on Exception {
     return null; // the commute card itself already conveys the essentials
   }
+});
+
+/// The historical, route-and-hour-of-day delay estimate for the commute's
+/// first ride leg — the only honest "will I be late" signal available
+/// before a journey has actually started (a live per-vehicle delay only
+/// exists once a real train is being tracked). Null when there's no ride leg
+/// to estimate for.
+final commuteDelayEstimateProvider = FutureProvider<DelayEstimate?>((ref) async {
+  final plan = await ref.watch(homeSuggestedPlanProvider.future);
+  final firstRide = plan?.legs.where((leg) => leg.isRide).firstOrNull;
+  if (firstRide?.routeId == null) return null;
+  return ref.watch(intelligenceRepositoryProvider).delayEstimate(
+        routeId: firstRide!.routeId!,
+        directionId: firstRide.directionId,
+      );
+});
+
+/// Why Metro Intelligence recommends this coach for the commute — reused
+/// straight from the existing coach-recommendation endpoint's own `reasons`
+/// list (e.g. "typically less crowded", "short walk to a destination
+/// exit"), never an invented caption. Empty when there's nothing to explain.
+final homeCoachReasonsProvider = FutureProvider<List<String>>((ref) async {
+  final card = await ref.watch(commuteCardProvider.future);
+  if (card == null) return const [];
+  final plan = await ref.watch(homeSuggestedPlanProvider.future);
+  final firstRide = plan?.legs.where((leg) => leg.isRide).firstOrNull;
+  final coach = await ref.watch(journeyRepositoryProvider).coachRecommendation(
+        origin: card.originStopId,
+        destination: card.destinationStopId,
+        routeId: firstRide?.routeId,
+        directionId: firstRide?.directionId,
+      );
+  return recommendedCoachReasons(coach);
 });
 
 final activeJourneyProvider = FutureProvider<Journey?>(

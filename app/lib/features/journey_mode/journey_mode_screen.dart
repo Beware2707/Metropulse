@@ -18,7 +18,6 @@ import '../../core/widgets/journey_progress_track.dart';
 import '../../core/widgets/line_chip.dart';
 import '../../core/widgets/live_indicator.dart';
 import '../../core/widgets/moment_row.dart';
-import '../../core/widgets/replay_stat.dart';
 import '../../domain/companion_messages.dart';
 import '../../domain/journey_progress.dart';
 import '../../domain/models/journey.dart';
@@ -136,6 +135,7 @@ class _JourneyView extends ConsumerWidget {
         )))
         .valueOrNull;
     final exitName = exit == null ? null : '${exit['name']}';
+    final exitLandmark = exit?['matched_landmark'] as String?;
 
     final origin = stations[journey.originStopId]?.name ?? journey.originStopId;
     final destination = stations[journey.destinationStopId]?.name ?? journey.destinationStopId;
@@ -249,12 +249,20 @@ class _JourneyView extends ConsumerWidget {
                     MomentRow(
                       leading: const IconBadge(icon: Icons.event_seat_rounded),
                       title: Text(context.t.journeyCoach, style: theme.textTheme.bodyLarge),
-                      trailing: CoachChip(coach: journeyContext!.recommendedCoach! + 1, dense: true),
+                      subtitle: journeyContext!.coachReasons.isEmpty
+                          ? null
+                          : Text(journeyContext.coachReasons.first,
+                              style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                      trailing: CoachChip(coach: journeyContext.recommendedCoach! + 1, dense: true),
                     ),
                   if (exitName != null)
                     MomentRow(
                       leading: const IconBadge(icon: Icons.exit_to_app_rounded),
                       title: Text(context.t.journeyExit, style: theme.textTheme.bodyLarge),
+                      subtitle: exitLandmark == null
+                          ? null
+                          : Text('Near $exitLandmark',
+                              style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
                       trailing: Text(exitName, style: theme.textTheme.titleMedium),
                     ),
                   MomentRow(
@@ -479,11 +487,22 @@ class _EnteringStationView extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final crowding = journeyContext?.crowding;
+    final coachReasons = journeyContext?.coachReasons ?? const [];
+    final crowdSourceLabel = switch (journeyContext?.crowdSource) {
+      'observed' => 'Based on live crowd data',
+      'prior' => 'Based on typical patterns',
+      'model' => 'Estimated',
+      _ => null,
+    };
     final rows = <Widget>[
       if (journeyContext?.recommendedCoach != null)
         MomentRow(
           leading: const IconBadge(icon: Icons.event_seat_rounded),
           title: Text(context.t.journeyCoach, style: theme.textTheme.bodyLarge),
+          subtitle: coachReasons.isEmpty
+              ? null
+              : Text(coachReasons.first,
+                  style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
           trailing: CoachChip(coach: journeyContext!.recommendedCoach! + 1, dense: true),
         ),
       if (journeyContext?.platformHint != null)
@@ -496,6 +515,10 @@ class _EnteringStationView extends StatelessWidget {
         MomentRow(
           leading: const IconBadge(icon: Icons.groups_rounded),
           title: Text(context.t.crowding, style: theme.textTheme.bodyLarge),
+          subtitle: crowdSourceLabel == null
+              ? null
+              : Text(crowdSourceLabel,
+                  style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
           trailing: _CrowdPill(crowding: crowding),
         ),
     ];
@@ -582,34 +605,25 @@ class _TripReplayCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final stats = <Widget>[
-      ReplayStat(
-        icon: Icons.timer_outlined,
-        label: 'Duration',
-        value: minutesLabel(replay.durationSeconds),
-      ),
-      if (replay.timeSavedSeconds > 0)
-        ReplayStat(
-          icon: Icons.bolt_rounded,
-          label: 'Saved vs. cab',
-          value: minutesLabel(replay.timeSavedSeconds),
-          color: AppColors.success,
-        ),
-      if (replay.moneySavedRupees > 0)
-        ReplayStat(
-          icon: Icons.savings_outlined,
-          label: 'Money saved',
-          value: '₹${replay.moneySavedRupees}',
-          color: AppColors.success,
-        ),
-      if (replay.co2SavedKg > 0)
-        ReplayStat(
-          icon: Icons.eco_outlined,
-          label: 'Carbon saved',
-          value: '${replay.co2SavedKg.toStringAsFixed(1)} kg',
-          color: AppColors.success,
-        ),
+    final savedTime = replay.timeSavedSeconds > 0;
+    final savedMoney = replay.moneySavedRupees > 0;
+    final savedCarbon = replay.co2SavedKg > 0;
+
+    final sentences = <String>[
+      'You got from ${replay.originName} to ${replay.destinationName} in ${minutesLabel(replay.durationSeconds)}.',
     ];
+    if (savedTime && savedMoney) {
+      sentences.add(
+        'That saved about ${minutesLabel(replay.timeSavedSeconds)} and ₹${replay.moneySavedRupees} compared '
+        'with a cab${savedCarbon ? ', and avoided about ${replay.co2SavedKg.toStringAsFixed(1)} kg of CO₂.' : '.'}',
+      );
+    } else if (savedMoney) {
+      sentences.add('That saved about ₹${replay.moneySavedRupees} compared with a cab.');
+    } else if (savedTime) {
+      sentences.add('That saved about ${minutesLabel(replay.timeSavedSeconds)} compared with a cab.');
+    } else if (savedCarbon) {
+      sentences.add('You avoided about ${replay.co2SavedKg.toStringAsFixed(1)} kg of CO₂ compared with driving.');
+    }
 
     return GlassSurface(
       padding: const EdgeInsets.all(AppSpacing.lg),
@@ -618,14 +632,7 @@ class _TripReplayCard extends StatelessWidget {
         children: [
           Text("TODAY'S JOURNEY", style: theme.textTheme.labelMedium),
           const SizedBox(height: AppSpacing.sm),
-          Text(replay.originName, style: theme.textTheme.titleMedium),
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 2),
-            child: Icon(Icons.arrow_downward_rounded, size: 16),
-          ),
-          Text(replay.destinationName, style: theme.textTheme.titleMedium),
-          const SizedBox(height: AppSpacing.lg),
-          Wrap(spacing: AppSpacing.xl, runSpacing: AppSpacing.md, children: stats),
+          Text(sentences.join(' '), style: theme.textTheme.bodyLarge),
         ],
       ),
     );

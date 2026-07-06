@@ -28,6 +28,8 @@ class JourneyContext {
     this.routeColor,
     this.platformHint,
     this.crowding,
+    this.coachReasons = const [],
+    this.crowdSource,
   });
 
   final JourneyPlan? plan;
@@ -45,6 +47,15 @@ class JourneyContext {
   /// "Entering the Station" moment simply omits expected crowd rather than
   /// guessing at it.
   final String? crowding;
+
+  /// Why this coach — the recommendation's own `reasons` list (e.g.
+  /// "typically less crowded"), captured once at journey start.
+  final List<String> coachReasons;
+
+  /// 'observed' | 'prior' | 'model' — whether the crowd figures behind the
+  /// coach recommendation are real live data or a fallback, so the app never
+  /// silently presents a guess as a measurement.
+  final String? crowdSource;
 }
 
 final journeyContextProvider = Provider.family<JourneyContext?, int>((ref, journeyId) {
@@ -62,6 +73,8 @@ final journeyContextProvider = Provider.family<JourneyContext?, int>((ref, journ
     routeColor: raw['route_color'] as String?,
     platformHint: raw['platform_hint'] as String?,
     crowding: raw['crowding'] as String?,
+    coachReasons: [for (final r in (raw['coach_reasons'] as List<dynamic>? ?? const [])) '$r'],
+    crowdSource: raw['crowd_source'] as String?,
   );
 });
 

@@ -1,12 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
+import 'design/app_spacing.dart';
 import 'widgets/floating_nav_bar.dart';
+import 'widgets/gradient_button.dart';
 
-/// go_router's `StatefulShellRoute` wraps the four top-level tabs (Home, Map,
-/// Favourites, Settings) in this shell, which lays the floating glass nav
-/// bar over each tab's own Scaffold. Task flows (Search, Planner, Journey
-/// Mode, Station/Train detail, ...) are pushed as ordinary full-screen
-/// routes on the root navigator and cover the nav bar entirely.
+/// go_router's `StatefulShellRoute` wraps the four hero tabs — Home
+/// (everything starts here), Journey (the current or planned trip), Explore
+/// (stations, map, places), You (favourites, history/Replay, settings) — in
+/// this shell, which lays the floating glass nav bar over each tab's own
+/// Scaffold, plus a global floating mic (Voice is deliberately not a tab —
+/// it should be reachable from anywhere, the way it's used: a quick
+/// question, not a destination). Task flows (Search, Planner, Station/Train
+/// detail, ...) are pushed as ordinary full-screen routes on the root
+/// navigator and cover this shell entirely.
 class RootShell extends StatelessWidget {
   const RootShell({super.key, required this.navigationShell, required this.onTap, required this.currentIndex});
 
@@ -16,16 +23,31 @@ class RootShell extends StatelessWidget {
 
   static const destinations = [
     NavDestinationSpec(icon: Icons.home_outlined, activeIcon: Icons.home_rounded, label: 'Home'),
-    NavDestinationSpec(icon: Icons.map_outlined, activeIcon: Icons.map_rounded, label: 'Map'),
-    NavDestinationSpec(icon: Icons.star_outline_rounded, activeIcon: Icons.star_rounded, label: 'Saved'),
-    NavDestinationSpec(icon: Icons.settings_outlined, activeIcon: Icons.settings_rounded, label: 'Settings'),
+    NavDestinationSpec(
+        icon: Icons.directions_subway_outlined, activeIcon: Icons.directions_subway_filled_rounded, label: 'Journey'),
+    NavDestinationSpec(icon: Icons.explore_outlined, activeIcon: Icons.explore_rounded, label: 'Explore'),
+    NavDestinationSpec(icon: Icons.person_outline_rounded, activeIcon: Icons.person_rounded, label: 'You'),
   ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       extendBody: true,
-      body: navigationShell,
+      body: Stack(
+        children: [
+          navigationShell,
+          Positioned(
+            left: AppSpacing.lg,
+            bottom: 108,
+            child: IconPillButton(
+              icon: Icons.mic_none_rounded,
+              tooltip: 'Metro Assistant',
+              filled: true,
+              onPressed: () => context.push('/assistant'),
+            ),
+          ),
+        ],
+      ),
       bottomNavigationBar: FloatingNavBar(
         destinations: destinations,
         currentIndex: currentIndex,

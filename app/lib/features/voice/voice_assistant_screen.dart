@@ -34,8 +34,17 @@ class _VoiceAssistantScreenState extends ConsumerState<VoiceAssistantScreen> {
   bool _listening = false;
   bool _thinking = false;
   String _transcript = '';
-  String? _response;
-  String? _error;
+  VoiceAnswer? _response;
+
+  /// A benign, retryable hiccup (e.g. speech recognition simply mis-heard
+  /// something) — rendered in the screen's calm default text style, never
+  /// red, since nothing is actually broken.
+  String? _softError;
+
+  /// A genuine capability failure (voice input unavailable on this device at
+  /// all) — the only error state serious enough to render in
+  /// [ColorScheme.error].
+  String? _capabilityError;
 
   @override
   void initState() {
@@ -54,7 +63,8 @@ class _VoiceAssistantScreenState extends ConsumerState<VoiceAssistantScreen> {
         if (!mounted) return;
         setState(() {
           _listening = false;
-          _error = "I couldn't hear that — try again.";
+          _capabilityError = null;
+          _softError = "I couldn't hear that — try again.";
         });
       },
     );
@@ -77,11 +87,15 @@ class _VoiceAssistantScreenState extends ConsumerState<VoiceAssistantScreen> {
       return;
     }
     if (!_speechAvailable) {
-      setState(() => _error = "Voice input isn't available on this device.");
+      setState(() {
+        _softError = null;
+        _capabilityError = "Voice input isn't available on this device.";
+      });
       return;
     }
     setState(() {
-      _error = null;
+      _softError = null;
+      _capabilityError = null;
       _response = null;
       _transcript = '';
       _listening = true;
@@ -107,7 +121,8 @@ class _VoiceAssistantScreenState extends ConsumerState<VoiceAssistantScreen> {
       _thinking = true;
       _transcript = text;
       _response = null;
-      _error = null;
+      _softError = null;
+      _capabilityError = null;
     });
     final intent = parseVoiceIntent(text);
     final answer = await ref.read(voiceAssistantControllerProvider).answer(intent);
@@ -116,12 +131,13 @@ class _VoiceAssistantScreenState extends ConsumerState<VoiceAssistantScreen> {
       _thinking = false;
       _response = answer;
     });
-    await _tts.speak(answer);
+    await _tts.speak(answer.text);
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final reduceMotion = MediaQuery.of(context).disableAnimations;
     final commuteCard = ref.watch(commuteCardProvider).valueOrNull;
     final statusText = _listening
         ? 'Listening…'
@@ -178,39 +194,61 @@ class _VoiceAssistantScreenState extends ConsumerState<VoiceAssistantScreen> {
                           GlassSurface(
                             gradient: AppColors.heroGradientFor(),
                             border: false,
-                            child: Row(
+                            child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Icon(Icons.directions_subway_filled, color: Colors.white, size: 20),
-                                const SizedBox(width: AppSpacing.md),
-                                Expanded(
-                                  child: Text(
-                                    _response!,
-                                    style: theme.textTheme.headlineSmall?.copyWith(
-                                      color: Colors.white,
-                                      fontSize: 22,
-                                      fontWeight: FontWeight.w700,
-                                      height: 1.3,
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Icon(Icons.directions_subway_filled, color: Colors.white, size: 20),
+                                    const SizedBox(width: AppSpacing.md),
+                                    Expanded(
+                                      child: Text(
+                                        _response!.text,
+                                        style: theme.textTheme.headlineSmall?.copyWith(
+                                          color: Colors.white,
+                                          fontSize: 22,
+                                          fontWeight: FontWeight.w700,
+                                          height: 1.3,
+                                        ),
+                                      ),
                                     ),
-                                  ),
+                                  ],
                                 ),
+                                if (_response!.isLive != null) ...[
+                                  const SizedBox(height: AppSpacing.md),
+                                  _LiveSourcePill(isLive: _response!.isLive!),
+                                ],
                               ],
                             ),
                           ),
-                        if (_error != null)
+                        if (_softError != null)
                           Padding(
                             padding: const EdgeInsets.only(top: AppSpacing.lg),
-                            child: Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
+                            child: Text(_softError!, style: theme.textTheme.bodyLarge),
+                          ),
+                        if (_capabilityError != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: AppSpacing.lg),
+                            child: Text(_capabilityError!, style: TextStyle(color: theme.colorScheme.error)),
                           ),
                         const SizedBox(height: AppSpacing.xl),
-                        Wrap(
-                          alignment: WrapAlignment.center,
-                          spacing: AppSpacing.sm,
-                          runSpacing: AppSpacing.sm,
-                          children: [
-                            for (final prompt in _samplePrompts(ref))
-                              _SamplePrompt(prompt, onTap: _handleFinalTranscript),
-                          ],
+                        AnimatedOpacity(
+                          opacity: _response == null ? 1.0 : 0.0,
+                          duration: reduceMotion ? Duration.zero : AppMotion.fast,
+                          curve: AppMotion.standard,
+                          child: IgnorePointer(
+                            ignoring: _response != null,
+                            child: Wrap(
+                              alignment: WrapAlignment.center,
+                              spacing: AppSpacing.sm,
+                              runSpacing: AppSpacing.sm,
+                              children: [
+                                for (final prompt in _samplePrompts(ref))
+                                  _SamplePrompt(prompt, onTap: _handleFinalTranscript),
+                              ],
+                            ),
+                          ),
                         ),
                       ],
                     ),
@@ -224,6 +262,32 @@ class _VoiceAssistantScreenState extends ConsumerState<VoiceAssistantScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Compact echo of Journey Mode's "LIVE TRACKING" / "SCHEDULED ESTIMATE" pill
+/// (see journey_mode_screen.dart), reused verbatim here so the assistant
+/// never implies more certainty than the underlying data actually has.
+class _LiveSourcePill extends StatelessWidget {
+  const _LiveSourcePill({required this.isLive});
+
+  final bool isLive;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = isLive ? AppColors.live : Colors.white;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.2),
+        borderRadius: AppRadius.pillR,
+      ),
+      child: Text(
+        isLive ? 'LIVE TRACKING' : 'SCHEDULED ESTIMATE',
+        style: theme.textTheme.labelSmall?.copyWith(color: color),
       ),
     );
   }

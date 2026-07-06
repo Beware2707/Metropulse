@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/design/app_motion.dart';
 import '../../core/design/app_spacing.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/station_row.dart';
@@ -84,49 +85,52 @@ class _StationSearchSheetState extends ConsumerState<StationSearchSheet> {
               ),
             ),
             Expanded(
-              child: bundleAsync.isLoading && stations.isEmpty
-                  ? const Center(child: CircularProgressIndicator())
-                  : trimmed.isEmpty
-                      ? _QuickPicks(
-                          favouriteIds: favouriteIds,
-                          recentIds: recentIds,
-                          byId: byId,
-                          isOrigin: widget.isOrigin,
-                          onPick: _pick,
-                        )
-                      : hits.isEmpty
-                          ? const Center(
-                              child: Padding(
-                                padding: EdgeInsets.all(AppSpacing.xxl),
-                                child: EmptyState(
-                                  icon: Icons.search_off_rounded,
-                                  message: "We couldn't find that one — try a different name or landmark.",
-                                  compact: true,
-                                ),
-                              ),
-                            )
-                          : ListView(
-                              padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.xxl),
-                              children: [
-                                for (final hit in hits)
-                                  StationRow(
-                                    station: hit.station,
-                                    icon: switch (hit.reason) {
-                                      SearchMatchReason.alias => Icons.label_outline_rounded,
-                                      SearchMatchReason.landmark => Icons.near_me_rounded,
-                                      SearchMatchReason.name => Icons.place_rounded,
-                                    },
-                                    subtitle: hit.matchedText == null
-                                        ? null
-                                        : (hit.reason == SearchMatchReason.alias
-                                            ? 'Also known as "${hit.matchedText}"'
-                                            : 'Near ${hit.matchedText}'),
-                                    subtitleIcon: hit.reason == SearchMatchReason.landmark ? Icons.near_me_rounded : null,
-                                    dimmed: hit.reason == SearchMatchReason.landmark,
-                                    onTap: _pick,
-                                  ),
-                              ],
+              child: AnimatedSwitcher(
+                duration: AppMotion.fast,
+                child: bundleAsync.isLoading && stations.isEmpty
+                    ? const KeyedSubtree(
+                        key: ValueKey('loading'),
+                        child: Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              CircularProgressIndicator(),
+                              SizedBox(height: AppSpacing.md),
+                              Text('Loading stations…'),
+                            ],
+                          ),
+                        ),
+                      )
+                    : trimmed.isEmpty
+                        ? KeyedSubtree(
+                            key: const ValueKey('quick-picks'),
+                            child: _QuickPicks(
+                              favouriteIds: favouriteIds,
+                              recentIds: recentIds,
+                              byId: byId,
+                              isOrigin: widget.isOrigin,
+                              onPick: _pick,
                             ),
+                          )
+                        : hits.isEmpty
+                            ? const KeyedSubtree(
+                                key: ValueKey('no-results'),
+                                child: Center(
+                                  child: Padding(
+                                    padding: EdgeInsets.all(AppSpacing.xxl),
+                                    child: EmptyState(
+                                      icon: Icons.search_off_rounded,
+                                      message: "We couldn't find that one — try a different name or landmark.",
+                                      compact: true,
+                                    ),
+                                  ),
+                                ),
+                              )
+                            : KeyedSubtree(
+                                key: const ValueKey('results'),
+                                child: _ResultsList(hits: hits, onTap: _pick),
+                              ),
+              ),
             ),
           ],
         ),
@@ -138,6 +142,47 @@ class _StationSearchSheetState extends ConsumerState<StationSearchSheet> {
     ref.read(localStoreProvider).recordSearchVisit(station.stopId);
     ref.invalidate(recentSearchIdsProvider);
     Navigator.of(context).pop(station);
+  }
+}
+
+class _ResultsList extends StatelessWidget {
+  const _ResultsList({required this.hits, required this.onTap});
+
+  final List<SearchHit> hits;
+  final void Function(Station) onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    // A genuinely dominant top match: an exact station-name hit (not an
+    // alias/landmark, and not merely a prefix/substring match) that also
+    // clearly outscores the runner-up — kept conservative so a close or
+    // ambiguous top result never gets a false show of confidence.
+    final top = hits.first;
+    final isDominantTopMatch = top.reason == SearchMatchReason.name &&
+        top.score >= 100 &&
+        (hits.length == 1 || (top.score - hits[1].score) >= 10);
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.xxl),
+      children: [
+        for (final (index, hit) in hits.indexed)
+          StationRow(
+            station: hit.station,
+            icon: switch (hit.reason) {
+              SearchMatchReason.alias => Icons.label_outline_rounded,
+              SearchMatchReason.landmark => Icons.near_me_rounded,
+              SearchMatchReason.name => Icons.place_rounded,
+            },
+            subtitle: hit.matchedText == null
+                ? null
+                : (hit.reason == SearchMatchReason.alias ? 'Also known as "${hit.matchedText}"' : 'Near ${hit.matchedText}'),
+            subtitleIcon: hit.reason == SearchMatchReason.landmark ? Icons.near_me_rounded : null,
+            dimmed: hit.reason == SearchMatchReason.landmark,
+            titleStyle: index == 0 && isDominantTopMatch ? const TextStyle(fontWeight: FontWeight.w600) : null,
+            onTap: onTap,
+          ),
+      ],
+    );
   }
 }
 
@@ -185,7 +230,12 @@ class _QuickPicks extends ConsumerWidget {
       children: [
         if (usual != null) ...[
           const SearchSectionLabel('Your usual'),
-          StationRow(station: usual, icon: Icons.insights_rounded, onTap: onPick),
+          StationRow(
+            station: usual,
+            icon: Icons.insights_rounded,
+            subtitle: prediction!.basis[0].toUpperCase() + prediction.basis.substring(1),
+            onTap: onPick,
+          ),
         ],
         if (favourites.isNotEmpty) ...[
           const SearchSectionLabel('Favourites'),

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/design/app_colors.dart';
+import '../../core/design/app_motion.dart';
 import '../../core/design/app_spacing.dart';
 import '../../core/formatters.dart';
 import '../../core/widgets/ambient_background.dart';
@@ -10,7 +11,6 @@ import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/glass_surface.dart';
 import '../../core/widgets/icon_badge.dart';
 import '../../core/widgets/moment_row.dart';
-import '../../core/widgets/replay_stat.dart';
 import '../../core/widgets/section_header.dart';
 import '../../core/widgets/shimmer_skeleton.dart';
 import '../../domain/models/journey.dart';
@@ -180,55 +180,92 @@ class _JourneyRow extends StatelessWidget {
   }
 }
 
-/// "This Month" at the top of history: nothing shown until there's at least
-/// one trip to report on — an all-zero card would read as broken, not
-/// honest.
+/// A rough, sentence-friendly duration ("42 minutes" / "3 hours") for the
+/// monthly narrative — the same underlying seconds `minutesLabel` formats
+/// elsewhere, just phrased for a sentence instead of a stat chip.
+String _narrativeDuration(double seconds) {
+  final minutes = (seconds / 60).round();
+  if (minutes < 60) return '$minutes minutes';
+  final hours = (minutes / 60).round();
+  return hours == 1 ? '1 hour' : '$hours hours';
+}
+
+/// "This Month" at the top of history — a story, not a stat grid. Nothing
+/// shown until there's at least one trip to report on: an all-zero card
+/// would read as broken, not honest.
+///
+/// The card fades + slides in once the async `monthlyReplayProvider`
+/// resolves, instead of popping in and shoving the trip list down with a
+/// visible layout jump.
 class _MonthlyReplayHeader extends ConsumerWidget {
   const _MonthlyReplayHeader();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final monthly = ref.watch(monthlyReplayProvider).valueOrNull;
-    if (monthly == null || monthly.tripCount == 0) return const SizedBox.shrink();
 
-    final theme = Theme.of(context);
-    final stats = <Widget>[
-      ReplayStat(icon: Icons.route_rounded, label: 'Trips', value: '${monthly.tripCount}'),
-      if (monthly.totalTimeSavedSeconds > 0)
-        ReplayStat(
-          icon: Icons.bolt_rounded,
-          label: 'Saved vs. cab',
-          value: minutesLabel(monthly.totalTimeSavedSeconds),
-          color: AppColors.success,
-        ),
-      if (monthly.totalMoneySavedRupees > 0)
-        ReplayStat(
-          icon: Icons.savings_outlined,
-          label: 'Money saved',
-          value: '₹${monthly.totalMoneySavedRupees}',
-          color: AppColors.success,
-        ),
-      if (monthly.totalCo2SavedKg > 0)
-        ReplayStat(
-          icon: Icons.eco_outlined,
-          label: 'Carbon saved',
-          value: '${monthly.totalCo2SavedKg.toStringAsFixed(1)} kg',
-          color: AppColors.success,
-        ),
-    ];
+    Widget card = const SizedBox.shrink(key: ValueKey('replay-empty'));
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, 0),
-      child: GlassSurface(
+    if (monthly != null && monthly.tripCount > 0) {
+      final theme = Theme.of(context);
+      final tripWord = monthly.tripCount == 1 ? 'time' : 'times';
+      final sentences = <String>['This month you chose the metro ${monthly.tripCount} $tripWord.'];
+
+      final savedMoney = monthly.totalMoneySavedRupees > 0;
+      final savedCarbon = monthly.totalCo2SavedKg > 0;
+      final savedTime = monthly.totalTimeSavedSeconds > 0;
+      if (savedMoney && savedCarbon) {
+        sentences.add(
+          'You saved about ₹${monthly.totalMoneySavedRupees} compared with ride-hailing, and avoided about '
+          '${monthly.totalCo2SavedKg.toStringAsFixed(0)} kg of CO₂.',
+        );
+      } else if (savedMoney) {
+        sentences.add('You saved about ₹${monthly.totalMoneySavedRupees} compared with ride-hailing.');
+      } else if (savedCarbon) {
+        sentences.add('You avoided about ${monthly.totalCo2SavedKg.toStringAsFixed(0)} kg of CO₂ compared with driving.');
+      }
+      if (savedTime) {
+        sentences.add("That's also ${_narrativeDuration(monthly.totalTimeSavedSeconds)} you didn't spend stuck in traffic.");
+      }
+
+      card = GlassSurface(
+        key: ValueKey('replay-content-${monthly.periodStart.toIso8601String()}'),
         padding: const EdgeInsets.all(AppSpacing.lg),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('THIS MONTH', style: theme.textTheme.labelMedium),
-            const SizedBox(height: AppSpacing.md),
-            Wrap(spacing: AppSpacing.xl, runSpacing: AppSpacing.md, children: stats),
+            const SizedBox(height: AppSpacing.sm),
+            Text(sentences.join(' '), style: theme.textTheme.headlineSmall),
+            if (savedMoney || savedCarbon || savedTime) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                'Estimated by comparing your trip times and fares against typical cab prices and average '
+                'car emissions for the same distance.',
+                style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              ),
+            ],
           ],
         ),
+      );
+    }
+
+    final reduceMotion = MediaQuery.of(context).disableAnimations;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, 0),
+      child: AnimatedSwitcher(
+        duration: reduceMotion ? Duration.zero : AppMotion.medium,
+        switchInCurve: AppMotion.standard,
+        switchOutCurve: AppMotion.standard,
+        transitionBuilder: (child, animation) => FadeTransition(
+          opacity: animation,
+          child: SlideTransition(
+            position: Tween(begin: const Offset(0, 0.08), end: Offset.zero).animate(animation),
+            child: child,
+          ),
+        ),
+        child: card,
       ),
     );
   }

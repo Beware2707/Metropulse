@@ -5,10 +5,12 @@ import 'package:go_router/go_router.dart';
 import '../../core/design/app_colors.dart';
 import '../../core/design/app_spacing.dart';
 import '../../core/widgets/ambient_background.dart';
+import '../../core/widgets/confidence_dots.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/glass_surface.dart';
 import '../../core/widgets/gradient_button.dart';
 import '../../core/widgets/icon_badge.dart';
+import '../../core/widgets/moment_row.dart';
 import '../../core/widgets/section_header.dart';
 import '../../domain/place_suggestions.dart';
 import '../../providers/core_providers.dart';
@@ -65,16 +67,17 @@ class FavouritesScreen extends ConsumerWidget {
                         message: "Add your Home and Work stations and we'll build your commute card for you.",
                       )
                     else
-                      for (final row in rows)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                          child: _FavouriteRow(
-                            row: row,
-                            name: stations['${row['stop_id']}']?.name ?? '${row['stop_id']}',
-                            onAction: (choice) => _onStationAction(context, ref, row, choice),
-                            onTap: () => context.push('/station/${row['stop_id']}'),
-                          ),
-                        ),
+                      MomentList(
+                        children: [
+                          for (final row in rows)
+                            _FavouriteRow(
+                              row: row,
+                              name: stations['${row['stop_id']}']?.name ?? '${row['stop_id']}',
+                              onAction: (choice) => _onStationAction(context, ref, row, choice),
+                              onTap: () => context.push('/station/${row['stop_id']}'),
+                            ),
+                        ],
+                      ),
                     SectionHeader(
                       title: 'Pinned journeys',
                       trailing: TextButton.icon(
@@ -89,43 +92,32 @@ class FavouritesScreen extends ConsumerWidget {
                         message: "Save a route from the planner and it'll be one tap away.",
                       )
                     else
-                      for (var i = 0; i < pinnedJourneys.length; i++)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                          child: GlassSurface(
-                            onTap: () => context.push(
-                              '/planner?origin=${pinnedJourneys[i]['origin_stop_id']}'
-                              '&destination=${pinnedJourneys[i]['destination_stop_id']}',
+                      MomentList(
+                        children: [
+                          for (var i = 0; i < pinnedJourneys.length; i++)
+                            MomentRow(
+                              leading: const IconBadge(icon: Icons.push_pin_rounded),
+                              title: Text('${pinnedJourneys[i]['label']}', style: Theme.of(context).textTheme.titleMedium),
+                              subtitle: Text(
+                                '${stations['${pinnedJourneys[i]['origin_stop_id']}']?.name ?? pinnedJourneys[i]['origin_stop_id']}'
+                                ' → '
+                                '${stations['${pinnedJourneys[i]['destination_stop_id']}']?.name ?? pinnedJourneys[i]['destination_stop_id']}',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                              trailing: IconButton(
+                                icon: const Icon(Icons.close_rounded, size: 18),
+                                onPressed: () async {
+                                  await ref.read(localStoreProvider).removePinnedJourneyAt(i);
+                                  ref.invalidate(pinnedJourneysProvider);
+                                },
+                              ),
+                              onTap: () => context.push(
+                                '/planner?origin=${pinnedJourneys[i]['origin_stop_id']}'
+                                '&destination=${pinnedJourneys[i]['destination_stop_id']}',
+                              ),
                             ),
-                            child: Row(
-                              children: [
-                                IconBadge(icon: Icons.push_pin_rounded, gradient: AppColors.heroGradientFor()),
-                                const SizedBox(width: AppSpacing.md),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text('${pinnedJourneys[i]['label']}', style: Theme.of(context).textTheme.titleMedium),
-                                      Text(
-                                        '${stations['${pinnedJourneys[i]['origin_stop_id']}']?.name ?? pinnedJourneys[i]['origin_stop_id']}'
-                                        ' → '
-                                        '${stations['${pinnedJourneys[i]['destination_stop_id']}']?.name ?? pinnedJourneys[i]['destination_stop_id']}',
-                                        style: Theme.of(context).textTheme.bodyMedium,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.close_rounded, size: 18),
-                                  onPressed: () async {
-                                    await ref.read(localStoreProvider).removePinnedJourneyAt(i);
-                                    ref.invalidate(pinnedJourneysProvider);
-                                  },
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
+                        ],
+                      ),
                   ],
                 ),
               ),
@@ -209,7 +201,13 @@ class _PlaceSuggestionCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(question, style: Theme.of(context).textTheme.titleMedium),
-                Text(place.rationale, style: Theme.of(context).textTheme.bodySmall),
+                Row(
+                  children: [
+                    Expanded(child: Text(place.rationale, style: Theme.of(context).textTheme.bodySmall)),
+                    const SizedBox(width: AppSpacing.sm),
+                    ConfidenceDots(confidence: place.confidence),
+                  ],
+                ),
               ],
             ),
           ),
@@ -238,33 +236,20 @@ class _FavouriteRow extends StatelessWidget {
       'college' => Icons.school_rounded,
       _ => Icons.star_rounded,
     };
-    return GlassSurface(
-      onTap: onTap,
-      child: Row(
-        children: [
-          IconBadge(icon: icon, gradient: AppColors.heroGradientFor()),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(name, style: Theme.of(context).textTheme.titleMedium),
-                if (row['label'] != null)
-                  Text('${row['label']}', style: Theme.of(context).textTheme.bodySmall),
-              ],
-            ),
-          ),
-          PopupMenuButton<String>(
-            onSelected: onAction,
-            itemBuilder: (_) => [
-              for (final label in FavouritesScreen._quickLabels)
-                PopupMenuItem(value: 'label:$label', child: Text('Label as $label')),
-              const PopupMenuItem(value: 'custom', child: Text('Custom name…')),
-              const PopupMenuItem(value: 'remove', child: Text('Remove')),
-            ],
-          ),
+    return MomentRow(
+      leading: IconBadge(icon: icon, gradient: AppColors.heroGradientFor()),
+      title: Text(name, style: Theme.of(context).textTheme.titleMedium),
+      subtitle: row['label'] != null ? Text('${row['label']}', style: Theme.of(context).textTheme.bodySmall) : null,
+      trailing: PopupMenuButton<String>(
+        onSelected: onAction,
+        itemBuilder: (_) => [
+          for (final label in FavouritesScreen._quickLabels)
+            PopupMenuItem(value: 'label:$label', child: Text('Label as $label')),
+          const PopupMenuItem(value: 'custom', child: Text('Custom name…')),
+          const PopupMenuItem(value: 'remove', child: Text('Remove')),
         ],
       ),
+      onTap: onTap,
     );
   }
 }

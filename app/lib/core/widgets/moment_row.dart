@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../design/app_motion.dart';
 import '../design/app_radius.dart';
 import '../design/app_spacing.dart';
 
@@ -13,7 +14,10 @@ import '../design/app_spacing.dart';
 /// fact ("Leave in 8 min"), [subtitle] is the supporting detail ("Home →
 /// Office"), [trailing] is at most one more glanceable fact (a coach chip),
 /// and a chevron only appears when there's somewhere to go for the rest.
-class MomentRow extends StatelessWidget {
+///
+/// Tappable rows press-scale on touch, the same feedback every button in the
+/// app already gives — untappable rows (no [onTap]) never do.
+class MomentRow extends StatefulWidget {
   const MomentRow({
     super.key,
     this.leading,
@@ -35,37 +39,56 @@ class MomentRow extends StatelessWidget {
   final bool dense;
 
   @override
+  State<MomentRow> createState() => _MomentRowState();
+}
+
+class _MomentRowState extends State<MomentRow> {
+  bool _pressed = false;
+
+  @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return InkWell(
-      onTap: onTap,
+    final reduceMotion = MediaQuery.of(context).disableAnimations;
+    final tappable = widget.onTap != null;
+    final content = InkWell(
+      onTapDown: !tappable || reduceMotion ? null : (_) => setState(() => _pressed = true),
+      onTapUp: !tappable || reduceMotion ? null : (_) => setState(() => _pressed = false),
+      onTapCancel: !tappable || reduceMotion ? null : () => setState(() => _pressed = false),
+      onTap: widget.onTap,
       borderRadius: AppRadius.mdR,
       child: Padding(
         padding: EdgeInsets.symmetric(
-          vertical: dense ? AppSpacing.sm : AppSpacing.lg,
+          vertical: widget.dense ? AppSpacing.sm : AppSpacing.lg,
           horizontal: AppSpacing.xs,
         ),
         child: Row(
           children: [
-            if (leading != null) ...[leading!, const SizedBox(width: AppSpacing.lg)],
+            if (widget.leading != null) ...[widget.leading!, const SizedBox(width: AppSpacing.lg)],
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  title,
-                  if (subtitle != null) ...[const SizedBox(height: 3), subtitle!],
+                  widget.title,
+                  if (widget.subtitle != null) ...[const SizedBox(height: 3), widget.subtitle!],
                 ],
               ),
             ),
-            if (trailing != null) ...[const SizedBox(width: AppSpacing.md), trailing!],
-            if (onTap != null) ...[
+            if (widget.trailing != null) ...[const SizedBox(width: AppSpacing.md), widget.trailing!],
+            if (tappable) ...[
               const SizedBox(width: AppSpacing.xs),
               Icon(Icons.chevron_right_rounded, color: scheme.onSurfaceVariant, size: 20),
             ],
           ],
         ),
       ),
+    );
+    if (!tappable || reduceMotion) return content;
+    return AnimatedScale(
+      scale: _pressed ? 0.98 : 1.0,
+      duration: AppMotion.fast,
+      curve: AppMotion.standard,
+      child: content,
     );
   }
 }

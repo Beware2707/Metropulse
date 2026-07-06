@@ -74,10 +74,22 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
     final notifications = ref.watch(notificationsListProvider);
     final loadedData = notifications.asData?.value;
     final hasUnread = loadedData?.any((row) => !_isRead(row)) ?? false;
+    final unreadCount = loadedData?.where((row) => !_isRead(row)).length ?? 0;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Notifications'),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Notifications'),
+            if (hasUnread)
+              Text(
+                '$unreadCount new',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.bold),
+              ),
+          ],
+        ),
         actions: [
           if (hasUnread)
             Padding(

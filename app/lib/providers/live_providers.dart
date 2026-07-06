@@ -71,12 +71,25 @@ final liveTrainProvider = Provider.family<Train?, String>(
 );
 
 /// Live trains whose next stop is the given station (arrivals board).
+///
+/// Full ETA-seconds sorting isn't practical here without restructuring this
+/// provider into an async aggregate: per-train ETA is a separate repository
+/// call (`trainsRepositoryProvider().eta(vehicleId)`), not a field already
+/// present on [Train], so this provider can't read it synchronously. As a
+/// minimal, non-invasive improvement, trains already `atStation` (soonest to
+/// depart) are surfaced first; ties fall back to the previous alphabetical
+/// order by line name.
 final arrivalsForStationProvider = Provider.family<List<Train>, String>(
   (ref, stopId) {
     final trains = ref.watch(liveTrainsProvider).values.where(
           (train) => train.nextStation?.stopId == stopId && !train.isStale,
         );
     return trains.toList()
-      ..sort((a, b) => a.lineLabel.compareTo(b.lineLabel));
+      ..sort((a, b) {
+        if (a.atStation != b.atStation) {
+          return a.atStation ? -1 : 1;
+        }
+        return a.lineLabel.compareTo(b.lineLabel);
+      });
   },
 );

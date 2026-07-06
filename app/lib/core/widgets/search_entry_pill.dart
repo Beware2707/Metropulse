@@ -47,7 +47,6 @@ class _SearchEntryPillState extends State<SearchEntryPill> {
                 child: Text(widget.hint,
                     style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 20, fontWeight: FontWeight.w700)),
               ),
-              Icon(Icons.mic_none_rounded, size: 24, color: scheme.onSurfaceVariant),
             ],
           ),
         ),

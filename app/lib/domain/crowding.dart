@@ -17,3 +17,23 @@ String? expectedCrowding(List<dynamic>? coaches) {
   if (average < 0.7) return 'moderate';
   return 'high';
 }
+
+/// Why the recommended coach was picked — straight from the recommendation
+/// endpoint's own per-coach `reasons` list (e.g. "typically less crowded",
+/// "stops nearest to a destination exit"), never an invented caption.
+List<String> recommendedCoachReasons(Map<String, dynamic>? coach) {
+  final recommended = coach?['recommended_coach'];
+  final coaches = coach?['coaches'] as List<dynamic>?;
+  final match = coaches
+      ?.whereType<Map<String, dynamic>>()
+      .where((c) => c['coach_index'] == recommended)
+      .firstOrNull;
+  final reasons = match?['reasons'] as List<dynamic>?;
+  return reasons?.map((r) => '$r').toList(growable: false) ?? const [];
+}
+
+/// Whether the crowd figures behind that recommendation are observed,
+/// modelled, or just a neutral prior — the same honesty label the backend
+/// already computes (`CoachRecommendation.crowd_source`), surfaced instead
+/// of silently presenting every crowd estimate the same way.
+String? crowdSource(Map<String, dynamic>? coach) => coach?['crowd_source'] as String?;

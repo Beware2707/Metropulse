@@ -14,6 +14,7 @@ import '../features/splash/splash_screen.dart';
 import '../features/station/station_detail_screen.dart';
 import '../features/train/train_detail_screen.dart';
 import '../features/voice/voice_assistant_screen.dart';
+import '../features/you/you_screen.dart';
 import 'root_shell.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -21,6 +22,11 @@ final routerProvider = Provider<GoRouter>((ref) {
     initialLocation: '/splash',
     routes: [
       GoRoute(path: '/splash', builder: (_, __) => const SplashScreen()),
+      // Four hero tabs: Home (everything starts here), Journey (the current
+      // or planned trip — Metro Companion), Explore (stations, map,
+      // places), You (favourites, history/Replay, notifications, settings).
+      // Voice is deliberately not a tab — it's a global floating action (see
+      // RootShell) available from any of the four.
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) => RootShell(
           navigationShell: navigationShell,
@@ -32,10 +38,9 @@ final routerProvider = Provider<GoRouter>((ref) {
         ),
         branches: [
           StatefulShellBranch(routes: [GoRoute(path: '/', builder: (_, __) => const HomeScreen())]),
-          StatefulShellBranch(routes: [GoRoute(path: '/map', builder: (_, __) => const LiveMapScreen())]),
-          StatefulShellBranch(
-              routes: [GoRoute(path: '/favourites', builder: (_, __) => const FavouritesScreen())]),
-          StatefulShellBranch(routes: [GoRoute(path: '/settings', builder: (_, __) => const SettingsScreen())]),
+          StatefulShellBranch(routes: [GoRoute(path: '/journey', builder: (_, __) => const JourneyModeScreen())]),
+          StatefulShellBranch(routes: [GoRoute(path: '/explore', builder: (_, __) => const LiveMapScreen())]),
+          StatefulShellBranch(routes: [GoRoute(path: '/you', builder: (_, __) => const YouScreen())]),
         ],
       ),
       GoRoute(
@@ -55,8 +60,9 @@ final routerProvider = Provider<GoRouter>((ref) {
           initialDestinationId: state.uri.queryParameters['destination'],
         ),
       ),
-      GoRoute(path: '/journey', builder: (_, __) => const JourneyModeScreen()),
       GoRoute(path: '/search', builder: (_, __) => const SearchScreen()),
+      GoRoute(path: '/favourites', builder: (_, __) => const FavouritesScreen()),
+      GoRoute(path: '/settings', builder: (_, __) => const SettingsScreen()),
       GoRoute(path: '/journeys/history', builder: (_, __) => const JourneyHistoryScreen()),
       GoRoute(path: '/notifications', builder: (_, __) => const NotificationsScreen()),
       GoRoute(path: '/assistant', builder: (_, __) => const VoiceAssistantScreen()),
