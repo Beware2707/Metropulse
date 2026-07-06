@@ -1,7 +1,9 @@
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 
+import '../core/config.dart';
 import '../domain/models/commute_card.dart';
 import '../domain/models/eta.dart';
 import '../domain/models/intelligence.dart';
@@ -486,4 +488,22 @@ class ReplayRepository {
     final response = await _api.dio.get<Map<String, dynamic>>('/api/v1/me/replay/monthly');
     return MonthlyReplay.fromJson(response.data!);
   }
+}
+
+/// In-app feedback (Sprint 4: beta launch) -- a message plus real, honest
+/// context (app version, platform) rather than an anonymous string alone.
+class FeedbackRepository {
+  FeedbackRepository(this._api);
+
+  final ApiClient _api;
+
+  Future<void> submit({required String message, String? category}) => _api.dio.post<void>(
+        '/api/v1/feedback',
+        data: {
+          'message': message,
+          'category': category,
+          'app_version': AppConfig.appVersion,
+          'platform': defaultTargetPlatform.name,
+        },
+      );
 }

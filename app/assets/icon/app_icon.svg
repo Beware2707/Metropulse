@@ -1,0 +1,31 @@
+<svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    MetroPulse launcher icon — source of truth.
+    Full-bleed square, no baked-in corner rounding or alpha: iOS and Android
+    both apply their own mask at install time, so a pre-rounded/transparent
+    source is rejected by App Store review and mis-renders on Android
+    launchers using a different mask shape. The rasterized PNGs derived from
+    this file (app_icon.png / app_icon_foreground.png / app_icon_background.png,
+    generated via headless-browser screenshot — see docs/app_icon.md) are what
+    flutter_launcher_icons actually consumes.
+
+    Glyph: an "M" whose middle stroke breaks into an ECG pulse blip — Metro
+    and Pulse in one mark. Gradient matches AppColors.heroGradientFor()
+    (#3D7FFF -> #8B5CF6), the same brand gradient used on the splash
+    wordmark and onboarding icons.
+  -->
+  <defs>
+    <linearGradient id="bg1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3d7fff"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <radialGradient id="glow1" cx="28%" cy="24%" r="55%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg1)"/>
+  <rect width="1024" height="1024" fill="url(#glow1)"/>
+  <polyline points="232,680 232,360 372,620 412,560 452,260 492,700 532,620 672,360 812,680"
+    fill="none" stroke="#ffffff" stroke-width="72" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

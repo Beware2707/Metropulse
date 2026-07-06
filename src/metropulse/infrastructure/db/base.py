@@ -28,7 +28,7 @@ def create_engine(database_url: str, *, echo: bool = False) -> AsyncEngine:
                 "pool_timeout": 30,
             }
         )
-    return create_async_engine(database_url, **kwargs)  # type: ignore[arg-type]
+    return create_async_engine(database_url, **kwargs)
 
 
 def create_session_factory(engine: AsyncEngine) -> SessionFactory:

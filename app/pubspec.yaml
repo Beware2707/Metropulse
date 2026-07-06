@@ -30,6 +30,8 @@ dependencies:
   speech_to_text: ^7.0.0
   flutter_tts: ^4.2.0
   connectivity_plus: ^6.0.5
+  firebase_core: ^4.11.0
+  firebase_crashlytics: ^5.2.4
 
 dev_dependencies:
   flutter_test:
@@ -38,6 +40,16 @@ dev_dependencies:
   freezed: ^2.5.7
   json_serializable: ^6.8.0
   flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/icon/app_icon.png"
+  min_sdk_android: 21
+  adaptive_icon_background: "assets/icon/app_icon_background.png"
+  adaptive_icon_foreground: "assets/icon/app_icon_foreground.png"
+  remove_alpha_ios: true
 
 flutter:
   uses-material-design: true
@@ -47,5 +59,6 @@ flutter:
   # file found here over an HTTP fetch at runtime, so this is what removes
   # the first-paint font-swap flash on a cold start.
   assets:
+    - assets/icon/
     - assets/google_fonts/
 

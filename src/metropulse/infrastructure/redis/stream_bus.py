@@ -85,10 +85,14 @@ class RedisStreamConsumer:
             await asyncio.sleep(1.0)
             return 0
         processed = 0
+        # XREADGROUP (no `block=`) always yields the RESP2 shape
+        # `[[stream_name, [(id, fields), ...]], ...]` from redis-py; the
+        # dict-keyed shapes in its return type are RESP3-only.
+        assert batches is None or isinstance(batches, list)
         for _, entries in batches or []:
             for entry_id, fields in entries:
                 processed += 1
-                payload = _extract_payload(fields)
+                payload = _extract_payload(fields) if fields else None
                 if payload is not None:
                     try:
                         await handler(payload)

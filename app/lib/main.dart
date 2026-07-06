@@ -6,21 +6,25 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
 import 'app.dart';
+import 'core/crash_reporting.dart';
 import 'core/design/app_colors.dart';
 import 'core/design/app_spacing.dart';
 import 'data/local_store.dart';
 
 Future<void> main() async {
-  // Crash handling: every uncaught error is funnelled through one place.
-  // debugPrint today; swap `_reportError` for Crashlytics/Sentry at release.
+  // Crash handling: every uncaught error is funnelled through one place
+  // (reportError), which prints locally always and additionally uploads to
+  // Firebase Crashlytics once a Firebase project is configured -- see
+  // docs/firebase_setup.md.
   await runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
+    await initializeCrashReporting();
     FlutterError.onError = (details) {
       FlutterError.presentError(details);
-      _reportError(details.exception, details.stack);
+      reportError(details.exception, details.stack, fatal: true);
     };
     PlatformDispatcher.instance.onError = (error, stack) {
-      _reportError(error, stack);
+      reportError(error, stack, fatal: true);
       return true;
     };
     // Framework-level per-widget error boundary: if a widget throws
@@ -39,11 +43,7 @@ Future<void> main() async {
         child: const MetroPulseApp(),
       ),
     );
-  }, _reportError);
-}
-
-void _reportError(Object error, StackTrace? stack) {
-  debugPrint('UNCAUGHT: $error\n$stack');
+  }, (error, stack) => reportError(error, stack, fatal: true));
 }
 
 /// Calm, on-brand replacement for Flutter's default red-and-white

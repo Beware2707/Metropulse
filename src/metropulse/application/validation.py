@@ -8,6 +8,7 @@ the loader.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 from enum import StrEnum
 from typing import Mapping, Sequence
 
@@ -327,7 +328,7 @@ def _as_float(value: str) -> float | None:
         return None
 
 
-def _as_date(value: str) -> object | None:
+def _as_date(value: str) -> date | None:
     try:
         return parse_gtfs_date(value)
     except ValueError:

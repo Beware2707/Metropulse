@@ -354,3 +354,20 @@ class DatasetVersion(Base):
     version: Mapped[str] = mapped_column(String(64))
     checksum: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class Feedback(Base):
+    """A user-submitted feedback message (Sprint 4: beta launch)."""
+
+    __tablename__ = "feedback"
+    __table_args__ = (Index("ix_feedback_created_at", "created_at"),)
+
+    id: Mapped[int] = mapped_column(BigIntPk, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    category: Mapped[str | None] = mapped_column(String(16))  # bug|suggestion|praise|other
+    message: Mapped[str] = mapped_column(Text)
+    app_version: Mapped[str | None] = mapped_column(String(32))
+    platform: Mapped[str | None] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

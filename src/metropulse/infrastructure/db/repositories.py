@@ -7,9 +7,10 @@ owns the session/transaction lifecycle; repositories only issue statements.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Iterable, Sequence
+from typing import Any, Iterable, Sequence, cast
 
 from sqlalchemy import delete, func, insert, select
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from metropulse.domain.entities import VehiclePosition
@@ -217,4 +218,7 @@ class VehicleHistoryRepository:
         result = await self._session.execute(
             delete(VehiclePositionRecord).where(VehiclePositionRecord.recorded_at < cutoff)
         )
-        return int(result.rowcount or 0)
+        # AsyncSession.execute() is statically typed as returning the broader
+        # Result[Any], but a DML statement (update/delete) always yields a
+        # CursorResult at runtime, which does expose .rowcount.
+        return int(cast(CursorResult[Any], result).rowcount or 0)

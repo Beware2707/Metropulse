@@ -12,6 +12,7 @@ import '../../core/widgets/gradient_button.dart';
 import '../../core/widgets/icon_badge.dart';
 import '../../core/widgets/section_header.dart';
 import '../../providers/core_providers.dart';
+import '../feedback/feedback_sheet.dart';
 import '../home/home_providers.dart' show favouriteStationsProvider;
 import '../search/search_providers.dart' show recentSearchIdsProvider;
 import 'settings_providers.dart';
@@ -122,6 +123,18 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                 ],
               ),
+              ListTile(
+                leading: const IconBadge(icon: Icons.description_outlined),
+                title: const Text('Privacy Policy'),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => context.push('/privacy-policy'),
+              ),
+              ListTile(
+                leading: const IconBadge(icon: Icons.gavel_rounded),
+                title: const Text('Terms of Use'),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => context.push('/terms-of-use'),
+              ),
               const SectionHeader(title: 'Notifications'),
               SwitchListTile(
                 secondary: const IconBadge(icon: Icons.notifications_active_rounded),
@@ -184,6 +197,17 @@ class SettingsScreen extends ConsumerWidget {
                   'Removes cached favourites, journey history and recent searches (station data is kept)',
                 ),
                 onTap: () => _confirmClearCache(context, ref),
+              ),
+              const SectionHeader(title: 'Support'),
+              ListTile(
+                leading: const IconBadge(icon: Icons.feedback_outlined),
+                title: const Text('Send feedback'),
+                subtitle: const Text('A bug, a suggestion, or just a thought — we read every one'),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => showAppBottomSheet<void>(
+                  context,
+                  builder: (_) => const FeedbackSheet(),
+                ),
               ),
               const SectionHeader(title: 'About'),
               ListTile(

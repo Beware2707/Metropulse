@@ -133,17 +133,25 @@ class RedisVehicleStore:
             if not batches:
                 await asyncio.sleep(0.1)
                 continue
+            # Non-blocking XREAD (no `block=`) always yields the RESP2 shape
+            # `[[stream_name, [(id, fields), ...]], ...]` from redis-py; the
+            # dict-keyed shapes in its return type are RESP3-only.
+            assert isinstance(batches, list)
             for _, entries in batches:
                 for entry_id, fields in entries:
                     last_id = _as_str(entry_id)
-                    data = fields.get("data", fields.get(b"data"))
+                    data = fields.get("data", fields.get(b"data")) if fields else None
                     if data is not None:
                         yield _as_str(data)
 
     async def _latest_stream_id(self) -> str:
         """The current tail of the updates stream ('0-0' when empty)."""
         entries = await self._redis.xrevrange(UPDATES_STREAM, count=1)
-        return _as_str(entries[0][0]) if entries else "0-0"
+        if not entries:
+            return "0-0"
+        entry_id = entries[0][0]
+        assert entry_id is not None
+        return _as_str(entry_id)
 
     async def vehicle_count(self) -> int:
         """Number of vehicles in the latest snapshot (O(1) HLEN)."""

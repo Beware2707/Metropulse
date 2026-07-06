@@ -35,6 +35,7 @@ dev = [
     "fakeredis>=2.23",
     "mypy>=1.10",
     "ruff>=0.4",
+    "types-protobuf",
 ]
 
 [build-system]
@@ -62,6 +63,14 @@ target-version = "py312"
 python_version = "3.12"
 strict = true
 mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = ["opentelemetry.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["apscheduler.*"]
+ignore_missing_imports = true
 
 [tool.coverage.run]
 source = ["src/metropulse"]

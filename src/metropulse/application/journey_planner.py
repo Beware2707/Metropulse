@@ -23,7 +23,7 @@ import itertools
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Sequence
+from typing import Sequence, cast
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -132,7 +132,18 @@ def _search_weights(base: PlannerParameters, preference: str) -> PlannerParamete
 
 
 # Dijkstra states: ("at", stop_id) off-train, ("on", pattern_key, index) riding.
-_State = tuple
+_State = tuple[str, str] | tuple[str, PatternKey, int]
+
+# Reconstructed path actions:
+#   ("board", pattern_key, index)                       -- board a pattern at index
+#   ("ride", pattern_key, index, hop_seconds)            -- ride to the next stop
+#   ("alight", pattern_key, index)                       -- get off at index
+#   ("walk", from_stop_id, to_stop_id, distance_m, walk_seconds)
+_Action = (
+    tuple[str, PatternKey, int]
+    | tuple[str, PatternKey, int, float]
+    | tuple[str, str, str, float, float]
+)
 
 
 class JourneyPlanner:
@@ -300,7 +311,7 @@ class JourneyPlanner:
 
     def _dijkstra(
         self, graph: NetworkGraph, origin: str, destination: str, params: PlannerParameters
-    ) -> list[tuple] | None:
+    ) -> list[_Action] | None:
         """Cheapest action sequence from origin to destination, or None.
 
         ``params`` carries the preference-adjusted search weights (see
@@ -310,7 +321,7 @@ class JourneyPlanner:
         start: _State = ("at", origin)
         target: _State = ("at", destination)
         best: dict[_State, float] = {start: 0.0}
-        prev: dict[_State, tuple[_State, tuple]] = {}
+        prev: dict[_State, tuple[_State, _Action]] = {}
         counter = itertools.count()
         queue: list[tuple[float, int, _State]] = [(0.0, next(counter), start)]
 
@@ -322,7 +333,7 @@ class JourneyPlanner:
                 return self._reconstruct(prev, start, target)
 
             if state[0] == "at":
-                stop_id = state[1]
+                stop_id = cast(str, state[1])
                 for key, index in graph.patterns_at.get(stop_id, []):
                     pattern = graph.patterns[key]
                     if index >= len(pattern.stops) - 1:
@@ -345,7 +356,7 @@ class JourneyPlanner:
                          edge.walk_seconds),
                     )
             else:
-                _, key, index = state
+                _, key, index = cast(tuple[str, PatternKey, int], state)
                 pattern = graph.patterns[key]
                 here = pattern.stops[index]
                 self._relax(
@@ -367,13 +378,13 @@ class JourneyPlanner:
     @staticmethod
     def _relax(
         best: dict[_State, float],
-        prev: dict[_State, tuple[_State, tuple]],
+        prev: dict[_State, tuple[_State, _Action]],
         queue: list[tuple[float, int, _State]],
         counter: "itertools.count[int]",
         from_state: _State,
         to_state: _State,
         new_cost: float,
-        action: tuple,
+        action: _Action,
     ) -> None:
         if new_cost < best.get(to_state, float("inf")):
             best[to_state] = new_cost
@@ -382,9 +393,9 @@ class JourneyPlanner:
 
     @staticmethod
     def _reconstruct(
-        prev: dict[_State, tuple[_State, tuple]], start: _State, target: _State
-    ) -> list[tuple]:
-        actions: list[tuple] = []
+        prev: dict[_State, tuple[_State, _Action]], start: _State, target: _State
+    ) -> list[_Action]:
+        actions: list[_Action] = []
         state = target
         while state != start:
             state, action = prev[state]
@@ -400,7 +411,7 @@ class JourneyPlanner:
         origin: str,
         destination: str,
         departure: datetime,
-        actions: list[tuple],
+        actions: list[_Action],
     ) -> JourneyPlan:
         params = self._params
         legs: list[RideLeg | WalkLeg] = []
@@ -413,7 +424,9 @@ class JourneyPlanner:
         for action in actions:
             verb = action[0]
             if verb == "walk":
-                _, from_id, to_id, distance, seconds = action
+                _, from_id, to_id, distance, seconds = cast(
+                    tuple[str, str, str, float, float], action
+                )
                 legs.append(
                     WalkLeg(
                         board=_stop(graph, from_id),
@@ -425,15 +438,15 @@ class JourneyPlanner:
                 walking_total += distance
                 total_seconds += seconds
             elif verb == "board":
-                _, board_key, board_index = action
+                _, board_key, board_index = cast(tuple[str, PatternKey, int], action)
                 ride_seconds = 0.0
                 total_seconds += params.board_penalty_seconds
             elif verb == "ride":
-                _, _, _, hop = action
+                _, _, _, hop = cast(tuple[str, PatternKey, int, float], action)
                 ride_seconds += hop
                 total_seconds += hop
             elif verb == "alight":
-                _, key, alight_index = action
+                _, key, alight_index = cast(tuple[str, PatternKey, int], action)
                 assert board_key == key and board_index is not None
                 pattern = graph.patterns[key]
                 stations = tuple(

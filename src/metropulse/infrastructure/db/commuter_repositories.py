@@ -7,9 +7,10 @@ transaction; repositories only issue statements.
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any, Sequence
+from typing import Any, Sequence, cast
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from metropulse.infrastructure.db.commuter_models import (
@@ -20,6 +21,7 @@ from metropulse.infrastructure.db.commuter_models import (
     DestinationAlert,
     FavouriteRoute,
     FavouriteStation,
+    Feedback,
     Journey,
     JourneyEvent,
     LastTrainReminder,
@@ -104,7 +106,10 @@ class FavouriteRepository:
                 FavouriteStation.user_id == user_id, FavouriteStation.stop_id == stop_id
             )
         )
-        return bool(result.rowcount)
+        # AsyncSession.execute() is statically typed as returning the broader
+        # Result[Any], but a DML statement (update/delete) always yields a
+        # CursorResult at runtime, which does expose .rowcount.
+        return bool(cast(CursorResult[Any], result).rowcount)
 
     async def routes_for(self, user_id: str) -> Sequence[FavouriteRoute]:
         """Favourite routes ordered by route id."""
@@ -126,7 +131,10 @@ class FavouriteRepository:
                 FavouriteRoute.user_id == user_id, FavouriteRoute.route_id == route_id
             )
         )
-        return bool(result.rowcount)
+        # AsyncSession.execute() is statically typed as returning the broader
+        # Result[Any], but a DML statement (update/delete) always yields a
+        # CursorResult at runtime, which does expose .rowcount.
+        return bool(cast(CursorResult[Any], result).rowcount)
 
 
 class DestinationAlertRepository:
@@ -197,7 +205,10 @@ class LastTrainReminderRepository:
                 LastTrainReminder.id == reminder_id, LastTrainReminder.user_id == user_id
             )
         )
-        return bool(result.rowcount)
+        # AsyncSession.execute() is statically typed as returning the broader
+        # Result[Any], but a DML statement (update/delete) always yields a
+        # CursorResult at runtime, which does expose .rowcount.
+        return bool(cast(CursorResult[Any], result).rowcount)
 
 
 class LeaveHomeReminderRepository:
@@ -241,7 +252,10 @@ class LeaveHomeReminderRepository:
                 LeaveHomeReminder.user_id == user_id,
             )
         )
-        return bool(result.rowcount)
+        # AsyncSession.execute() is statically typed as returning the broader
+        # Result[Any], but a DML statement (update/delete) always yields a
+        # CursorResult at runtime, which does expose .rowcount.
+        return bool(cast(CursorResult[Any], result).rowcount)
 
 
 class PredictedDepartureNoticeRepository:
@@ -504,6 +518,12 @@ class JourneyRepository:
         Feeds the Claude delay-refinement scheduler's per-route evaluation
         loop — same shape as ``distinct_user_ids_with_history``, but for
         routes rather than users.
+
+        ``Journey.route_id`` is nullable at the schema level, so the
+        ``is_not(None)`` filter below is what makes the ``str`` (non-optional)
+        return type true; SQLAlchemy's static result typing can't see through
+        that filter, so we also drop any (should-be-impossible) ``None``
+        defensively rather than casting the type away.
         """
         result = await self._session.execute(
             select(Journey.route_id)
@@ -514,7 +534,7 @@ class JourneyRepository:
             )
             .distinct()
         )
-        return result.scalars().all()
+        return [route_id for route_id in result.scalars().all() if route_id is not None]
 
     async def events_for(self, journey_id: int) -> Sequence[JourneyEvent]:
         """Events for one journey in chronological order."""
@@ -557,7 +577,10 @@ class NotificationRepository:
             )
             .values(read_at=now)
         )
-        return bool(result.rowcount)
+        # AsyncSession.execute() is statically typed as returning the broader
+        # Result[Any], but a DML statement (update/delete) always yields a
+        # CursorResult at runtime, which does expose .rowcount.
+        return bool(cast(CursorResult[Any], result).rowcount)
 
 
 class StationExitRepository:
@@ -650,6 +673,17 @@ class CrowdObservationRepository:
         return result.scalars().all()
 
 
+class FeedbackRepository:
+    """User-submitted app feedback (Sprint 4: beta launch)."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    def add(self, feedback: Feedback) -> None:
+        """Stage a feedback submission."""
+        self._session.add(feedback)
+
+
 class AnalyticsRepository:
     """Raw analytics events."""
 
@@ -659,7 +693,7 @@ class AnalyticsRepository:
     async def add_many(self, rows: Sequence[dict[str, Any]]) -> int:
         """Bulk insert event rows; returns the number inserted."""
         if rows:
-            await self._session.execute(AnalyticsEvent.__table__.insert(), list(rows))
+            await self._session.execute(insert(AnalyticsEvent), list(rows))
         return len(rows)
 
     async def counts_by_type(self, since: datetime) -> list[tuple[str, int]]:
@@ -677,7 +711,10 @@ class AnalyticsRepository:
         result = await self._session.execute(
             delete(AnalyticsEvent).where(AnalyticsEvent.received_at < cutoff)
         )
-        return int(result.rowcount or 0)
+        # AsyncSession.execute() is statically typed as returning the broader
+        # Result[Any], but a DML statement (update/delete) always yields a
+        # CursorResult at runtime, which does expose .rowcount.
+        return int(cast(CursorResult[Any], result).rowcount or 0)
 
 
 class DatasetVersionRepository:

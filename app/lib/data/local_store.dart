@@ -183,6 +183,11 @@ class LocalStore {
   bool get hasSeenMapHint => _box.get('has_seen_map_hint') == 'true';
   Future<void> markMapHintSeen() => _box.put('has_seen_map_hint', 'true');
 
+  /// First-launch onboarding, shown once before the app's own splash-to-home
+  /// flow ever reaches the home screen.
+  bool get hasCompletedOnboarding => _box.get('has_completed_onboarding') == 'true';
+  Future<void> markOnboardingCompleted() => _box.put('has_completed_onboarding', 'true');
+
   // -- offline station cache -----------------------------------------------------
 
   OfflineBundle? get cachedBundle {

@@ -286,7 +286,7 @@ def _build_stop_sequence(
     floor = 0.0
     prev_lat: float | None = None
     prev_lon: float | None = None
-    for stop_time, stop in pairs:  # type: ignore[assignment]
+    for stop_time, stop in pairs:
         lat = stop.stop_lat  # type: ignore[attr-defined]
         lon = stop.stop_lon  # type: ignore[attr-defined]
         if geometry is not None:

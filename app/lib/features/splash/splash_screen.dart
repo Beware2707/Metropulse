@@ -54,7 +54,9 @@ class _SplashScreenState extends ConsumerState<SplashScreen> with SingleTickerPr
     await Future.wait<void>([ref.read(offlineBundleProvider.future).then((_) {}), heroDone]);
     _bootDone = true;
     _statusTimer?.cancel();
-    if (mounted) context.go('/');
+    if (!mounted) return;
+    final hasOnboarded = ref.read(localStoreProvider).hasCompletedOnboarding;
+    context.go(hasOnboarded ? '/' : '/onboarding');
   }
 
   @override

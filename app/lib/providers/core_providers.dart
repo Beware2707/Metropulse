@@ -58,6 +58,10 @@ final replayRepositoryProvider = Provider<ReplayRepository>(
   (ref) => ReplayRepository(ref.watch(apiClientProvider)),
 );
 
+final feedbackRepositoryProvider = Provider<FeedbackRepository>(
+  (ref) => FeedbackRepository(ref.watch(apiClientProvider)),
+);
+
 /// True when the OS reports an active network path — proactive, unlike
 /// every other offline signal in this app (an HTTP call's own 8s/15s
 /// timeout, the WebSocket's 60s reconnect watchdog), which only find out

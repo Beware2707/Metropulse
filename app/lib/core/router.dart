@@ -5,8 +5,11 @@ import '../features/favourites/favourites_screen.dart';
 import '../features/history/journey_history_screen.dart';
 import '../features/home/home_screen.dart';
 import '../features/journey_mode/journey_mode_screen.dart';
+import '../features/legal/legal_content.dart';
+import '../features/legal/legal_doc_screen.dart';
 import '../features/map/live_map_screen.dart';
 import '../features/notifications/notifications_screen.dart';
+import '../features/onboarding/onboarding_screen.dart';
 import '../features/planner/journey_planner_screen.dart';
 import '../features/search/search_screen.dart';
 import '../features/settings/settings_screen.dart';
@@ -22,6 +25,7 @@ final routerProvider = Provider<GoRouter>((ref) {
     initialLocation: '/splash',
     routes: [
       GoRoute(path: '/splash', builder: (_, __) => const SplashScreen()),
+      GoRoute(path: '/onboarding', builder: (_, __) => const OnboardingScreen()),
       // Four hero tabs: Home (everything starts here), Journey (the current
       // or planned trip — Metro Companion), Explore (stations, map,
       // places), You (favourites, history/Replay, notifications, settings).
@@ -68,6 +72,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: '/favourites', builder: (_, __) => const FavouritesScreen()),
       GoRoute(path: '/settings', builder: (_, __) => const SettingsScreen()),
+      GoRoute(
+        path: '/privacy-policy',
+        builder: (_, __) => const LegalDocScreen(title: 'Privacy Policy', blocks: privacyPolicyBlocks),
+      ),
+      GoRoute(
+        path: '/terms-of-use',
+        builder: (_, __) => const LegalDocScreen(title: 'Terms of Use', blocks: termsOfUseBlocks),
+      ),
       GoRoute(path: '/journeys/history', builder: (_, __) => const JourneyHistoryScreen()),
       GoRoute(path: '/notifications', builder: (_, __) => const NotificationsScreen()),
       GoRoute(path: '/assistant', builder: (_, __) => const VoiceAssistantScreen()),

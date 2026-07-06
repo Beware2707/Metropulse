@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -456,6 +456,15 @@ class CrowdReportIn(BaseModel):
     stop_id: str | None = None
     vehicle_id: str | None = None
     coach_index: int | None = Field(default=None, ge=0, le=15)
+
+
+class FeedbackIn(BaseModel):
+    """User-submitted app feedback (Sprint 4: beta launch)."""
+
+    message: str = Field(min_length=1, max_length=4000)
+    category: Literal["bug", "suggestion", "praise", "other"] | None = None
+    app_version: str | None = Field(default=None, max_length=32)
+    platform: str | None = Field(default=None, max_length=32)
 
 
 class StationExitIn(BaseModel):
