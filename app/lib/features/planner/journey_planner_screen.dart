@@ -624,7 +624,7 @@ class _RouteVisualization extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: AppSpacing.sm),
-                    Text('${(plan.legs[i].stations?.length ?? 1) - 1} stops', style: theme.textTheme.labelSmall),
+                    Text(stopsLabel((plan.legs[i].stations?.length ?? 1) - 1), style: theme.textTheme.labelSmall),
                   ],
                 ),
               )
@@ -684,7 +684,7 @@ class _LegTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                LineChip(label: leg.routeLongName ?? leg.routeId ?? 'Line', colorHex: leg.routeColor),
+                LineChip(label: leg.routeLongName ?? 'Line', colorHex: leg.routeColor),
                 const SizedBox(height: AppSpacing.sm),
                 Text('Board at ${leg.board.name}', style: theme.textTheme.titleMedium),
                 Text(
@@ -692,7 +692,7 @@ class _LegTile extends StatelessWidget {
                   '${leg.platformHint != null ? '  ·  ${leg.platformHint}' : ''}',
                   style: theme.textTheme.bodyMedium,
                 ),
-                Text('${(leg.stations?.length ?? 1) - 1} stops · ${minutesLabel(leg.seconds)}',
+                Text('${stopsLabel((leg.stations?.length ?? 1) - 1)} · ${minutesLabel(leg.seconds)}',
                     style: theme.textTheme.bodySmall),
               ],
             ),

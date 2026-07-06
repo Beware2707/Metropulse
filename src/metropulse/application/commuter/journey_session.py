@@ -109,8 +109,8 @@ class JourneySessionTracker:
             session,
             journey.user_id,
             kind="journey_completed",
-            title=f"Arrived at {station_name}",
-            body="You've reached your destination. Journey completed.",
+            title="🎉 You're here!",
+            body=f"You've reached {station_name}. Have a great day!",
             payload={"journey_id": journey.id, "stop_id": journey.destination_stop_id},
         )
         return "completed"

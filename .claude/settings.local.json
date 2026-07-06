@@ -130,7 +130,11 @@
       "Bash(grep -rl *)",
       "Bash(./.venv/Scripts/python.exe -m pytest -q)",
       "Bash(./.venv/Scripts/python.exe -m pytest tests/test_leave_home.py::test_interchange_reminder_fires_once_then_journey_completes -q)",
-      "Bash(./.venv/Scripts/python.exe -m pytest tests/test_leave_home.py -q)"
+      "Bash(./.venv/Scripts/python.exe -m pytest tests/test_leave_home.py -q)",
+      "Bash(timeout 60 cmd /c pause)",
+      "Bash(grep -v \"/app$\")",
+      "Bash(./.venv/Scripts/python.exe -m pytest tests/test_leave_home.py tests/test_destination_alerts.py -q)",
+      "Bash(./.venv/Scripts/python.exe -m pytest tests/test_intelligence.py -q)"
     ]
   }
 }

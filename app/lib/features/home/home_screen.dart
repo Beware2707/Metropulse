@@ -20,6 +20,7 @@ import '../../core/widgets/live_indicator.dart';
 import '../../core/widgets/moment_row.dart';
 import '../../core/widgets/reveal_animations.dart';
 import '../../core/widgets/search_entry_pill.dart';
+import '../../core/widgets/settle_fade_in.dart';
 import '../../domain/commute_timeline.dart';
 import '../../domain/fare.dart';
 import '../../domain/home_context.dart';
@@ -77,10 +78,12 @@ class HomeScreen extends ConsumerWidget {
                 Positioned(
                   right: AppSpacing.lg,
                   bottom: 108,
-                  child: PrimaryButton(
-                    label: context.t.journeyPlanCta,
-                    icon: Icons.alt_route_rounded,
-                    onPressed: () => context.push('/planner'),
+                  child: SettleFadeIn(
+                    child: PrimaryButton(
+                      label: context.t.journeyPlanCta,
+                      icon: Icons.alt_route_rounded,
+                      onPressed: () => context.push('/planner'),
+                    ),
                   ),
                 ),
             ],
@@ -663,10 +666,15 @@ class _PinnedJourneyRow extends StatelessWidget {
     final theme = Theme.of(context);
     final originName = stations['${journey['origin_stop_id']}']?.name ?? journey['origin_stop_id'];
     final destinationName = stations['${journey['destination_stop_id']}']?.name ?? journey['destination_stop_id'];
+    final label = '${journey['label']}';
+    final route = '$originName → $destinationName';
     return MomentRow(
       leading: const IconBadge(icon: Icons.push_pin_rounded),
-      title: Text('${journey['label']}', style: theme.textTheme.titleMedium),
-      subtitle: Text('$originName → $destinationName', style: theme.textTheme.bodyMedium),
+      title: Text(label, style: theme.textTheme.titleMedium),
+      // A label that's just the route typed back doesn't need repeating —
+      // only show the route as a subtitle when it adds information the
+      // title doesn't already carry.
+      subtitle: label == route ? null : Text(route, style: theme.textTheme.bodyMedium),
       onTap: () => context.push(
         '/planner?origin=${journey['origin_stop_id']}&destination=${journey['destination_stop_id']}',
       ),

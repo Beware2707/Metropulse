@@ -9,6 +9,7 @@ import '../../core/formatters.dart';
 import '../../core/widgets/ambient_background.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/glass_surface.dart';
+import '../../core/widgets/gradient_button.dart';
 import '../../core/widgets/icon_badge.dart';
 import '../../core/widgets/line_chip.dart';
 import '../../core/widgets/live_indicator.dart';
@@ -102,6 +103,13 @@ class StationDetailScreen extends ConsumerWidget {
                 ],
               ),
               const SizedBox(height: AppSpacing.md),
+              PrimaryButton(
+                label: 'Plan a trip here',
+                icon: Icons.alt_route_rounded,
+                expand: true,
+                onPressed: () => context.push('/planner?destination=$stopId'),
+              ),
+              const SizedBox(height: AppSpacing.lg),
               if (arrivals.isEmpty) const _EmptyArrivals(),
               for (final train in arrivals)
                 Padding(

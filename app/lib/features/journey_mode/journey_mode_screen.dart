@@ -404,7 +404,7 @@ class _JourneyView extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text("You've arrived", style: Theme.of(sheetContext).textTheme.titleLarge),
+            Text("🎉 You're here!", style: Theme.of(sheetContext).textTheme.titleLarge),
             if (replay != null) ...[
               const SizedBox(height: AppSpacing.lg),
               _TripReplayCard(replay: replay),
@@ -610,7 +610,7 @@ class _TripReplayCard extends StatelessWidget {
     final savedCarbon = replay.co2SavedKg > 0;
 
     final sentences = <String>[
-      'You got from ${replay.originName} to ${replay.destinationName} in ${minutesLabel(replay.durationSeconds)}.',
+      'You got from ${replay.originName} to ${replay.destinationName} in ${elapsedLabel(replay.durationSeconds)}.',
     ];
     if (savedTime && savedMoney) {
       sentences.add(

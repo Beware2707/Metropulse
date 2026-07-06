@@ -34,7 +34,10 @@ void main() {
       interchangeStationName: 'X',
       nextStationName: 'Y',
     );
-    expect(message, const CompanionMessage(kind: CompanionMessageKind.arrived, text: "You've made it!"));
+    expect(message, const CompanionMessage(
+      kind: CompanionMessageKind.arrived,
+      text: "🎉 You're here — have a great day!",
+    ));
   });
 
   test('arriving soon mentions the exit when known', () {
@@ -44,7 +47,7 @@ void main() {
 
     final withoutExit = _build(arrivingSoon: true);
     expect(withoutExit?.text, isNot(contains('Gate')));
-    expect(withoutExit?.text, contains('this is your stop'));
+    expect(withoutExit?.text, contains('Your stop is next'));
   });
 
   test('arriving soon beats an interchange flag (should never co-occur, but priority is defined)', () {
@@ -69,13 +72,16 @@ void main() {
     expect(message?.kind, CompanionMessageKind.nextStation);
   });
 
-  test('boarding message never invents a platform number', () {
+  test('boarding message greets even without a coach recommendation, and never invents a platform number', () {
     final withHint = _build(justBoarded: true, recommendedCoach: 4, platformHint: 'Towards Delta');
-    expect(withHint?.text, 'Hop on Coach 5 — platform for Towards Delta.');
+    expect(withHint?.text, "🚇 Let's go! Hop on Coach 5 — platform for Towards Delta.");
     expect(withHint?.text, isNot(contains('Platform 2')));
 
     final withoutHint = _build(justBoarded: true, recommendedCoach: 4);
-    expect(withoutHint?.text, 'Hop on Coach 5.');
+    expect(withoutHint?.text, "🚇 Let's go! Hop on Coach 5.");
+
+    final withoutCoach = _build(justBoarded: true);
+    expect(withoutCoach?.text, "🚇 Let's go!");
   });
 
   test('next station is the routine fallback', () {

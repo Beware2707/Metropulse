@@ -233,5 +233,6 @@ def _at_time_of_day(now: datetime, seconds_since_midnight: float) -> datetime:
 
 def _basis_text(is_weekend: bool, sample_size: int) -> str:
     day_type = "weekend" if is_weekend else "weekday"
-    trip_word = "trip" if sample_size == 1 else "trips"
-    return f"based on {sample_size} of your recent {day_type} {trip_word}"
+    if sample_size == 1:
+        return f"based on your only recent {day_type} trip"
+    return f"based on {sample_size} of your recent {day_type} trips"

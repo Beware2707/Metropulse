@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'design/app_spacing.dart';
 import 'widgets/floating_nav_bar.dart';
 import 'widgets/gradient_button.dart';
+import 'widgets/settle_fade_in.dart';
 
 /// go_router's `StatefulShellRoute` wraps the four hero tabs — Home
 /// (everything starts here), Journey (the current or planned trip), Explore
@@ -39,11 +40,13 @@ class RootShell extends StatelessWidget {
           Positioned(
             left: AppSpacing.lg,
             bottom: 108,
-            child: IconPillButton(
-              icon: Icons.mic_none_rounded,
-              tooltip: 'Metro Assistant',
-              filled: true,
-              onPressed: () => context.push('/assistant'),
+            child: SettleFadeIn(
+              child: IconPillButton(
+                icon: Icons.mic_none_rounded,
+                tooltip: 'Metro Assistant',
+                filled: true,
+                onPressed: () => context.push('/assistant'),
+              ),
             ),
           ),
         ],

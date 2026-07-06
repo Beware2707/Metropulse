@@ -180,8 +180,8 @@ class CommuterRuleEngine:
             session,
             alert.user_id,
             kind="destination_alert",
-            title=f"Approaching {station_name}",
-            body=f"Your train is about to reach {station_name}. Get ready to alight.",
+            title="Your stop is next",
+            body=f"Get ready to exit at {station_name}.",
             payload={
                 "alert_id": alert.id,
                 "vehicle_id": alert.vehicle_id,

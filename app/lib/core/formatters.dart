@@ -23,3 +23,16 @@ String distanceLabel(double? meters) {
   if (meters < 1000) return '${meters.round()} m';
   return '${(meters / 1000).toStringAsFixed(1)} km';
 }
+
+/// '1 stop' / '5 stops'.
+String stopsLabel(int count) => '$count ${count == 1 ? 'stop' : 'stops'}';
+
+/// Like [minutesLabel] but for a duration that already elapsed, where
+/// "now" (correct for an ETA) would misread as "this took no time at all"
+/// instead of "this was quick".
+String elapsedLabel(double? seconds) {
+  if (seconds == null) return '–';
+  final total = (seconds / 60).round();
+  if (total < 1) return 'under a minute';
+  return minutesLabel(seconds);
+}
