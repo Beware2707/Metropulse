@@ -83,7 +83,7 @@ class VoiceAssistantController {
     try {
       final plan = await _ref.read(journeyRepositoryProvider).plan(origin.stopId, destination.stopId);
       final firstRide = plan.legs.where((leg) => leg.isRide).firstOrNull;
-      final lineName = firstRide?.routeLongName ?? 'the metro';
+      final lineName = firstRide?.routeLongName == null ? 'the metro' : cleanLineName(firstRide!.routeLongName);
       final minutes = (plan.expectedTravelSeconds / 60).round();
       final changes = plan.interchangeCount;
       final changeText = changes == 0 ? 'no changes' : '$changes ${changes == 1 ? 'change' : 'changes'}';

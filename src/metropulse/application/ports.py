@@ -79,9 +79,16 @@ class CommutePredictor(Protocol):
 class DelayEstimator(Protocol):
     """Estimates typical delay for a route around a time of day.
 
-    Today's binding compares historical completed-journey durations against
-    the GTFS-scheduled duration. Swapping in GTFS-Realtime (or a learned
-    delay model) once it's available is a wiring change only.
+    Today's binding (see ``application/intelligence/llm_delay_refiner.py``)
+    is ``LlmEnhancedDelayEstimator`` wrapping
+    ``DelayPredictionService``: the underlying estimate always compares
+    historical completed-journey durations against the GTFS-scheduled
+    duration, with an optional LLM-refined adjustment (Claude, OpenAI, or
+    Gemini — see ``LlmClient`` below) overlaid from a periodically-updated
+    cache when at least one provider key is configured — a pure
+    pass-through to the historical estimate otherwise. Swapping in
+    GTFS-Realtime (or a learned delay model) once it's available is a
+    wiring change only.
     """
 
     async def estimate(
@@ -92,6 +99,32 @@ class DelayEstimator(Protocol):
         at: datetime,
     ) -> DelayEstimate:
         """Typical delay for the route around the given time of day."""
+        ...
+
+
+class LlmClient(Protocol):
+    """A provider-agnostic seam for a large-language-model call.
+
+    Implemented by :class:`~metropulse.infrastructure.claude.client.ClaudeClient`,
+    :class:`~metropulse.infrastructure.openai.client.OpenAiClient`, and
+    :class:`~metropulse.infrastructure.gemini.client.GeminiClient` — thin,
+    near-identical ``httpx`` wrappers around each provider's own API shape.
+    Consumers (see ``application/intelligence/llm_delay_refiner.py``) never
+    import a concrete provider; they depend on this Protocol so any of the
+    three (or several, tried in priority order — see
+    ``infrastructure/llm_fallback.py``) can be configured via Settings
+    without a code change.
+    """
+
+    async def complete_json(
+        self, *, system: str, user: str, max_tokens: int = 512
+    ) -> dict[str, Any]:
+        """Send one message, requiring a strict-JSON reply.
+
+        Raises :class:`~metropulse.domain.exceptions.LlmRequestError` on any
+        transport failure, non-2xx response, or a reply that isn't valid
+        JSON — never lets a raw provider-specific exception escape.
+        """
         ...
 
 

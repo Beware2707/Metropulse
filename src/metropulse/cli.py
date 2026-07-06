@@ -24,10 +24,19 @@ from typing import Any
 from metropulse.application.commuter.analytics import purge_analytics
 from metropulse.application.commuter.rule_engine import CommuterRuleEngine
 from metropulse.application.consumers import EtaWarmer, FeedAnalyticsRecorder
+from metropulse.application.intelligence.llm_delay_refiner import (
+    LlmDelayRefinementScheduler,
+)
+from metropulse.application.intelligence.delay_predictor import DelayPredictionService
 from metropulse.application.intelligence.proactive_scheduler import (
     ProactiveCommuteSchedulerService,
 )
 from metropulse.application.realtime_engine import RealtimeEngine, cleanup_history
+from metropulse.application.schedule_position_source import ScheduleEstimatedPositionSource
+from metropulse.infrastructure.claude.client import ClaudeClient
+from metropulse.infrastructure.gemini.client import GeminiClient
+from metropulse.infrastructure.llm_fallback import MultiProviderLlmClient
+from metropulse.infrastructure.openai.client import OpenAiClient
 from metropulse.infrastructure.redis.stream_bus import RedisStreamConsumer
 from metropulse.infrastructure.redis.vehicle_store import UPDATES_STREAM
 from metropulse.tracing import configure_tracing
@@ -89,12 +98,24 @@ async def run_worker(settings: Settings) -> int:
     resources = build_resources(settings)
     http = build_http_client(settings)
     try:
-        client = GtfsRtClient(
-            http,
-            settings.gtfs_rt_vehicle_positions_url,
-            settings.dmrc_api_key.get_secret_value(),
-            max_attempts=settings.fetch_max_attempts,
-        )
+        # gtfs_rt_enabled gates whether the configured URL is trusted as a
+        # real, licensed metro vehicle feed. Off by default: the worker then
+        # estimates positions from the static schedule instead of polling a
+        # feed that (as configured today) is actually Delhi's bus GPS, not
+        # metro trains -- see config.Settings.gtfs_rt_enabled.
+        feed: GtfsRtClient | None = None
+        position_source: ScheduleEstimatedPositionSource | None = None
+        if settings.gtfs_rt_enabled:
+            feed = GtfsRtClient(
+                http,
+                settings.gtfs_rt_vehicle_positions_url,
+                settings.dmrc_api_key.get_secret_value(),
+                max_attempts=settings.fetch_max_attempts,
+            )
+        else:
+            position_source = ScheduleEstimatedPositionSource(
+                resources.session_factory, resources.commuter.last_train, resources.resolver
+            )
 
         rule_engine = CommuterRuleEngine(
             resources.vehicle_store,
@@ -121,13 +142,54 @@ async def run_worker(settings: Settings) -> int:
             history_window_days=settings.commute_prediction_lookback_days,
         )
 
+        # Each provider is only constructed when its key is configured; the
+        # combined client tries whichever ones exist in priority order
+        # (Claude, then OpenAI, then Gemini) and fails over on any single
+        # provider's error. None (not a real client) whenever zero keys are
+        # configured -- the scheduler's evaluate_safe() checks for exactly
+        # this and no-ops, touching neither the network nor the database.
+        anthropic_key = settings.anthropic_api_key.get_secret_value()
+        openai_key = settings.openai_api_key.get_secret_value()
+        google_key = settings.google_api_key.get_secret_value()
+        providers: list[tuple[str, Any]] = []
+        if anthropic_key:
+            providers.append(
+                ("claude", ClaudeClient(http, anthropic_key, model=settings.claude_model))
+            )
+        if openai_key:
+            providers.append(
+                ("openai", OpenAiClient(http, openai_key, model=settings.openai_model))
+            )
+        if google_key:
+            providers.append(
+                ("gemini", GeminiClient(http, google_key, model=settings.gemini_model))
+            )
+        llm_client = MultiProviderLlmClient(providers) if providers else None
+        llm_delay_scheduler = LlmDelayRefinementScheduler(
+            # Deliberately a *fresh*, unwrapped DelayPredictionService, not
+            # resources.commuter.delay_predictor (which is already the
+            # LLM-enhanced wrapper) -- the scheduler must always refine
+            # the plain historical baseline, never an already-refined
+            # estimate from a prior cycle, or refinements would compound.
+            DelayPredictionService(
+                resources.commuter.planner,
+                lookback_days=settings.delay_prediction_lookback_days,
+            ),
+            llm_client,
+            resources.session_factory,
+            min_sample_size=settings.llm_delay_refinement_min_sample_size,
+            max_buckets_per_cycle=settings.llm_delay_refinement_max_buckets_per_cycle,
+            lookback_days=settings.delay_prediction_lookback_days,
+        )
+
         engine = RealtimeEngine(
-            client,
+            feed,
             resources.vehicle_store,
             resources.session_factory,
             resources.train_service,
             stale_after_seconds=settings.stale_after_seconds,
             event_publisher=resources.event_publisher,
+            position_source=position_source,
         )
 
         # Event-driven pipeline: the poller appends update events to a Redis
@@ -187,6 +249,14 @@ async def run_worker(settings: Settings) -> int:
             max_instances=1,
             coalesce=True,
             id="predicted-departure-notices",
+        )
+        scheduler.add_job(
+            llm_delay_scheduler.evaluate_safe,
+            "interval",
+            seconds=settings.llm_delay_refinement_eval_interval_seconds,
+            max_instances=1,
+            coalesce=True,
+            id="llm-delay-refinement",
         )
         scheduler.add_job(
             cleanup_history,

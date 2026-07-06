@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../domain/models/ws_message.dart';
@@ -53,6 +54,21 @@ class LiveWsClient {
     connect();
   }
 
+  /// Force an immediate reconnect attempt, bypassing whatever's left of the
+  /// current exponential backoff wait — used when the OS reports
+  /// connectivity has just returned, so exiting a tunnel doesn't mean
+  /// sitting through the tail of a delay that was calibrated for a
+  /// connection that wasn't actually available yet. A no-op unless we're
+  /// genuinely mid-backoff (suspended, closed, or already connected all
+  /// mean there's nothing to hurry along).
+  void reconnectNow() {
+    if (_closed || _suspended || _channel != null) return;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _backoffSeconds = 1;
+    connect();
+  }
+
   void connect() {
     if (_closed || _suspended) return;
     _status.add(WsStatus.connecting);
@@ -81,7 +97,15 @@ class LiveWsClient {
     } on FormatException {
       return;
     }
-    final message = WsMessage.fromJson(json);
+    final WsMessage? message;
+    try {
+      message = WsMessage.fromJson(json);
+    } catch (error, stack) {
+      // A single malformed frame (bad deploy, schema drift, ...) must never
+      // take down this listener; report and move on to the next frame.
+      _reportError(error, stack);
+      return;
+    }
     if (message == null) return;
     _backoffSeconds = 1;
     _status.add(WsStatus.live);
@@ -129,4 +153,11 @@ class LiveWsClient {
     await _messages.close();
     await _status.close();
   }
+}
+
+// Crash handling: every uncaught error is funnelled through one place, same
+// convention as the top-level `_reportError` in main.dart.
+// debugPrint today; swap for Crashlytics/Sentry at release.
+void _reportError(Object error, StackTrace? stack) {
+  debugPrint('UNCAUGHT: $error\n$stack');
 }

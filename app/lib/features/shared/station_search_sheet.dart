@@ -40,6 +40,7 @@ class _StationSearchSheetState extends ConsumerState<StationSearchSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final reduceMotion = MediaQuery.of(context).disableAnimations;
     final bundleAsync = ref.watch(offlineBundleProvider);
     final bundle = bundleAsync.valueOrNull;
     final stations = bundle?.stations ?? const <Station>[];
@@ -86,7 +87,7 @@ class _StationSearchSheetState extends ConsumerState<StationSearchSheet> {
             ),
             Expanded(
               child: AnimatedSwitcher(
-                duration: AppMotion.fast,
+                duration: reduceMotion ? Duration.zero : AppMotion.fast,
                 child: bundleAsync.isLoading && stations.isEmpty
                     ? const KeyedSubtree(
                         key: ValueKey('loading'),

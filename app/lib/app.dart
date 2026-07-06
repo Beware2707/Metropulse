@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/router.dart';
 import 'core/theme.dart';
+import 'data/ws_client.dart';
+import 'features/home/home_providers.dart';
 import 'features/notifications/notifications_providers.dart';
 import 'features/settings/settings_providers.dart';
 import 'l10n/gen/app_localizations.dart';
@@ -17,7 +19,10 @@ import 'providers/live_providers.dart';
 /// Also owns app-lifecycle hygiene: the WebSocket is dropped while the app
 /// is backgrounded and resumed (with seq replay) on foreground, and the
 /// notification inbox is synced on resume plus periodically while
-/// foregrounded so backend-scheduled alerts surface promptly.
+/// foregrounded so backend-scheduled alerts surface promptly. The
+/// notification poll timer itself is paused/resumed in step with the
+/// WebSocket, so it doesn't keep firing (and burning battery/network) while
+/// backgrounded.
 class MetroPulseApp extends ConsumerStatefulWidget {
   const MetroPulseApp({super.key});
 
@@ -33,19 +38,28 @@ class _MetroPulseAppState extends ConsumerState<MetroPulseApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _notificationTimer = Timer.periodic(
-      const Duration(seconds: 20),
-      (_) => ref.read(notificationsSyncControllerProvider).sync(),
-    );
+    _startNotificationTimer();
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => ref.read(notificationsSyncControllerProvider).sync(),
     );
   }
 
+  void _startNotificationTimer() {
+    _notificationTimer ??= Timer.periodic(
+      const Duration(seconds: 20),
+      (_) => ref.read(notificationsSyncControllerProvider).sync(),
+    );
+  }
+
+  void _stopNotificationTimer() {
+    _notificationTimer?.cancel();
+    _notificationTimer = null;
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _notificationTimer?.cancel();
+    _stopNotificationTimer();
     super.dispose();
   }
 
@@ -55,8 +69,10 @@ class _MetroPulseAppState extends ConsumerState<MetroPulseApp>
     switch (state) {
       case AppLifecycleState.paused || AppLifecycleState.detached:
         ws.suspend();
+        _stopNotificationTimer();
       case AppLifecycleState.resumed:
         ws.resume();
+        _startNotificationTimer();
         ref.read(notificationsSyncControllerProvider).sync();
       case AppLifecycleState.inactive || AppLifecycleState.hidden:
         break;
@@ -70,6 +86,26 @@ class _MetroPulseAppState extends ConsumerState<MetroPulseApp>
     final highContrast = ref.watch(highContrastProvider);
     final dynamicColorEnabled = ref.watch(dynamicColorEnabledProvider);
     final textScale = ref.watch(textScaleFactorProvider);
+
+    // Once the socket comes back up after a drop, refresh the REST-backed
+    // data that has no push channel of its own (a one-shot FutureProvider
+    // otherwise stays exactly as stale as it was when the connection died).
+    ref.listen(wsStatusProvider, (previous, next) {
+      if (previous?.valueOrNull == WsStatus.reconnecting && next.valueOrNull == WsStatus.live) {
+        ref
+          ..invalidate(activeJourneyProvider)
+          ..invalidate(commuteCardProvider);
+      }
+    });
+
+    // The OS reporting connectivity restored is a much faster, more direct
+    // signal than waiting for the WS's own exponential backoff to happen to
+    // land on a retry — nudge it the moment a tunnel exit is detected.
+    ref.listen(isOnlineProvider, (previous, next) {
+      if (previous?.valueOrNull == false && next.valueOrNull == true) {
+        ref.read(wsClientProvider).reconnectNow();
+      }
+    });
 
     return DynamicColorBuilder(
       builder: (lightDynamic, darkDynamic) {

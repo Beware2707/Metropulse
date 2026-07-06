@@ -25,6 +25,7 @@ class JourneyProgressSnapshot {
     required this.arrived,
     required this.justBoarded,
     this.delaySeconds,
+    this.isReconnecting = false,
   });
 
   final JourneyProgressSource source;
@@ -47,6 +48,13 @@ class JourneyProgressSnapshot {
   /// passed — the moment to show boarding/coach guidance.
   final bool justBoarded;
   final double? delaySeconds;
+
+  /// True when the app's own connection to the realtime feed is currently
+  /// degraded (reconnecting) — independent of [source]. A [liveVehicle]
+  /// snapshot can be a few seconds old rather than truly live while this is
+  /// true; the UI should say so rather than presenting frozen data as
+  /// current.
+  final bool isReconnecting;
 }
 
 enum JourneyProgressSource { liveVehicle, timetableEstimate }
@@ -63,6 +71,7 @@ JourneyProgressSnapshot fromLiveTrain({
   required Set<String> interchangeStopIds,
   required int? totalStations,
   VehicleEta? eta,
+  bool isReconnecting = false,
 }) {
   final remainingIds = [for (final s in train.remainingStations) s.stopId];
   final remainingToDest = remainingToDestination(remainingIds, destinationStopId);
@@ -88,6 +97,7 @@ JourneyProgressSnapshot fromLiveTrain({
         remainingToDest != null &&
         remainingToDest >= totalStations,
     delaySeconds: eta?.delaySeconds,
+    isReconnecting: isReconnecting,
   );
 }
 
@@ -96,6 +106,7 @@ JourneyProgressSnapshot fromTimetable(
   JourneyTimetable timetable,
   DateTime now, {
   required Set<String> interchangeStopIds,
+  bool isReconnecting = false,
 }) {
   final snapshot = timetable.at(now);
   final totalStations = timetable.stops.length;
@@ -117,6 +128,7 @@ JourneyProgressSnapshot fromTimetable(
     arrived: snapshot.arrived,
     justBoarded: passed == 0,
     delaySeconds: null, // a simulation has no notion of real-world delay
+    isReconnecting: isReconnecting,
   );
 }
 

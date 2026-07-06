@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -162,8 +163,10 @@ class _HomeContent extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final journey = ref.watch(activeJourneyProvider).valueOrNull;
+    final isOffline = ref.watch(isOnlineProvider).valueOrNull == false;
 
     final raw = <Widget>[
+      if (isOffline) ...[const _OfflineBanner(), const SizedBox(height: AppSpacing.lg)],
       const _Header(),
       const SizedBox(height: AppSpacing.xxxl),
       SearchEntryPill(hint: 'Where to?', onTap: () => context.push('/search')),
@@ -177,6 +180,34 @@ class _HomeContent extends ConsumerWidget {
       children: [
         for (var i = 0; i < raw.length; i++) DelayedReveal(delay: Duration(milliseconds: 40 * i), child: raw[i]),
       ],
+    );
+  }
+}
+
+/// Honest, non-alarming context for why the screen might look sparser than
+/// usual — Home otherwise swallows every failed fetch silently rather than
+/// showing scary per-section errors, which is calm but can read as "there's
+/// just nothing here" when the real reason is simply no connection.
+class _OfflineBanner extends StatelessWidget {
+  const _OfflineBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return GlassSurface(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.md),
+      child: Row(
+        children: [
+          Icon(Icons.cloud_off_rounded, size: 18, color: theme.colorScheme.onSurfaceVariant),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Text(
+              "You're offline — showing what we've saved.",
+              style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -420,7 +451,11 @@ class _CommuteRow extends ConsumerWidget {
                 ],
                 if (card.routeLongName != null) ...[
                   const SizedBox(height: AppSpacing.md),
-                  LineChip(label: card.routeLongName!, colorHex: card.routeColor),
+                  LineChip(
+                    label: cleanLineName(card.routeLongName),
+                    subtitle: routeDescription(card.routeLongName),
+                    colorHex: card.routeColor,
+                  ),
                 ],
                 const SizedBox(height: AppSpacing.lg),
                 if (steps.isNotEmpty) ...[
@@ -703,11 +738,17 @@ class _LastTrainRow extends ConsumerWidget {
         label: 'Remind me',
         onPressed: () async {
           final messenger = ScaffoldMessenger.of(context);
-          await ref.read(remindersRepositoryProvider).createLastTrain(
-                stopId: '${info['stop_id']}',
-                routeId: info['route_id'] as String?,
-              );
-          messenger.showSnackBar(const SnackBar(content: Text("You'll be reminded before it departs.")));
+          try {
+            await ref.read(remindersRepositoryProvider).createLastTrain(
+                  stopId: '${info['stop_id']}',
+                  routeId: info['route_id'] as String?,
+                );
+            messenger.showSnackBar(const SnackBar(content: Text("You'll be reminded before it departs.")));
+          } on DioException {
+            messenger.showSnackBar(
+              const SnackBar(content: Text("Couldn't reach the server — check your connection and try again.")),
+            );
+          }
         },
       ),
     );

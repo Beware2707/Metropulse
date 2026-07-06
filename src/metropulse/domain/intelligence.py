@@ -40,6 +40,14 @@ class DelayEstimate:
     """Typical delay for a route around an hour of day, from completed
     journeys' actual duration vs. the GTFS-scheduled duration for the same
     trip. Positive means slower than scheduled, negative means faster.
+
+    ``source`` and ``explanation`` are the honest labels for whether this
+    is the plain historical statistic (``"history"``, the default —
+    ``explanation`` is None) or one nudged by an LLM within a bounded range
+    (``"ai_enhanced"`` — see ``application/intelligence/llm_delay_refiner.py``).
+    ``confidence`` always reflects the real sample size either way; an AI
+    refinement can adjust the delay value and add a plain-language reason,
+    never inflate how sure we claim to be.
     """
 
     route_id: str
@@ -48,6 +56,8 @@ class DelayEstimate:
     expected_delay_seconds: float
     confidence: float
     sample_size: int
+    source: str = "history"
+    explanation: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

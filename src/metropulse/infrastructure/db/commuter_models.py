@@ -158,6 +158,45 @@ class PredictedDepartureNotice(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class LlmDelayRefinement(Base):
+    """Cached LLM-refined delay estimate for a route/hour/day-type bucket.
+
+    Written only by ``LlmDelayRefinementScheduler`` on its periodic pass;
+    read only by ``LlmEnhancedDelayEstimator`` to optionally nudge
+    ``DelayPredictionService``'s own historical estimate within a bounded
+    range (see ``application/intelligence/llm_delay_refiner.py``). Empty
+    table — the natural state whenever no LLM provider key is configured —
+    means every read is a cache miss and the historical estimate is used
+    unchanged everywhere. Provider-agnostic: the same row shape holds a
+    refinement regardless of whether Claude, OpenAI, or Gemini produced it.
+
+    One row per (route_id, direction_id, hour_of_day, day_type) bucket,
+    overwritten (not appended) on each refresh — ``direction_id`` can be
+    NULL (today's delay model doesn't resolve direction), so this uses a
+    surrogate primary key with a lookup index rather than a composite key
+    that can't cleanly include a nullable column.
+    """
+
+    __tablename__ = "llm_delay_refinements"
+    __table_args__ = (
+        Index(
+            "ix_llm_delay_refinements_bucket",
+            "route_id", "direction_id", "hour_of_day", "day_type",
+            unique=True,
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigIntPk, primary_key=True, autoincrement=True)
+    route_id: Mapped[str] = mapped_column(String(64))
+    direction_id: Mapped[int | None] = mapped_column(Integer)
+    hour_of_day: Mapped[int] = mapped_column(Integer)
+    day_type: Mapped[str] = mapped_column(String(16))  # weekday|weekend
+    adjusted_delay_seconds: Mapped[float] = mapped_column(Float)
+    confidence: Mapped[float] = mapped_column(Float)
+    explanation: Mapped[str] = mapped_column(Text)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class ServiceAlert(Base):
     """A service disruption/advisory, admin-created or feed-ingested."""
 

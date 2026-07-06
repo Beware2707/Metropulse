@@ -45,13 +45,17 @@ class LiveTrainsNotifier extends Notifier<Map<String, Train>> {
     switch (message) {
       case WsSnapshot(:final trains):
         state = {for (final train in trains) train.id: train};
-      case WsUpdate(:final added, :final moved, :final removed):
+      case WsUpdate(:final added, :final moved, :final removed, :final stale):
         final next = Map<String, Train>.of(state);
         for (final train in added) {
           next[train.id] = train;
         }
         for (final train in moved) {
           next[train.id] = train;
+        }
+        for (final id in stale) {
+          final existing = next[id];
+          if (existing != null) next[id] = existing.copyWith(isStale: true);
         }
         for (final id in removed) {
           next.remove(id);

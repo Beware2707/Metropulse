@@ -30,6 +30,7 @@ class VehicleOut(BaseModel):
     label: str | None
     current_status: str | None
     current_stop_id: str | None
+    source: str
 
     @classmethod
     def from_domain(cls, vehicle: VehiclePosition) -> "VehicleOut":
@@ -46,6 +47,7 @@ class VehicleOut(BaseModel):
             label=vehicle.label,
             current_status=vehicle.current_status.value if vehicle.current_status else None,
             current_stop_id=vehicle.current_stop_id,
+            source=vehicle.source,
         )
 
 

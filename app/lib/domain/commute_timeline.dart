@@ -1,3 +1,4 @@
+import '../core/formatters.dart';
 import 'journey_timetable.dart';
 import 'models/commute_card.dart';
 import 'models/journey.dart';
@@ -69,7 +70,9 @@ CommuteTimelineStatus resolveCommuteTimelineStatus({
   }
 
   final delayMinutes = (delay / 60).round().clamp(1, 999);
-  final reason = routeLongName == null ? null : '$routeLongName is running about $delayMinutes min behind today.';
+  final reason = routeLongName == null
+      ? null
+      : '${cleanLineName(routeLongName)} is running about $delayMinutes min behind today.';
 
   if (netSeconds >= -comfortableMarginSeconds) {
     return CommuteTimelineStatus(
@@ -133,7 +136,7 @@ List<CommuteTimelineStep> buildCommuteTimelineSteps({required CommuteCard card, 
   final steps = <CommuteTimelineStep>[
     CommuteTimelineStep(title: 'Leave Home', time: leaveBy),
     CommuteTimelineStep(
-      title: card.routeLongName == null ? 'Board your train' : 'Board ${card.routeLongName}',
+      title: card.routeLongName == null ? 'Board your train' : 'Board ${cleanLineName(card.routeLongName)}',
       time: boardAt,
     ),
   ];

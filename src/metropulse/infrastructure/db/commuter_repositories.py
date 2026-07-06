@@ -24,6 +24,7 @@ from metropulse.infrastructure.db.commuter_models import (
     JourneyEvent,
     LastTrainReminder,
     LeaveHomeReminder,
+    LlmDelayRefinement,
     Notification,
     PredictedDepartureNotice,
     ServiceAlert,
@@ -278,6 +279,80 @@ class PredictedDepartureNoticeRepository:
         notice.updated_at = now
 
 
+class LlmDelayRefinementRepository:
+    """Cached LLM-refined delay estimates, one row per route/hour/day-type
+    bucket (see :class:`~metropulse.infrastructure.db.commuter_models.LlmDelayRefinement`)."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def get(
+        self,
+        route_id: str,
+        direction_id: int | None,
+        hour_of_day: int,
+        day_type: str,
+        *,
+        fresher_than: datetime,
+    ) -> LlmDelayRefinement | None:
+        """The cached refinement for this bucket, or None if missing/stale.
+
+        Staleness is checked here rather than left to the caller, so a
+        forgotten freshness check can never silently serve a months-old
+        refinement as if it were current.
+        """
+        result = await self._session.execute(
+            select(LlmDelayRefinement).where(
+                LlmDelayRefinement.route_id == route_id,
+                LlmDelayRefinement.direction_id == direction_id,
+                LlmDelayRefinement.hour_of_day == hour_of_day,
+                LlmDelayRefinement.day_type == day_type,
+                LlmDelayRefinement.computed_at >= fresher_than,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def upsert(
+        self,
+        *,
+        route_id: str,
+        direction_id: int | None,
+        hour_of_day: int,
+        day_type: str,
+        adjusted_delay_seconds: float,
+        confidence: float,
+        explanation: str,
+        computed_at: datetime,
+    ) -> None:
+        """Replace the row for this bucket (delete-then-insert rather than
+        an ``ON CONFLICT`` upsert, since this table has no dialect-portable
+        natural key thanks to the nullable ``direction_id`` — see the model
+        docstring). Safe because the refinement scheduler runs with
+        ``max_instances=1`` on a single worker process, same reasoning as
+        :meth:`PredictedDepartureNoticeRepository.mark_notified`.
+        """
+        await self._session.execute(
+            delete(LlmDelayRefinement).where(
+                LlmDelayRefinement.route_id == route_id,
+                LlmDelayRefinement.direction_id == direction_id,
+                LlmDelayRefinement.hour_of_day == hour_of_day,
+                LlmDelayRefinement.day_type == day_type,
+            )
+        )
+        self._session.add(
+            LlmDelayRefinement(
+                route_id=route_id,
+                direction_id=direction_id,
+                hour_of_day=hour_of_day,
+                day_type=day_type,
+                adjusted_delay_seconds=adjusted_delay_seconds,
+                confidence=confidence,
+                explanation=explanation,
+                computed_at=computed_at,
+            )
+        )
+
+
 class ServiceAlertRepository:
     """Service disruption alerts."""
 
@@ -420,6 +495,24 @@ class JourneyRepository:
             )
             .order_by(Journey.started_at.desc())
             .limit(limit)
+        )
+        return result.scalars().all()
+
+    async def distinct_route_ids_with_history(self, since: datetime) -> Sequence[str]:
+        """Route ids with at least one completed journey since a moment.
+
+        Feeds the Claude delay-refinement scheduler's per-route evaluation
+        loop — same shape as ``distinct_user_ids_with_history``, but for
+        routes rather than users.
+        """
+        result = await self._session.execute(
+            select(Journey.route_id)
+            .where(
+                Journey.status == "completed",
+                Journey.route_id.is_not(None),
+                Journey.started_at >= since,
+            )
+            .distinct()
         )
         return result.scalars().all()
 

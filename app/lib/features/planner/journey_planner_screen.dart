@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -15,6 +16,7 @@ import '../../core/widgets/icon_badge.dart';
 import '../../core/widgets/line_chip.dart';
 import '../../core/widgets/moment_row.dart';
 import '../../core/widgets/reveal_animations.dart';
+import '../../data/api_client.dart';
 import '../../data/repositories.dart';
 import '../../domain/crowding.dart';
 import '../../domain/fare.dart';
@@ -272,6 +274,14 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
           );
       if (!mounted) return;
       setState(() => _plan = plan);
+    } on DioException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = isConnectivityError(error)
+            ? "You're offline — we can't plan a trip without a connection right now."
+            : "We couldn't find a route between these stations.";
+        _comparingPreferenceChange = false;
+      });
     } on Exception {
       if (!mounted) return;
       setState(() {
@@ -340,12 +350,22 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
     final plan = _plan!;
     final firstRide = plan.legs.where((leg) => leg.isRide).firstOrNull;
     final repository = ref.read(journeyRepositoryProvider);
-    final journey = await repository.start(
-      origin: plan.origin.stopId,
-      destination: plan.destination.stopId,
-      routeId: firstRide?.routeId,
-      interchangeStopIds: plan.interchangeStopIds,
-    );
+    final Journey journey;
+    try {
+      journey = await repository.start(
+        origin: plan.origin.stopId,
+        destination: plan.destination.stopId,
+        routeId: firstRide?.routeId,
+        interchangeStopIds: plan.interchangeStopIds,
+      );
+    } on DioException {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Couldn't reach the server — check your connection and try again.")),
+        );
+      }
+      return;
+    }
 
     final coach = await repository.coachRecommendation(
       origin: plan.origin.stopId,
@@ -684,7 +704,7 @@ class _LegTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                LineChip(label: leg.routeLongName ?? 'Line', colorHex: leg.routeColor),
+                LineChip(label: cleanLineName(leg.routeLongName), colorHex: leg.routeColor),
                 const SizedBox(height: AppSpacing.sm),
                 Text('Board at ${leg.board.name}', style: theme.textTheme.titleMedium),
                 Text(

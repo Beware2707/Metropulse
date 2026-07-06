@@ -40,6 +40,16 @@ class Settings(BaseSettings):
     gtfs_rt_vehicle_positions_url: str = (
         "https://otd.delhi.gov.in/api/realtime/VehiclePositions.pb"
     )
+    # False by default: this URL is Delhi's citywide bus GPS feed, not a
+    # verified Delhi Metro train feed (confirmed by inspecting real feed
+    # entities -- vehicle IDs are road registration plates, ~4,000
+    # simultaneous vehicles, coordinates spread across ordinary roads, none
+    # of which match a metro network). Leaving this off makes the worker use
+    # ScheduleEstimatedPositionSource (schedule-interpolated positions,
+    # honestly labelled "schedule_estimate") instead of polling this feed and
+    # mislabelling bus GPS as train GPS. Flip to true only once a feed is
+    # confirmed to actually be Delhi Metro rolling stock.
+    gtfs_rt_enabled: bool = False
 
     # Realtime engine
     poll_interval_seconds: float = Field(default=5.0, gt=0)
@@ -87,6 +97,31 @@ class Settings(BaseSettings):
     proactive_commute_eval_interval_seconds: float = Field(default=300.0, gt=0)
     proactive_commute_lead_minutes: float = Field(default=15.0, gt=0)
     proactive_commute_min_confidence: float = Field(default=0.5, ge=0, le=1)
+
+    # Metro Intelligence: optional LLM-assisted delay-estimate refinement
+    # (see application/intelligence/llm_delay_refiner.py). Any subset of the
+    # three provider keys may be set; configured providers are tried in
+    # priority order (Claude, then OpenAI, then Gemini) with automatic
+    # fallover on failure (see infrastructure/llm_fallback.py). All three
+    # empty leaves this feature completely inert — DelayPredictionService's
+    # plain historical estimate is used everywhere, unchanged. SecretStr
+    # keeps each key out of reprs, logs and tracebacks; unwrap with
+    # .get_secret_value() at the one call site that constructs each client.
+    anthropic_api_key: SecretStr = SecretStr("")
+    claude_model: str = "claude-sonnet-5"
+    openai_api_key: SecretStr = SecretStr("")
+    openai_model: str = "gpt-5.5"
+    google_api_key: SecretStr = SecretStr("")
+    # An alias, not a dated snapshot -- Google moves this to point at
+    # whatever the current GA Flash release is, which matters more here
+    # than pinning a specific version: this refiner just needs "a
+    # reasonably capable, current model," not a fixed evaluation target.
+    gemini_model: str = "gemini-flash-latest"
+    llm_delay_refinement_eval_interval_seconds: float = Field(default=1800.0, gt=0)
+    llm_delay_refinement_min_sample_size: int = Field(default=10, ge=1)
+    llm_delay_refinement_max_buckets_per_cycle: int = Field(default=20, ge=1)
+    llm_delay_refinement_max_age_seconds: float = Field(default=3600.0, gt=0)
+    llm_delay_refinement_max_adjustment_fraction: float = Field(default=0.5, gt=0)
 
     # Commute Replay: the rolling window summed into the "This Month" card
     # (see application/intelligence/commute_impact.py).

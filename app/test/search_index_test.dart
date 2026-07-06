@@ -54,6 +54,22 @@ void main() {
     expect(hits.first.matchedText, 'Deer Park');
   });
 
+  test('namesOnly excludes landmark matches -- for map-picker searches, a station\'s '
+      'own name is all that should resolve it', () {
+    final hits = searchStations(stations: _stations, exits: _exits, query: 'deer park', namesOnly: true);
+    expect(hits, isEmpty);
+  });
+
+  test('namesOnly still finds a station by its own name or alias', () {
+    final byName = searchStations(stations: _stations, exits: _exits, query: 'hauz khas', namesOnly: true);
+    expect(byName.single.station.stopId, 'S2');
+    expect(byName.single.reason, SearchMatchReason.name);
+
+    final byAlias = searchStations(stations: _stations, exits: _exits, query: 'cp', namesOnly: true);
+    expect(byAlias.single.station.stopId, 'S1');
+    expect(byAlias.single.reason, SearchMatchReason.alias);
+  });
+
   test('name match ranks above a landmark match on a different station', () {
     // Query 'gate' isn't a landmark here, but ensure name/alias always
     // computed independently of landmarks; use a query matching both kinds

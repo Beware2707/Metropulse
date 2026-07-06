@@ -36,3 +36,48 @@ String elapsedLabel(double? seconds) {
   if (total < 1) return 'under a minute';
   return minutesLabel(seconds);
 }
+
+/// Real Delhi Metro line names keyed by the line code embedded in GTFS
+/// `route_long_name`/`route_short_name` (e.g. "ORANGE/AIRPORT_New Delhi to
+/// Dwarka Sector - 21", "O_DN") -- mirrors the code list `routeColor` in
+/// theme.dart matches against, so the name and colour shown for a line are
+/// always consistent with each other.
+const Map<String, String> _lineNames = {
+  'RED': 'Red Line',
+  'YELLOW': 'Yellow Line',
+  'BLUE': 'Blue Line',
+  'GREEN': 'Green Line',
+  'VIOLET': 'Violet Line',
+  'PINK': 'Pink Line',
+  'MAGENTA': 'Magenta Line',
+  'ORANGE': 'Airport Express Line',
+  'AIRPORT': 'Airport Express Line',
+  'AQUA': 'Aqua Line',
+  'GRAY': 'Grey Line',
+  'GREY': 'Grey Line',
+  'RAPID': 'Rapid Metro',
+};
+
+/// A real line name from a raw GTFS route name. DMRC's static feed crams a
+/// line code and the full origin-to-destination description into one field
+/// with an underscore (e.g. "ORANGE/AIRPORT_New Delhi to Dwarka Sector -
+/// 21"), so the raw value is never fit to show or read aloud as-is.
+String cleanLineName(String? raw) {
+  if (raw == null || raw.isEmpty) return 'Unknown line';
+  final upper = raw.toUpperCase();
+  for (final entry in _lineNames.entries) {
+    if (upper.contains(entry.key)) return entry.value;
+  }
+  return raw;
+}
+
+/// The "Origin to Destination" half of a raw route name, e.g. "New Delhi to
+/// Dwarka Sector - 21" from "ORANGE/AIRPORT_New Delhi to Dwarka Sector -
+/// 21". Null when the raw value doesn't follow that convention, so callers
+/// can omit a second line rather than show a raw duplicate.
+String? routeDescription(String? raw) {
+  if (raw == null) return null;
+  final index = raw.indexOf('_');
+  if (index == -1 || index == raw.length - 1) return null;
+  return raw.substring(index + 1).replaceAll(RegExp(r'\s+'), ' ').trim();
+}

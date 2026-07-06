@@ -665,6 +665,8 @@ class DelayEstimateOut(BaseModel):
     expected_delay_seconds: float
     confidence: float
     sample_size: int
+    source: str
+    explanation: str | None
 
     @classmethod
     def from_domain(cls, estimate: DelayEstimate) -> "DelayEstimateOut":
@@ -676,6 +678,8 @@ class DelayEstimateOut(BaseModel):
             expected_delay_seconds=estimate.expected_delay_seconds,
             confidence=estimate.confidence,
             sample_size=estimate.sample_size,
+            source=estimate.source,
+            explanation=estimate.explanation,
         )
 
 

@@ -6,7 +6,18 @@ import 'local_store.dart';
 ///
 /// The backend rotates tokens on device re-registration, so a 401 is
 /// recoverable: re-register once with the stored device id and retry.
+///
+/// A dropped connection is retried too, but only for GET requests: reads
+/// are safe to repeat, while retrying a POST like starting a journey risks
+/// creating a duplicate on the server if the original request actually
+/// landed and only the response was lost. Two retries with a short
+/// backoff (500ms, 1000ms) — enough to ride out a brief flicker, not so
+/// much that a genuinely dead connection hangs for long before every
+/// caller's own error handling (offline messaging, cached fallbacks) takes
+/// over as it already does today.
 class ApiClient {
+  static const _maxGetRetries = 2;
+
   ApiClient(this._store) {
     _dio = Dio(
       BaseOptions(
@@ -25,15 +36,31 @@ class ApiClient {
           handler.next(options);
         },
         onError: (error, handler) async {
+          final options = error.requestOptions;
+          final retryCount = (options.extra['mp_retry_count'] as int?) ?? 0;
+          final isRetryableGet = options.method.toUpperCase() == 'GET' &&
+              isConnectivityError(error) &&
+              retryCount < _maxGetRetries;
+          if (isRetryableGet) {
+            await Future<void>.delayed(Duration(milliseconds: 500 * (retryCount + 1)));
+            options.extra['mp_retry_count'] = retryCount + 1;
+            try {
+              handler.resolve(await _dio.fetch<dynamic>(options));
+            } on DioException catch (retryError) {
+              handler.next(retryError);
+            }
+            return;
+          }
+
           final isAuthFailure = error.response?.statusCode == 401;
-          final alreadyRetried = error.requestOptions.extra['mp_retried'] == true;
+          final alreadyRetried = options.extra['mp_retried'] == true;
           if (!isAuthFailure || alreadyRetried) {
             handler.next(error);
             return;
           }
           try {
             await registerDevice();
-            final options = error.requestOptions
+            options
               ..extra['mp_retried'] = true
               ..headers['Authorization'] = 'Bearer ${_store.token}';
             handler.resolve(await _dio.fetch<dynamic>(options));
@@ -71,3 +98,16 @@ class ApiClient {
     if (_store.token == null) await registerDevice();
   }
 }
+
+/// True for the connection-shaped [DioException] types (timed out, no route
+/// to host) rather than a real server-side error — the distinction that
+/// decides whether a screen can honestly say "you're offline" instead of a
+/// generic failure message.
+bool isConnectivityError(DioException error) => switch (error.type) {
+      DioExceptionType.connectionError ||
+      DioExceptionType.connectionTimeout ||
+      DioExceptionType.receiveTimeout ||
+      DioExceptionType.sendTimeout =>
+        true,
+      _ => false,
+    };

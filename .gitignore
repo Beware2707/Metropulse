@@ -14,4 +14,4 @@ htmlcov/
 dist/
 build/
 *.log
-data/*.zip
+data/

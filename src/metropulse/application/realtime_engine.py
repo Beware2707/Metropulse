@@ -42,6 +42,19 @@ class FeedSource(Protocol):
         ...
 
 
+class PositionSource(Protocol):
+    """Anything that can produce already-decoded vehicle positions directly.
+
+    The alternate seam to :class:`FeedSource` + :class:`Decoder`, for
+    sources that don't round-trip through a protobuf payload -- see
+    :class:`~metropulse.application.schedule_position_source.ScheduleEstimatedPositionSource`.
+    """
+
+    async def fetch_positions(self) -> list[VehiclePosition]:
+        """Return this cycle's vehicle positions."""
+        ...
+
+
 Decoder = Callable[[bytes], list[VehiclePosition]]
 
 
@@ -77,7 +90,7 @@ class RealtimeEngine:
 
     def __init__(
         self,
-        feed: FeedSource,
+        feed: FeedSource | None,
         store: RedisVehicleStore,
         session_factory: SessionFactory,
         train_service: TrainService,
@@ -86,7 +99,10 @@ class RealtimeEngine:
         decoder: Decoder = decode_vehicle_positions,
         event_bus: EventBus | None = None,
         event_publisher: RedisDomainEventPublisher | None = None,
+        position_source: PositionSource | None = None,
     ) -> None:
+        if feed is None and position_source is None:
+            raise ValueError("RealtimeEngine needs either a feed or a position_source")
         self._feed = feed
         self._store = store
         self._session_factory = session_factory
@@ -95,6 +111,7 @@ class RealtimeEngine:
         self._decoder = decoder
         self._event_bus = event_bus
         self._event_publisher = event_publisher
+        self._position_source = position_source
         self.stats = EngineStats()
 
     async def poll_safe(self) -> PollResult | None:
@@ -128,8 +145,12 @@ class RealtimeEngine:
         self.stats.polls += 1
         now = utcnow()
 
-        payload = await self._feed.fetch_vehicle_positions()
-        positions = self._decoder(payload)
+        if self._position_source is not None:
+            positions = await self._position_source.fetch_positions()
+        else:
+            assert self._feed is not None  # guaranteed by __init__
+            payload = await self._feed.fetch_vehicle_positions()
+            positions = self._decoder(payload)
         current = {p.vehicle_id: p for p in positions}
         previous = await self._store.get_all()
 

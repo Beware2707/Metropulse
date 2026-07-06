@@ -14,9 +14,9 @@ import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from sqlalchemy import text
 
 from metropulse import __version__
@@ -105,6 +105,27 @@ def create_app(
         )
     if configure_tracing("metropulse-api"):
         instrument_app(app)
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        """Catch-all for unexpected errors.
+
+        ``HTTPException`` is not handled here -- FastAPI only dispatches to
+        this handler for exceptions that aren't already handled elsewhere, so
+        raised ``HTTPException``s keep using FastAPI's default handling. This
+        just ensures truly unexpected exceptions still return a JSON envelope
+        consistent with the rest of the API instead of Starlette's default
+        plain-text 500, without leaking internal details to the client.
+        """
+        if isinstance(exc, HTTPException):
+            raise exc
+        logger.exception(
+            "unhandled exception for %s %s", request.method, request.url.path
+        )
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "An unexpected error occurred."},
+        )
 
     @app.get("/health", response_model=HealthOut, tags=["ops"])
     async def health() -> HealthOut:

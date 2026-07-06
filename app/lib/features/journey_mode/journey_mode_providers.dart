@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/ws_client.dart';
 import '../../domain/journey_progress.dart';
 import '../../domain/journey_timetable.dart';
 import '../../domain/models/eta.dart';
@@ -11,8 +12,10 @@ import '../../providers/live_providers.dart';
 
 /// Ticks once a second so timetable-simulated progress updates live even
 /// though nothing external pushes events for it (unlike the live-vehicle
-/// path, which updates from the WebSocket stream).
-final secondTickerProvider = StreamProvider<int>(
+/// path, which updates from the WebSocket stream). `autoDispose` so this
+/// stops the moment nothing's watching it (e.g. the journey ended) rather
+/// than ticking for the rest of the app's life.
+final secondTickerProvider = StreamProvider.autoDispose<int>(
   (ref) => Stream<int>.periodic(const Duration(seconds: 1), (i) => i),
 );
 
@@ -88,10 +91,23 @@ final journeyModeEtaProvider = FutureProvider.autoDispose
 /// The unified progress snapshot: a live, fresh WS-tracked vehicle when one
 /// is bound to the journey, otherwise the GTFS-timetable simulation. This is
 /// the ONE thing Journey Mode's UI needs — see [JourneyProgressSnapshot].
+///
+/// `autoDispose` so this (and everything it watches, including the second
+/// ticker) stops once nothing's watching it, rather than for the rest of
+/// the app's life.
 final journeyProgressProvider =
-    Provider.family<JourneyProgressSnapshot?, Journey>((ref, journey) {
+    Provider.autoDispose.family<JourneyProgressSnapshot?, Journey>((ref, journey) {
   final context = ref.watch(journeyContextProvider(journey.id));
   final interchangeIds = context?.interchangeStopIds.toSet() ?? const <String>{};
+
+  // [Train.isStale] reflects the realtime *feed*'s own timestamp, not
+  // whether THIS client's connection is currently up — a client that's lost
+  // its socket mid-tunnel keeps whatever isStale value a train last carried,
+  // frozen, indefinitely. Watching the socket's own status here means a
+  // dropped connection is always visible to the UI (via [isReconnecting])
+  // even while the last-known position is still shown.
+  final wsStatus = ref.watch(wsStatusProvider).valueOrNull;
+  final isReconnecting = wsStatus == WsStatus.reconnecting;
 
   final train = journey.vehicleId == null
       ? null
@@ -110,6 +126,7 @@ final journeyProgressProvider =
       interchangeStopIds: interchangeIds,
       totalStations: totalStations,
       eta: eta,
+      isReconnecting: isReconnecting,
     );
   }
 
@@ -117,7 +134,12 @@ final journeyProgressProvider =
   if (plan == null) return null; // no live train and no plan snapshot to simulate from
   ref.watch(secondTickerProvider); // re-evaluate once a second
   final timetable = JourneyTimetable.fromPlan(plan, startedAt: context!.startedAt);
-  return fromTimetable(timetable, DateTime.now(), interchangeStopIds: interchangeIds);
+  return fromTimetable(
+    timetable,
+    DateTime.now(),
+    interchangeStopIds: interchangeIds,
+    isReconnecting: isReconnecting,
+  );
 });
 
 /// Creates a backend destination alert the first time a live vehicle is

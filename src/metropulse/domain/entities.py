@@ -24,7 +24,16 @@ class VehicleStopStatus(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class VehiclePosition:
-    """A single decoded vehicle position from the realtime feed."""
+    """A single decoded vehicle position from the realtime feed.
+
+    ``source`` is the honest label for where this position actually came
+    from: ``"realtime_gps"`` (the default -- an actual GTFS-Realtime feed,
+    see ``infrastructure/gtfs_rt/decoder.py``) or ``"schedule_estimate"``
+    (interpolated from the static timetable when no licensed realtime feed
+    is configured, see ``application/schedule_position_source.py``). Every
+    consumer -- WS payloads, the REST API, the Flutter map -- reads this
+    field rather than assuming positions are always live telemetry.
+    """
 
     vehicle_id: str
     latitude: float
@@ -37,6 +46,7 @@ class VehiclePosition:
     label: str | None = None
     current_status: VehicleStopStatus | None = None
     current_stop_id: str | None = None
+    source: str = "realtime_gps"
 
     def is_stale(self, now: datetime, stale_after_seconds: float) -> bool:
         """Whether this position's own timestamp is older than the threshold."""
@@ -56,6 +66,7 @@ class VehiclePosition:
             "label": self.label,
             "current_status": self.current_status.value if self.current_status else None,
             "current_stop_id": self.current_stop_id,
+            "source": self.source,
         }
 
     @classmethod
@@ -74,6 +85,7 @@ class VehiclePosition:
             label=data.get("label"),
             current_status=VehicleStopStatus(status) if status else None,
             current_stop_id=data.get("current_stop_id"),
+            source=data.get("source", "realtime_gps"),
         )
 
 

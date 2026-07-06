@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -55,6 +58,19 @@ final replayRepositoryProvider = Provider<ReplayRepository>(
   (ref) => ReplayRepository(ref.watch(apiClientProvider)),
 );
 
+/// True when the OS reports an active network path — proactive, unlike
+/// every other offline signal in this app (an HTTP call's own 8s/15s
+/// timeout, the WebSocket's 60s reconnect watchdog), which only find out
+/// something's wrong after already trying and failing.
+final isOnlineProvider = StreamProvider<bool>((ref) async* {
+  final connectivity = Connectivity();
+  final initial = await connectivity.checkConnectivity();
+  yield !initial.contains(ConnectivityResult.none);
+  yield* connectivity.onConnectivityChanged.map(
+    (results) => !results.contains(ConnectivityResult.none),
+  );
+});
+
 /// The offline bundle: cached copy first, silently refreshed when stale.
 final offlineBundleProvider =
     AsyncNotifierProvider<OfflineBundleNotifier, OfflineBundle?>(
@@ -74,7 +90,15 @@ class OfflineBundleNotifier extends AsyncNotifier<OfflineBundle?> {
       });
       return cached;
     }
-    return repository.refreshIfStale();
+    // First-ever install: there's nothing to show yet, so this genuinely has
+    // to wait on the network — but bounded well below Dio's own 8s/15s
+    // timeouts, so a bad connection can't leave the splash screen hanging
+    // for 20+ seconds before falling through to an empty state.
+    try {
+      return await repository.refreshIfStale().timeout(const Duration(seconds: 6));
+    } on TimeoutException {
+      return null;
+    }
   }
 }
 

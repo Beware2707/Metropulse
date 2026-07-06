@@ -160,3 +160,6 @@ class VehiclePositionRecord(Base):
     speed_mps: Mapped[float | None] = mapped_column(Float)
     feed_timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # "realtime_gps" (an actual feed) or "schedule_estimate" (interpolated
+    # from the static timetable) -- see domain.entities.VehiclePosition.
+    source: Mapped[str] = mapped_column(String(32), server_default="realtime_gps")

@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -18,6 +19,7 @@ import '../../core/widgets/journey_progress_track.dart';
 import '../../core/widgets/line_chip.dart';
 import '../../core/widgets/live_indicator.dart';
 import '../../core/widgets/moment_row.dart';
+import '../../data/api_client.dart';
 import '../../domain/companion_messages.dart';
 import '../../domain/journey_progress.dart';
 import '../../domain/models/journey.dart';
@@ -66,7 +68,10 @@ class JourneyModeScreen extends ConsumerWidget {
         child: SafeArea(
           child: journeyAsync.when(
             loading: () => const Center(child: CircularProgressIndicator()),
-            error: (error, _) => const Center(child: Text("We couldn't load your journey. Please try again.")),
+            error: (error, _) => _JourneyLoadError(
+              isConnectivityIssue: error is DioException && isConnectivityError(error),
+              onRetry: () => ref.invalidate(activeJourneyProvider),
+            ),
             data: (journey) => journey == null ? const _NoJourney() : _JourneyView(journey: journey),
           ),
         ),
@@ -100,6 +105,46 @@ class _NoJourney extends StatelessWidget {
               icon: Icons.alt_route_rounded,
               onPressed: () => context.go('/planner'),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Shown when the active-journey lookup itself fails — most often because
+/// the app was relaunched mid-tunnel, with no signal to ask the server
+/// whether a journey is in progress. Unlike the previous static message,
+/// this always gives the user something to actually do next.
+class _JourneyLoadError extends StatelessWidget {
+  const _JourneyLoadError({required this.isConnectivityIssue, required this.onRetry});
+
+  final bool isConnectivityIssue;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.xxl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              isConnectivityIssue ? Icons.cloud_off_rounded : Icons.error_outline_rounded,
+              size: 44,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            Text(
+              isConnectivityIssue
+                  ? "You're offline right now, so we can't check for an active journey."
+                  : "We couldn't load your journey.",
+              style: Theme.of(context).textTheme.titleMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: AppSpacing.xl),
+            PrimaryButton(label: 'Try again', icon: Icons.refresh_rounded, onPressed: onRetry),
           ],
         ),
       ),
@@ -166,6 +211,7 @@ class _JourneyView extends ConsumerWidget {
     final currentName = snapshot?.currentStationName ?? origin;
     final nextName = snapshot?.arrived == true ? destination : (snapshot?.nextStationName ?? destination);
     final isLive = snapshot?.source == JourneyProgressSource.liveVehicle;
+    final isReconnecting = snapshot?.isReconnecting ?? false;
 
     return Center(
       child: ConstrainedBox(
@@ -189,7 +235,7 @@ class _JourneyView extends ConsumerWidget {
                   : _CompanionBanner(key: ValueKey(message.text), message: message),
             ),
             if (journeyContext?.routeLongName != null) ...[
-              LineChip(label: journeyContext!.routeLongName!, colorHex: journeyContext.routeColor),
+              LineChip(label: cleanLineName(journeyContext!.routeLongName), colorHex: journeyContext.routeColor),
               const SizedBox(height: AppSpacing.lg),
             ],
 
@@ -227,13 +273,25 @@ class _JourneyView extends ConsumerWidget {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                       decoration: BoxDecoration(
-                        color: (isLive ? AppColors.live : theme.colorScheme.outline).withValues(alpha: 0.15),
+                        color: (isReconnecting
+                                ? AppColors.warning
+                                : (isLive ? AppColors.live : theme.colorScheme.outline))
+                            .withValues(alpha: 0.15),
                         borderRadius: AppRadius.pillR,
                       ),
                       child: Text(
-                        isLive ? 'LIVE TRACKING' : 'SCHEDULED ESTIMATE',
-                        style: theme.textTheme.labelSmall
-                            ?.copyWith(color: isLive ? AppColors.live : theme.colorScheme.outline),
+                        // Reconnecting overrides either source label: it's
+                        // honest about the connection regardless of whether
+                        // the last-known data came from a live vehicle or
+                        // the timetable simulation.
+                        isReconnecting
+                            ? 'RECONNECTING…'
+                            : (isLive ? 'LIVE TRACKING' : 'SCHEDULED ESTIMATE'),
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: isReconnecting
+                              ? AppColors.warning
+                              : (isLive ? AppColors.live : theme.colorScheme.outline),
+                        ),
                       ),
                     ),
                 ],
@@ -366,7 +424,16 @@ class _JourneyView extends ConsumerWidget {
     // The journey must be marked completed on the backend *before* fetching
     // its replay — otherwise Commute Replay would still find the previous
     // trip, not this one.
-    await ref.read(journeyRepositoryProvider).end(journey.id, completed: completed);
+    try {
+      await ref.read(journeyRepositoryProvider).end(journey.id, completed: completed);
+    } on DioException {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Couldn't reach the server — check your connection and try again.")),
+        );
+      }
+      return;
+    }
     await ref.read(localStoreProvider).clearJourneyContext();
     ref
       ..invalidate(activeJourneyProvider)

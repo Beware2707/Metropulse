@@ -95,6 +95,36 @@ class TripRepository:
         result = await self._session.execute(stmt)
         return [(row[0], row[1]) for row in result.all()]
 
+    async def active_trip_ids_at(
+        self, service_ids: Sequence[str], elapsed_seconds: int
+    ) -> Sequence[str]:
+        """Trip IDs currently underway: first departure <= now <= last arrival.
+
+        ``elapsed_seconds`` is seconds since local midnight of the service
+        date, matching GTFS's own past-midnight convention (a trip departing
+        at 25:30:00 is still "today"). Used to estimate vehicle positions
+        from the schedule when no realtime feed is available (see
+        ``application/schedule_position_source.py``).
+        """
+        if not service_ids:
+            return []
+        bounds = (
+            select(
+                StopTime.trip_id.label("trip_id"),
+                func.min(StopTime.departure_seconds).label("start"),
+                func.max(StopTime.arrival_seconds).label("end"),
+            )
+            .join(Trip, Trip.trip_id == StopTime.trip_id)
+            .where(Trip.service_id.in_(service_ids))
+            .group_by(StopTime.trip_id)
+            .subquery()
+        )
+        stmt = select(bounds.c.trip_id).where(
+            bounds.c.start <= elapsed_seconds, bounds.c.end >= elapsed_seconds
+        )
+        result = await self._session.execute(stmt)
+        return result.scalars().all()
+
 
 class ShapeRepository:
     """Read access to shape polylines."""
@@ -161,6 +191,7 @@ class VehicleHistoryRepository:
                 "speed_mps": p.speed_mps,
                 "feed_timestamp": p.timestamp,
                 "recorded_at": recorded_at,
+                "source": p.source,
             }
             for p in positions
         ]

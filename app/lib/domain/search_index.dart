@@ -33,13 +33,22 @@ List<SearchHit> searchStations({
   required Map<String, List<StationExitInfo>> exits,
   required String query,
   int limit = 30,
+  // When true, only a station's own name or alias can match -- nearby
+  // landmarks are ignored. Used for map-picker searches (e.g. the Explore
+  // screen), where the point is to find a named station, not something
+  // merely close to one.
+  bool namesOnly = false,
 }) {
   final trimmed = query.trim().toLowerCase();
   if (trimmed.isEmpty) return const [];
 
   final hits = <SearchHit>[];
   for (final station in stations) {
-    final hit = _bestHitFor(station, exits[station.stopId] ?? const [], trimmed);
+    final hit = _bestHitFor(
+      station,
+      namesOnly ? const [] : (exits[station.stopId] ?? const []),
+      trimmed,
+    );
     if (hit != null) hits.add(hit);
   }
   hits.sort((a, b) {

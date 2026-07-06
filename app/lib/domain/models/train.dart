@@ -1,5 +1,7 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import '../../core/formatters.dart';
+
 part 'train.freezed.dart';
 part 'train.g.dart';
 
@@ -19,6 +21,8 @@ class StationRef with _$StationRef {
 /// The raw vehicle position within a train state.
 @freezed
 class Vehicle with _$Vehicle {
+  const Vehicle._();
+
   const factory Vehicle({
     required String vehicleId,
     required double latitude,
@@ -28,9 +32,16 @@ class Vehicle with _$Vehicle {
     String? routeId,
     double? bearing,
     double? speedMps,
+    // "realtime_gps" (an actual feed) or "schedule_estimate" (interpolated
+    // from the timetable when no licensed realtime feed is configured) --
+    // see backend domain.entities.VehiclePosition. Defaults to the honest
+    // assumption for any payload that predates this field.
+    @Default('realtime_gps') String source,
   }) = _Vehicle;
 
   factory Vehicle.fromJson(Map<String, dynamic> json) => _$VehicleFromJson(json);
+
+  bool get isEstimated => source == 'schedule_estimate';
 }
 
 /// A fully resolved live train, exactly as broadcast by the backend.
@@ -59,5 +70,7 @@ class Train with _$Train {
 
   String get id => vehicle.vehicleId;
 
-  String get lineLabel => routeLongName ?? routeShortName ?? 'Unknown line';
+  String get lineLabel => cleanLineName(routeLongName ?? routeShortName);
+
+  bool get isEstimated => vehicle.isEstimated;
 }

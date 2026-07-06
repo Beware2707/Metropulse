@@ -72,11 +72,12 @@ class _NavItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final reduceMotion = MediaQuery.of(context).disableAnimations;
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: AnimatedContainer(
-        duration: AppMotion.medium,
+        duration: reduceMotion ? Duration.zero : AppMotion.medium,
         curve: AppMotion.standard,
         margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
         decoration: BoxDecoration(
@@ -90,7 +91,7 @@ class _NavItem extends StatelessWidget {
                 size: 22, color: selected ? Colors.white : scheme.onSurfaceVariant),
             const SizedBox(height: 3),
             AnimatedDefaultTextStyle(
-              duration: AppMotion.medium,
+              duration: reduceMotion ? Duration.zero : AppMotion.medium,
               style: TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.w700,

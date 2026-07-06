@@ -8,6 +8,7 @@ in-memory fakes without monkeypatching.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 
 import httpx
 from redis.asyncio import Redis
@@ -35,6 +36,9 @@ from metropulse.application.commuter.offline import OfflineBundleService
 from metropulse.application.commuter.users import UserService
 from metropulse.application.eta_engine import EtaEngine, EtaParameters
 from metropulse.application.eta_service import CachedEtaService
+from metropulse.application.intelligence.llm_delay_refiner import (
+    LlmEnhancedDelayEstimator,
+)
 from metropulse.application.intelligence.commute_impact import CommuteImpactService
 from metropulse.application.intelligence.commute_predictor import (
     CommutePredictionService,
@@ -145,8 +149,19 @@ def build_commuter_services(
         predictor, default_coach_count=settings.default_coach_count
     )
     exits = ExitService()
-    delay_predictor = DelayPredictionService(
+    historical_delay_predictor = DelayPredictionService(
         planner, lookback_days=settings.delay_prediction_lookback_days
+    )
+    # Transparently overlays a cached LLM refinement (Claude, OpenAI, or
+    # Gemini -- see llm_delay_refiner.py) when one exists and is fresh --
+    # every consumer below keeps depending on the DelayEstimator Protocol,
+    # unaware this wrapper exists. On a cache miss (including "the feature
+    # isn't configured at all", the default), this is a pure pass-through
+    # to the historical estimate.
+    delay_predictor = LlmEnhancedDelayEstimator(
+        historical_delay_predictor,
+        max_age=timedelta(seconds=settings.llm_delay_refinement_max_age_seconds),
+        max_adjustment_fraction=settings.llm_delay_refinement_max_adjustment_fraction,
     )
     return CommuterServices(
         users=UserService(),

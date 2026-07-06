@@ -16,6 +16,7 @@ class JourneyProgressTrack extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final reduceMotion = MediaQuery.of(context).disableAnimations;
     final tint = color ?? scheme.primary;
     final value = (fraction ?? 0).clamp(0.0, 1.0);
     return SizedBox(
@@ -34,32 +35,57 @@ class JourneyProgressTrack extends StatelessWidget {
                   borderRadius: BorderRadius.circular(height / 2),
                 ),
               ),
-              TweenAnimationBuilder<double>(
-                tween: Tween(begin: 0, end: value),
-                duration: AppMotion.glide,
-                curve: AppMotion.standard,
-                builder: (context, animated, _) {
-                  final fillWidth = (trackWidth * animated).clamp(height, trackWidth);
-                  return Stack(
-                    clipBehavior: Clip.none,
-                    alignment: Alignment.centerLeft,
-                    children: [
-                      Container(
-                        height: height,
-                        width: fillWidth,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(colors: [tint, tint.withValues(alpha: 0.65)]),
-                          borderRadius: BorderRadius.circular(height / 2),
+              if (reduceMotion)
+                Builder(
+                  builder: (context) {
+                    final fillWidth = (trackWidth * value).clamp(height, trackWidth);
+                    return Stack(
+                      clipBehavior: Clip.none,
+                      alignment: Alignment.centerLeft,
+                      children: [
+                        Container(
+                          height: height,
+                          width: fillWidth,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(colors: [tint, tint.withValues(alpha: 0.65)]),
+                            borderRadius: BorderRadius.circular(height / 2),
+                          ),
                         ),
-                      ),
-                      Positioned(
-                        left: (fillWidth - 12).clamp(-12.0, trackWidth - 12),
-                        child: _GlowDot(color: tint),
-                      ),
-                    ],
-                  );
-                },
-              ),
+                        Positioned(
+                          left: (fillWidth - 12).clamp(-12.0, trackWidth - 12),
+                          child: _GlowDot(color: tint),
+                        ),
+                      ],
+                    );
+                  },
+                )
+              else
+                TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0, end: value),
+                  duration: AppMotion.glide,
+                  curve: AppMotion.standard,
+                  builder: (context, animated, _) {
+                    final fillWidth = (trackWidth * animated).clamp(height, trackWidth);
+                    return Stack(
+                      clipBehavior: Clip.none,
+                      alignment: Alignment.centerLeft,
+                      children: [
+                        Container(
+                          height: height,
+                          width: fillWidth,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(colors: [tint, tint.withValues(alpha: 0.65)]),
+                            borderRadius: BorderRadius.circular(height / 2),
+                          ),
+                        ),
+                        Positioned(
+                          left: (fillWidth - 12).clamp(-12.0, trackWidth - 12),
+                          child: _GlowDot(color: tint),
+                        ),
+                      ],
+                    );
+                  },
+                ),
             ],
           );
         },

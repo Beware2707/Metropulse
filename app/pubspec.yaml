@@ -29,6 +29,7 @@ dependencies:
   flutter_animate: ^4.5.2
   speech_to_text: ^7.0.0
   flutter_tts: ^4.2.0
+  connectivity_plus: ^6.0.5
 
 dev_dependencies:
   flutter_test:
@@ -41,4 +42,10 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   generate: true
+  # Bundled Plus Jakarta Sans weights, once you add them — see
+  # assets/google_fonts/README.md. google_fonts prioritizes a matching font
+  # file found here over an HTTP fetch at runtime, so this is what removes
+  # the first-paint font-swap flash on a cold start.
+  assets:
+    - assets/google_fonts/
 

@@ -22,7 +22,13 @@ import 'search_providers.dart';
 /// curated exit landmarks all come from the cached offline bundle), ranked
 /// and boosted by favourites/recents. No network call happens while typing.
 class SearchScreen extends ConsumerStatefulWidget {
-  const SearchScreen({super.key});
+  const SearchScreen({super.key, this.mapPickerMode = false});
+
+  /// True when reached from the Explore map's search button: results are
+  /// restricted to station name/alias matches (no landmark matches), and
+  /// picking one pops back with the [Station] instead of opening its detail
+  /// page, so the caller can fly the map to it.
+  final bool mapPickerMode;
 
   @override
   ConsumerState<SearchScreen> createState() => _SearchScreenState();
@@ -40,6 +46,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final reduceMotion = MediaQuery.of(context).disableAnimations;
     final bundle = ref.watch(offlineBundleProvider);
     final stations = bundle.valueOrNull?.stations ?? const <Station>[];
     final exits = bundle.valueOrNull?.exits ?? const <String, List<StationExitInfo>>{};
@@ -51,7 +58,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     final hits = trimmed.isEmpty
         ? const <SearchHit>[]
         : rankWithBoosts(
-            searchStations(stations: stations, exits: exits, query: trimmed),
+            searchStations(
+              stations: stations,
+              exits: exits,
+              query: trimmed,
+              namesOnly: widget.mapPickerMode,
+            ),
             favouriteStopIds: favouriteIds,
             recentStopIds: recentIds.toSet(),
           );
@@ -85,11 +97,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                                     controller: _controller,
                                     autofocus: true,
                                     style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
-                                    decoration: const InputDecoration(
-                                      hintText: 'Where to?',
+                                    decoration: InputDecoration(
+                                      hintText: widget.mapPickerMode ? 'Search stations' : 'Where to?',
                                       border: InputBorder.none,
                                       isDense: true,
-                                      contentPadding: EdgeInsets.symmetric(vertical: 16),
+                                      contentPadding: const EdgeInsets.symmetric(vertical: 16),
                                     ),
                                     onChanged: (value) => setState(() => _query = value),
                                   ),
@@ -114,7 +126,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               ),
               Expanded(
                 child: AnimatedSwitcher(
-                  duration: AppMotion.medium,
+                  duration: reduceMotion ? Duration.zero : AppMotion.medium,
                   child: _buildBody(
                     bundle: bundle,
                     stations: stations,
@@ -136,7 +148,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   void _openStation(Station station) {
     ref.read(localStoreProvider).recordSearchVisit(station.stopId);
     ref.invalidate(recentSearchIdsProvider);
-    context.push('/station/${station.stopId}');
+    if (widget.mapPickerMode) {
+      context.pop(station);
+    } else {
+      context.push('/station/${station.stopId}');
+    }
   }
 
   Widget _buildBody({

@@ -60,7 +60,12 @@ final routerProvider = Provider<GoRouter>((ref) {
           initialDestinationId: state.uri.queryParameters['destination'],
         ),
       ),
-      GoRoute(path: '/search', builder: (_, __) => const SearchScreen()),
+      GoRoute(
+        path: '/search',
+        builder: (_, state) => SearchScreen(
+          mapPickerMode: state.uri.queryParameters['mapPicker'] == 'true',
+        ),
+      ),
       GoRoute(path: '/favourites', builder: (_, __) => const FavouritesScreen()),
       GoRoute(path: '/settings', builder: (_, __) => const SettingsScreen()),
       GoRoute(path: '/journeys/history', builder: (_, __) => const JourneyHistoryScreen()),

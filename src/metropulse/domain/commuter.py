@@ -43,7 +43,14 @@ class CoachScore:
 
 @dataclass(frozen=True, slots=True)
 class CoachRecommendation:
-    """Ranked coach choices for a journey."""
+    """Ranked coach choices for a journey.
+
+    ``coach_count`` is the train's true physical coach count (needed intact
+    for exit-alignment math against real coach-index hints); ``coaches`` is
+    one entry shorter whenever ``coach_count > 1``, since coach index 0 (the
+    women-reserved coach on Delhi Metro) is never a candidate for a general
+    recommendation and so never appears in it.
+    """
 
     origin_stop_id: str
     destination_stop_id: str

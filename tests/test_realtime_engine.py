@@ -6,6 +6,8 @@ import asyncio
 import json
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from factories import build_feed_payload, make_vehicle
 from metropulse.application.events import FEED_UPDATED, EventBus
 from metropulse.application.realtime_engine import PollResult, RealtimeEngine
@@ -229,3 +231,45 @@ async def test_poll_safe_survives_unexpected_errors(
 
     assert await engine.poll_safe() is None
     assert engine.stats.failures == 1
+
+
+def test_construction_requires_a_feed_or_a_position_source(
+    store: RedisVehicleStore,
+    loaded_session_factory: SessionFactory,
+    resolver: RouteResolver,
+) -> None:
+    train_service = TrainService(store, resolver, 90.0)
+    with pytest.raises(ValueError, match="feed or a position_source"):
+        RealtimeEngine(None, store, loaded_session_factory, train_service)
+
+
+class StubPositionSource:
+    """PositionSource stub returning queued position lists directly."""
+
+    def __init__(self) -> None:
+        self.batches: list[list[VehiclePosition]] = []
+
+    def queue(self, vehicles: list[VehiclePosition]) -> None:
+        self.batches.append(vehicles)
+
+    async def fetch_positions(self) -> list[VehiclePosition]:
+        return self.batches.pop(0)
+
+
+async def test_position_source_bypasses_feed_and_decoder(
+    store: RedisVehicleStore,
+    loaded_session_factory: SessionFactory,
+    resolver: RouteResolver,
+) -> None:
+    source = StubPositionSource()
+    source.queue([make_vehicle("sched-T1", source="schedule_estimate")])
+    train_service = TrainService(store, resolver, 90.0)
+    engine = RealtimeEngine(
+        None, store, loaded_session_factory, train_service, position_source=source
+    )
+
+    result = await engine.poll_once()
+
+    assert result.added == ("sched-T1",)
+    cached = await store.get_all_train_states()
+    assert cached["sched-T1"].vehicle.source == "schedule_estimate"

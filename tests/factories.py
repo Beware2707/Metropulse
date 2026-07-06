@@ -17,6 +17,7 @@ def make_vehicle(
     route_id: str | None = "R1",
     speed_mps: float | None = 10.0,
     timestamp: datetime | None = None,
+    source: str = "realtime_gps",
 ) -> VehiclePosition:
     """A domain vehicle position with sensible defaults on the fixture line."""
     return VehiclePosition(
@@ -27,6 +28,7 @@ def make_vehicle(
         trip_id=trip_id,
         route_id=route_id,
         speed_mps=speed_mps,
+        source=source,
     )
 
 

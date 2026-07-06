@@ -127,8 +127,49 @@ async def test_recommendation_without_any_data_uses_prior(
     async with loaded_session_factory() as session:
         recommendation = await service.recommend(session, "S1", "S4", None, None, utcnow())
     assert recommendation.crowd_source == "prior"
-    # With a triangular prior and no exits, an end coach wins.
-    assert recommendation.recommended_coach in (0, 5)
+    # With a triangular prior and no exits, both end coaches tie for
+    # lightest -- but coach 0 (women-reserved) is never a candidate, so the
+    # other end (5) wins outright rather than winning a tie-break.
+    assert recommendation.recommended_coach == 5
+
+
+async def test_recommendation_never_suggests_the_womens_reserved_coach(
+    loaded_session_factory: SessionFactory,
+) -> None:
+    """Coach 1 (index 0) is reserved for women only on Delhi Metro -- even
+    when it's objectively the emptiest and best exit-aligned coach, a
+    general recommendation must never point there."""
+    await _seed_observations(loaded_session_factory, coach_index=0, occupancy=0.0, count=4)
+    for index in range(1, 8):
+        await _seed_observations(loaded_session_factory, coach_index=index, occupancy=0.9, count=4)
+    async with loaded_session_factory() as session:
+        async with session.begin():
+            exit_service = ExitService()
+            exit_row = await exit_service.add_exit(session, "S4", "Gate 1")
+            await exit_service.add_hint(session, "S4", exit_row.id, coach_index=0)
+
+    predictor = HistoricalCrowdPredictor(loaded_session_factory)
+    service = CoachRecommendationService(predictor, default_coach_count=8)
+    async with loaded_session_factory() as session:
+        recommendation = await service.recommend(session, "S1", "S4", "R1", 0, at=utcnow())
+
+    assert recommendation.recommended_coach != 0
+    assert all(coach.coach_index != 0 for coach in recommendation.coaches)
+    assert recommendation.coach_count == 8  # true physical count, unchanged
+    assert len(recommendation.coaches) == 7  # one fewer: coach 0 excluded
+
+
+async def test_recommendation_falls_back_to_the_only_coach_when_just_one_exists(
+    loaded_session_factory: SessionFactory,
+) -> None:
+    """A degenerate single-coach configuration must not crash or return
+    zero recommendations -- there's no alternative to exclude coach 0 for."""
+    predictor = HistoricalCrowdPredictor(loaded_session_factory)
+    service = CoachRecommendationService(predictor, default_coach_count=1)
+    async with loaded_session_factory() as session:
+        recommendation = await service.recommend(session, "S1", "S4", None, None, utcnow())
+    assert recommendation.recommended_coach == 0
+    assert len(recommendation.coaches) == 1
 
 
 async def test_recommendation_rejects_unknown_stops(
@@ -158,7 +199,11 @@ async def test_coach_api_and_crowd_reporting(
     assert response.status_code == 200
     body = response.json()
     assert body["coach_count"] >= 1
-    assert len(body["coaches"]) == body["coach_count"]
+    # Coach 0 (women-reserved) is excluded from general recommendations
+    # whenever there's a real alternative -- one fewer entry than the
+    # train's true physical coach count.
+    assert len(body["coaches"]) == body["coach_count"] - 1
+    assert all(coach["coach_index"] != 0 for coach in body["coaches"])
     assert body["recommended_coach"] == body["coaches"][0]["coach_index"]
 
     unknown = await api_client.get(

@@ -118,7 +118,7 @@ class StationDetailScreen extends ConsumerWidget {
                     onTap: () => context.push('/train/${train.id}'),
                     child: Row(
                       children: [
-                        LineChip(label: train.routeShortName ?? train.lineLabel, colorHex: train.routeColor),
+                        LineChip(label: train.lineLabel, colorHex: train.routeColor),
                         const SizedBox(width: AppSpacing.md),
                         Expanded(
                           child: Column(

@@ -11,7 +11,7 @@
       "name": "flutter-web",
       "cwd": "app",
       "runtimeExecutable": "flutter",
-      "runtimeArgs": ["run", "-d", "web-server", "--web-port", "5173", "--dart-define=MP_API_BASE=http://localhost:8000"],
+      "runtimeArgs": ["run", "-d", "web-server", "--release", "--web-port", "5173", "--dart-define=MP_API_BASE=http://localhost:8000"],
       "port": 5173
     }
   ]

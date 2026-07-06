@@ -38,3 +38,14 @@ class NotTrackedError(MetroPulseError):
 
 class NoRouteError(MetroPulseError):
     """Raised when no path exists between two stations in the network graph."""
+
+
+class LlmRequestError(MetroPulseError):
+    """An LLM provider call (Claude, OpenAI, Gemini, ...) failed, timed out,
+    or returned something unusable.
+
+    Raised by every client in ``infrastructure/{claude,openai,gemini}/`` so
+    callers can treat any provider's failure identically — always as "no
+    refinement available this round," never propagated into a user-facing
+    prediction.
+    """

@@ -181,6 +181,29 @@ void main() {
       expect(snapshot.delaySeconds, 90);
       expect(snapshot.etaToDestination, const Duration(seconds: 60));
     });
+
+    test('isReconnecting defaults false and threads through when set', () {
+      final train = _train(
+        next: const StationRef(stopId: 'S4', name: 'Delta', sequence: 4),
+        remaining: const [StationRef(stopId: 'S4', name: 'Delta', sequence: 4)],
+      );
+      final live = fromLiveTrain(
+        train: train,
+        destinationStopId: 'S4',
+        interchangeStopIds: const {},
+        totalStations: 4,
+      );
+      expect(live.isReconnecting, isFalse);
+
+      final reconnecting = fromLiveTrain(
+        train: train,
+        destinationStopId: 'S4',
+        interchangeStopIds: const {},
+        totalStations: 4,
+        isReconnecting: true,
+      );
+      expect(reconnecting.isReconnecting, isTrue);
+    });
   });
 
   group('fromTimetable', () {
@@ -246,6 +269,20 @@ void main() {
       final snapshot = fromTimetable(timetable, timetable.startedAt, interchangeStopIds: const {});
       expect(snapshot.justBoarded, isTrue);
       expect(snapshot.fractionComplete, 0.0);
+    });
+
+    test('isReconnecting defaults false and threads through when set', () {
+      final timetable = buildTimetable();
+      final settled = fromTimetable(timetable, timetable.startedAt, interchangeStopIds: const {});
+      expect(settled.isReconnecting, isFalse);
+
+      final reconnecting = fromTimetable(
+        timetable,
+        timetable.startedAt,
+        interchangeStopIds: const {},
+        isReconnecting: true,
+      );
+      expect(reconnecting.isReconnecting, isTrue);
     });
   });
 }

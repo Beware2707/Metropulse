@@ -135,9 +135,17 @@ class CoachRecommendationService:
             route_id, direction_id, at, coach_count
         )
 
+        # Coach 1 (index 0) is reserved for women only on Delhi Metro -- the
+        # app has no way to know a rider's eligibility to board it, so it
+        # must never appear as a general recommendation regardless of how
+        # empty or exit-aligned it scores. Excluded only when there's a real
+        # alternative; a degenerate single-coach configuration still returns
+        # its one coach rather than recommending nothing.
+        excluded = {0} if coach_count > 1 else set()
         scores = [
             self._score_coach(index, forecast, hint_coaches, coach_count)
             for index in range(coach_count)
+            if index not in excluded
         ]
         ranked = tuple(sorted(scores, key=lambda s: (-s.score, s.coach_index)))
         return CoachRecommendation(

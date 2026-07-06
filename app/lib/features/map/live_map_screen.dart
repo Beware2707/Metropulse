@@ -7,10 +7,12 @@ import 'package:go_router/go_router.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 
 import '../../core/config.dart';
+import '../../core/design/app_colors.dart';
 import '../../core/design/app_motion.dart';
 import '../../core/design/app_radius.dart';
 import '../../core/design/app_spacing.dart';
 import '../../core/formatters.dart';
+import '../../core/root_shell.dart' show activeShellTabIndexProvider;
 import '../../core/theme.dart';
 import '../../core/widgets/app_bottom_sheet.dart';
 import '../../core/widgets/glass_surface.dart';
@@ -18,6 +20,7 @@ import '../../core/widgets/gradient_button.dart';
 import '../../core/widgets/line_chip.dart';
 import '../../core/widgets/live_indicator.dart';
 import '../../core/widgets/stat_pill.dart';
+import '../../data/ws_client.dart';
 import '../../domain/models/eta.dart';
 import '../../domain/models/station.dart';
 import '../../domain/models/train.dart';
@@ -25,6 +28,10 @@ import '../../providers/core_providers.dart';
 import '../../providers/live_providers.dart';
 import '../home/home_providers.dart' show favouriteStationsProvider;
 import 'train_animator.dart';
+
+/// Explore is the 3rd of 4 shell tabs (Home, Journey, Explore, You) — see
+/// `RootShell.destinations`.
+const _exploreTabIndex = 2;
 
 /// The live network map: coloured line geometry, stations, and trains that
 /// glide between GTFS updates. Tapping a train opens its live card.
@@ -106,6 +113,19 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
   @override
   Widget build(BuildContext context) {
     ref.listen(liveTrainsProvider, (_, trains) => _onTrains(trains));
+    ref.listen(activeShellTabIndexProvider, (_, next) {
+      if (next == _exploreTabIndex) {
+        _animator.resume();
+      } else {
+        _animator.pause();
+      }
+    });
+    final wsStatus = ref.watch(wsStatusProvider).valueOrNull;
+    final isReconnecting = wsStatus == WsStatus.reconnecting;
+    // All trains share one backend source per deployment (see
+    // VehiclePosition.source) -- checking one is as good as checking all,
+    // but .any reads honestly even if that ever changes.
+    final isEstimated = ref.watch(liveTrainsProvider).values.any((t) => t.isEstimated);
 
     // The map is the hero: full-bleed behind everything, with a couple of
     // small floating pills for status/controls rather than a solid app bar.
@@ -152,8 +172,8 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
                       const Spacer(),
                       IconPillButton(
                         icon: Icons.search_rounded,
-                        tooltip: 'Search stations and places',
-                        onPressed: () => context.push('/search'),
+                        tooltip: 'Search stations',
+                        onPressed: _openStationSearch,
                       ),
                       const SizedBox(width: AppSpacing.sm),
                       _downloadingTiles
@@ -181,10 +201,38 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
                             ),
                     ],
                   ),
+                  if (isReconnecting) ...[
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(
+                      'Reconnecting — train positions may be a few minutes old.',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(color: AppColors.danger),
+                    ),
+                  ],
+                  if (isEstimated) ...[
+                    const SizedBox(height: AppSpacing.sm),
+                    GlassSurface(
+                      blur: true,
+                      borderRadius: AppRadius.pillR,
+                      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.schedule_rounded, size: 14, color: AppColors.warning),
+                          const SizedBox(width: AppSpacing.xs),
+                          Flexible(
+                            child: Text(
+                              'Train positions are estimated from the schedule, not live GPS.',
+                              style: Theme.of(context).textTheme.labelSmall?.copyWith(color: AppColors.warning),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   if (MediaQuery.of(context).disableAnimations) ...[
                     if (_showMapHint) ...[
                       const SizedBox(height: AppSpacing.sm),
-                      _MapHintPill(onDismiss: _dismissMapHint),
+                      _MapHintPill(onDismiss: _dismissMapHint, isEstimated: isEstimated),
                     ],
                   ] else
                     AnimatedSwitcher(
@@ -194,7 +242,7 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
                           ? Padding(
                               key: const ValueKey('map-hint'),
                               padding: const EdgeInsets.only(top: AppSpacing.sm),
-                              child: _MapHintPill(onDismiss: _dismissMapHint),
+                              child: _MapHintPill(onDismiss: _dismissMapHint, isEstimated: isEstimated),
                             )
                           : const SizedBox.shrink(key: ValueKey('no-map-hint')),
                     ),
@@ -324,7 +372,21 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
     final stopId = '${home['stop_id']}';
     final station = bundle.stations.where((s) => s.stopId == stopId).firstOrNull;
     if (station == null) return;
-    await map.animateCamera(CameraUpdate.newLatLngZoom(LatLng(station.lat, station.lon), 14));
+    await _flyToStation(station, zoom: 14);
+  }
+
+  /// Animates the camera to a station, e.g. after a map-picker search.
+  Future<void> _flyToStation(Station station, {double zoom = 15}) async {
+    await _map?.animateCamera(CameraUpdate.newLatLngZoom(LatLng(station.lat, station.lon), zoom));
+  }
+
+  /// Opens the station-only search picker; flies the map to whatever the
+  /// user picks rather than opening its detail page.
+  Future<void> _openStationSearch() async {
+    final station = await context.push<Station>('/search?mapPicker=true');
+    if (station != null && mounted) {
+      await _flyToStation(station);
+    }
   }
 
   /// Cache map tiles for the Delhi metro region so the map renders offline.
@@ -408,6 +470,11 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
   void _onTrains(Map<String, Train> trains) {
     if (!_styleReady) return;
     _latestTrains = trains;
+    // The shell keeps every tab's widgets alive (IndexedStack), so this
+    // fires even while a different tab is on screen — only feed the
+    // animator (and its platform-channel pushes) while Explore is actually
+    // visible. Battery hygiene, same spirit as the app-lifecycle pause.
+    if (ref.read(activeShellTabIndexProvider) != _exploreTabIndex) return;
     _animator.applyPositions({
       for (final train in trains.values)
         train.id: (train.vehicle.latitude, train.vehicle.longitude),
@@ -494,9 +561,10 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
 
 /// The one-time "dots are trains" pill shown until the user taps it away.
 class _MapHintPill extends StatelessWidget {
-  const _MapHintPill({required this.onDismiss});
+  const _MapHintPill({required this.onDismiss, required this.isEstimated});
 
   final VoidCallback onDismiss;
+  final bool isEstimated;
 
   @override
   Widget build(BuildContext context) {
@@ -506,7 +574,10 @@ class _MapHintPill extends StatelessWidget {
         blur: true,
         borderRadius: AppRadius.pillR,
         padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.sm),
-        child: Text('Dots are trains, moving live', style: Theme.of(context).textTheme.labelSmall),
+        child: Text(
+          isEstimated ? 'Dots are trains, estimated from the schedule' : 'Dots are trains, moving live',
+          style: Theme.of(context).textTheme.labelSmall,
+        ),
       ),
     );
   }
@@ -560,6 +631,20 @@ class _TrainSheet extends ConsumerWidget {
               ],
             ],
           ),
+          if (train.isEstimated) ...[
+            const SizedBox(height: AppSpacing.xs),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.schedule_rounded, size: 14, color: AppColors.warning),
+                const SizedBox(width: AppSpacing.xs),
+                Text(
+                  'Estimated from the schedule, not live GPS',
+                  style: theme.textTheme.labelSmall?.copyWith(color: AppColors.warning),
+                ),
+              ],
+            ),
+          ],
           if (next != null) ...[
             const SizedBox(height: AppSpacing.md),
             Text('Next: ${next.name}', style: theme.textTheme.headlineSmall),

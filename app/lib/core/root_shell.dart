@@ -1,10 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'design/app_spacing.dart';
 import 'widgets/floating_nav_bar.dart';
 import 'widgets/gradient_button.dart';
 import 'widgets/settle_fade_in.dart';
+
+/// The currently visible shell tab (0 = Home, 1 = Journey, 2 = Explore, 3 =
+/// You), kept in sync by [RootShell]. Exists so a tab's own screen can tell
+/// whether it's actually on screen right now — the shell keeps every
+/// branch's widget tree alive via `IndexedStack`, so a plain
+/// `didChangeAppLifecycleState` only catches the app backgrounding
+/// entirely, not the user simply switching to a different tab.
+final activeShellTabIndexProvider = StateProvider<int>((ref) => 0);
 
 /// go_router's `StatefulShellRoute` wraps the four hero tabs — Home
 /// (everything starts here), Journey (the current or planned trip), Explore
@@ -15,7 +24,7 @@ import 'widgets/settle_fade_in.dart';
 /// question, not a destination). Task flows (Search, Planner, Station/Train
 /// detail, ...) are pushed as ordinary full-screen routes on the root
 /// navigator and cover this shell entirely.
-class RootShell extends StatelessWidget {
+class RootShell extends ConsumerStatefulWidget {
   const RootShell({super.key, required this.navigationShell, required this.onTap, required this.currentIndex});
 
   final Widget navigationShell;
@@ -31,12 +40,36 @@ class RootShell extends StatelessWidget {
   ];
 
   @override
+  ConsumerState<RootShell> createState() => _RootShellState();
+}
+
+class _RootShellState extends ConsumerState<RootShell> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncActiveTab());
+  }
+
+  @override
+  void didUpdateWidget(covariant RootShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.currentIndex != widget.currentIndex) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _syncActiveTab());
+    }
+  }
+
+  void _syncActiveTab() {
+    if (!mounted) return;
+    ref.read(activeShellTabIndexProvider.notifier).state = widget.currentIndex;
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       extendBody: true,
       body: Stack(
         children: [
-          navigationShell,
+          widget.navigationShell,
           Positioned(
             left: AppSpacing.lg,
             bottom: 108,
@@ -52,9 +85,9 @@ class RootShell extends StatelessWidget {
         ],
       ),
       bottomNavigationBar: FloatingNavBar(
-        destinations: destinations,
-        currentIndex: currentIndex,
-        onTap: onTap,
+        destinations: RootShell.destinations,
+        currentIndex: widget.currentIndex,
+        onTap: widget.onTap,
       ),
     );
   }
