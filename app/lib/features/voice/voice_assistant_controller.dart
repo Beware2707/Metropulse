@@ -31,6 +31,8 @@ class VoiceAssistantController {
         return _answerRouteTo(intent.stationQuery!);
       case VoiceIntentKind.whenToLeave:
         return _answerWhenToLeave();
+      case VoiceIntentKind.runningLate:
+        return _answerRunningLate();
       case VoiceIntentKind.whichCoach:
         return _answerWhichCoach();
       case VoiceIntentKind.nextStation:
@@ -94,6 +96,31 @@ class VoiceAssistantController {
     }
     return "I don't have enough information yet — set up your Home and Work "
         "stations in Favourites and I'll be able to tell you when to leave.";
+  }
+
+  /// "I'm running late" — reactive, not a repeat of "when should I leave":
+  /// if a journey's already under way, reassure with real progress; otherwise
+  /// point straight at the next train that's still catchable.
+  Future<String> _answerRunningLate() async {
+    final journey = await _ref.read(activeJourneyProvider.future);
+    if (journey != null) {
+      final snapshot = _ref.read(journeyProgressProvider(journey));
+      if (snapshot != null && !snapshot.arrived) {
+        final etaSeconds = snapshot.etaToDestination?.inSeconds.toDouble();
+        final minutes = etaSeconds == null ? null : (etaSeconds / 60).round();
+        return minutes == null
+            ? "You're already on your way — I'll keep tracking your progress."
+            : "You're already on your way — about $minutes minutes left. Sit tight.";
+      }
+    }
+
+    final card = await _ref.read(commuteCardProvider.future);
+    if (card?.nextDepartureAt != null) {
+      return 'The next train to ${card!.destinationName} leaves at '
+          '${clockTime(card.nextDepartureAt)} — you can still make it.';
+    }
+    return "I don't have your usual route yet — set up Home and Work in "
+        "Favourites and I'll always know your next best departure.";
   }
 
   Future<String> _answerWhichCoach() async {

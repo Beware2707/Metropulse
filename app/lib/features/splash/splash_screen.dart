@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/design/app_colors.dart';
+import '../../core/design/app_motion.dart';
 import '../../core/design/app_radius.dart';
 import '../../core/widgets/ambient_background.dart';
 import '../../providers/core_providers.dart';
@@ -10,7 +13,9 @@ import '../../providers/core_providers.dart';
 /// Boot: register the device, warm the offline cache, then enter the app.
 /// Both steps tolerate being offline — the cache is the offline story. The
 /// entrance itself is the app's first-ten-seconds moment: a gradient
-/// wordmark that breathes in over the ambient backdrop.
+/// wordmark that breathes in over the ambient backdrop — but only on a true
+/// cold start. A daily commuter who already has a cached bundle and a token
+/// gets a short, quiet fade instead of the full 700ms hero choreography.
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
 
@@ -19,27 +24,42 @@ class SplashScreen extends ConsumerStatefulWidget {
 }
 
 class _SplashScreenState extends ConsumerState<SplashScreen> with SingleTickerProviderStateMixin {
+  late final bool _warmStart =
+      ref.read(stationsRepositoryProvider).cached != null && ref.read(localStoreProvider).token != null;
   late final AnimationController _controller =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 900))..forward();
+      AnimationController(vsync: this, duration: _warmStart ? AppMotion.fast : AppMotion.hero);
+
+  String? _status;
+  Timer? _statusTimer;
+  bool _bootDone = false;
 
   @override
   void initState() {
     super.initState();
-    _boot();
+    final heroDone = _controller.forward();
+    if (!_warmStart) {
+      _statusTimer = Timer(const Duration(milliseconds: 1400), () {
+        if (mounted && !_bootDone) setState(() => _status = 'Setting things up…');
+      });
+    }
+    _boot(heroDone);
   }
 
-  Future<void> _boot() async {
+  Future<void> _boot(TickerFuture heroDone) async {
     try {
       await ref.read(apiClientProvider).ensureRegistered();
     } on Exception {
       // Offline start: cached data still works; auth recovers on reconnect.
     }
-    await ref.read(offlineBundleProvider.future);
+    await Future.wait<void>([ref.read(offlineBundleProvider.future).then((_) {}), heroDone]);
+    _bootDone = true;
+    _statusTimer?.cancel();
     if (mounted) context.go('/');
   }
 
   @override
   void dispose() {
+    _statusTimer?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -65,7 +85,14 @@ class _SplashScreenState extends ConsumerState<SplashScreen> with SingleTickerPr
       shaderCallback: (rect) => AppColors.heroGradientFor().createShader(rect),
       child: Text('MetroPulse', style: theme.textTheme.displaySmall?.copyWith(color: Colors.white)),
     );
-    final tagline = Text('Your smart travel companion', style: theme.textTheme.bodyMedium);
+    final tagline = AnimatedSwitcher(
+      duration: reduceMotion ? Duration.zero : AppMotion.fast,
+      child: Text(
+        _status ?? 'Live Delhi Metro times & routes',
+        key: ValueKey(_status ?? 'tagline'),
+        style: theme.textTheme.bodyMedium,
+      ),
+    );
     const loadingBar = SizedBox(width: 120, child: _PulseBar());
 
     return Scaffold(
@@ -127,7 +154,7 @@ class _PulseBar extends StatefulWidget {
 
 class _PulseBarState extends State<_PulseBar> with SingleTickerProviderStateMixin {
   late final AnimationController _controller =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 1100))..repeat();
+      AnimationController(vsync: this, duration: AppMotion.pulse)..repeat();
 
   @override
   void dispose() {

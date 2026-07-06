@@ -27,6 +27,7 @@ class JourneyContext {
     this.routeLongName,
     this.routeColor,
     this.platformHint,
+    this.crowding,
   });
 
   final JourneyPlan? plan;
@@ -36,6 +37,14 @@ class JourneyContext {
   final String? routeLongName;
   final String? routeColor;
   final String? platformHint;
+
+  /// 'low' | 'moderate' | 'high', mirroring the same coach-occupancy
+  /// thresholds as the backend's commute_card.py — computed once at journey
+  /// start from the coach recommendation already fetched then. Null when
+  /// that call failed or returned no coach data, in which case the
+  /// "Entering the Station" moment simply omits expected crowd rather than
+  /// guessing at it.
+  final String? crowding;
 }
 
 final journeyContextProvider = Provider.family<JourneyContext?, int>((ref, journeyId) {
@@ -52,6 +61,7 @@ final journeyContextProvider = Provider.family<JourneyContext?, int>((ref, journ
     routeLongName: raw['route_long_name'] as String?,
     routeColor: raw['route_color'] as String?,
     platformHint: raw['platform_hint'] as String?,
+    crowding: raw['crowding'] as String?,
   );
 });
 

@@ -35,6 +35,7 @@ from metropulse.application.commuter.offline import OfflineBundleService
 from metropulse.application.commuter.users import UserService
 from metropulse.application.eta_engine import EtaEngine, EtaParameters
 from metropulse.application.eta_service import CachedEtaService
+from metropulse.application.intelligence.commute_impact import CommuteImpactService
 from metropulse.application.intelligence.commute_predictor import (
     CommutePredictionService,
 )
@@ -80,6 +81,7 @@ class CommuterServices:
     delay_predictor: DelayEstimator
     smart_recommendations: RecommendationEngine
     place_roles: PlaceRoleInferenceService
+    commute_impact: CommuteImpactService
 
 
 @dataclass
@@ -171,6 +173,7 @@ def build_commuter_services(
         delay_predictor=delay_predictor,
         smart_recommendations=SmartRecommendationService(planner, coach, exits, delay_predictor),
         place_roles=PlaceRoleInferenceService(lookback_days=settings.commute_prediction_lookback_days),
+        commute_impact=CommuteImpactService(monthly_window_days=settings.commute_replay_window_days),
     )
 
 

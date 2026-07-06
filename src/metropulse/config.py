@@ -88,6 +88,10 @@ class Settings(BaseSettings):
     proactive_commute_lead_minutes: float = Field(default=15.0, gt=0)
     proactive_commute_min_confidence: float = Field(default=0.5, ge=0, le=1)
 
+    # Commute Replay: the rolling window summed into the "This Month" card
+    # (see application/intelligence/commute_impact.py).
+    commute_replay_window_days: float = Field(default=30.0, gt=0)
+
     # Ops: rate limiting is per-replica defence in depth (0 disables); real
     # deployments should still enforce global limits at the edge/gateway.
     rate_limit_per_minute: int = Field(default=600, ge=0)

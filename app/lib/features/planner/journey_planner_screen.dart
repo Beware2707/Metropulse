@@ -13,8 +13,10 @@ import '../../core/widgets/glass_surface.dart';
 import '../../core/widgets/gradient_button.dart';
 import '../../core/widgets/icon_badge.dart';
 import '../../core/widgets/line_chip.dart';
+import '../../core/widgets/moment_row.dart';
 import '../../core/widgets/reveal_animations.dart';
 import '../../data/repositories.dart';
+import '../../domain/crowding.dart';
 import '../../domain/fare.dart';
 import '../../domain/models/journey.dart';
 import '../../domain/models/station.dart';
@@ -93,11 +95,16 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
                 station: _destination,
                 onTap: () => _pick(false),
               ),
+              if (_origin == null && _destination == null) ...[
+                const SizedBox(height: AppSpacing.xl),
+                _PinnedJourneysQuickPick(onPick: _pickPinned),
+              ],
               const SizedBox(height: AppSpacing.xl),
               _PreferenceSelector(
                 preference: _preference,
                 wheelchairRequested: _wheelchairRequested,
                 onPreferenceChanged: (value) {
+                  if (_loading || value == _preference) return;
                   setState(() => _preference = value);
                   _planJourney();
                 },
@@ -148,10 +155,23 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
     );
   }
 
+  /// Resolves a pinned journey's stop ids and plans it immediately — the
+  /// same one-tap path Home's pinned-journey row and prediction chip use.
+  Future<void> _pickPinned(String originStopId, String destinationStopId) async {
+    final stations = ref.read(stationIndexProvider);
+    setState(() {
+      _origin = stations[originStopId];
+      _destination = stations[destinationStopId];
+      _plan = null;
+      _error = null;
+    });
+    if (_origin != null && _destination != null) await _planJourney();
+  }
+
   Future<void> _pick(bool isOrigin) async {
     final station = await showAppBottomSheet<Station>(
       context,
-      builder: (_) => StationSearchSheet(title: isOrigin ? 'Where from?' : 'Where to?'),
+      builder: (_) => StationSearchSheet(title: isOrigin ? 'Where from?' : 'Where to?', isOrigin: isOrigin),
     );
     if (station == null) return;
     setState(() {
@@ -201,23 +221,41 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
   Future<void> _pinJourney() async {
     final origin = _origin!;
     final destination = _destination!;
-    final label = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) {
+    final label = await showAppBottomSheet<String>(
+      context,
+      builder: (sheetContext) {
         final controller = TextEditingController(text: '${origin.name} → ${destination.name}');
-        return AlertDialog(
-          title: const Text('Save this route'),
-          content: TextField(controller: controller, autofocus: true),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(controller.text.trim()),
-              child: const Text('Save'),
-            ),
-          ],
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(AppSpacing.xl, AppSpacing.lg, AppSpacing.xl, AppSpacing.xxl),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Save this route', style: Theme.of(sheetContext).textTheme.titleLarge),
+              const SizedBox(height: AppSpacing.lg),
+              TextField(controller: controller, autofocus: true),
+              const SizedBox(height: AppSpacing.xl),
+              Row(
+                children: [
+                  Expanded(
+                    child: GhostButton(
+                      label: 'Cancel',
+                      expand: true,
+                      onPressed: () => Navigator.of(sheetContext).pop(),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: PrimaryButton(
+                      label: 'Save',
+                      expand: true,
+                      onPressed: () => Navigator.of(sheetContext).pop(controller.text.trim()),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         );
       },
     );
@@ -259,12 +297,46 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
       'route_color': firstRide?.routeColor,
       'platform_hint': firstRide?.platformHint,
       'recommended_coach': coach?['recommended_coach'],
+      'crowding': expectedCrowding(coach?['coaches'] as List<dynamic>?),
     });
 
     ref
       ..invalidate(activeJourneyProvider)
       ..invalidate(recentJourneysProvider);
     if (mounted) context.go('/journey');
+  }
+}
+
+/// A one-tap shortcut to a saved route, shown only while both endpoints are
+/// still unset — a daily commuter with a pinned route shouldn't have to
+/// pick both stations by hand every time.
+class _PinnedJourneysQuickPick extends ConsumerWidget {
+  const _PinnedJourneysQuickPick({required this.onPick});
+
+  final void Function(String originStopId, String destinationStopId) onPick;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final pinned = ref.watch(pinnedJourneysProvider);
+    if (pinned.isEmpty) return const SizedBox.shrink();
+    final stations = ref.watch(stationIndexProvider);
+    final theme = Theme.of(context);
+    return MomentList(
+      children: [
+        for (final journey in pinned)
+          MomentRow(
+            leading: const IconBadge(icon: Icons.push_pin_rounded),
+            title: Text('${journey['label']}', style: theme.textTheme.titleMedium),
+            subtitle: Text(
+              '${stations['${journey['origin_stop_id']}']?.name ?? journey['origin_stop_id']}'
+              ' → '
+              '${stations['${journey['destination_stop_id']}']?.name ?? journey['destination_stop_id']}',
+              style: theme.textTheme.bodyMedium,
+            ),
+            onTap: () => onPick('${journey['origin_stop_id']}', '${journey['destination_stop_id']}'),
+          ),
+      ],
+    );
   }
 }
 
@@ -536,8 +608,9 @@ class _LegTile extends StatelessWidget {
               children: [
                 LineChip(label: leg.routeLongName ?? leg.routeId ?? 'Line', colorHex: leg.routeColor),
                 const SizedBox(height: AppSpacing.sm),
+                Text('Board at ${leg.board.name}', style: theme.textTheme.titleMedium),
                 Text(
-                  '${leg.board.name} → ${leg.alight.name}'
+                  '→ ${leg.alight.name}'
                   '${leg.platformHint != null ? '  ·  ${leg.platformHint}' : ''}',
                   style: theme.textTheme.bodyMedium,
                 ),

@@ -355,6 +355,37 @@ class JourneyRepository:
         )
         return result.scalars().all()
 
+    async def latest_completed_for_user(self, user_id: str) -> Journey | None:
+        """The user's most recently completed journey, for a trip replay."""
+        result = await self._session.execute(
+            select(Journey)
+            .where(
+                Journey.user_id == user_id,
+                Journey.status == "completed",
+                Journey.ended_at.is_not(None),
+            )
+            .order_by(Journey.ended_at.desc())
+            .limit(1)
+        )
+        return result.scalars().first()
+
+    async def completed_since_for_user(
+        self, user_id: str, since: datetime, limit: int = 500
+    ) -> Sequence[Journey]:
+        """A user's completed journeys since a moment, for a replay summary."""
+        result = await self._session.execute(
+            select(Journey)
+            .where(
+                Journey.user_id == user_id,
+                Journey.status == "completed",
+                Journey.ended_at.is_not(None),
+                Journey.started_at >= since,
+            )
+            .order_by(Journey.started_at.desc())
+            .limit(limit)
+        )
+        return result.scalars().all()
+
     async def distinct_user_ids_with_history(self, since: datetime) -> Sequence[str]:
         """User ids with at least one completed/missed journey since a moment.
 

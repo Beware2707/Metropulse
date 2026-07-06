@@ -15,6 +15,7 @@ from metropulse.api.v1.notifications import router as notifications_router
 from metropulse.api.v1.offline import router as offline_router
 from metropulse.api.v1.recommendations import router as recommendations_router
 from metropulse.api.v1.reminders import router as reminders_router
+from metropulse.api.v1.replay import router as replay_router
 from metropulse.api.v1.routes import router as routes_router
 from metropulse.api.v1.stations import router as stations_router
 from metropulse.api.v1.trains import router as trains_router
@@ -37,4 +38,5 @@ router.include_router(analytics_router)
 router.include_router(notifications_router)
 router.include_router(commute_router)
 router.include_router(intelligence_router)
+router.include_router(replay_router)
 router.include_router(admin_stats_router)

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/design/app_colors.dart';
 import '../../core/design/app_radius.dart';
 import '../../core/design/app_spacing.dart';
 import '../../core/widgets/ambient_background.dart';
@@ -135,7 +136,15 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 )
               else if (hits.isEmpty)
                 const Expanded(
-                  child: Center(child: Text("We couldn't find that one — try a different name or landmark.")),
+                  child: Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(AppSpacing.xxl),
+                      child: EmptyState(
+                        icon: Icons.search_off_rounded,
+                        message: "We couldn't find that one — try a different name or landmark.",
+                      ),
+                    ),
+                  ),
                 )
               else
                 Expanded(
@@ -157,11 +166,23 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                                 children: [
                                   Text(hit.station.name, style: Theme.of(context).textTheme.titleMedium),
                                   if (hit.matchedText != null)
-                                    Text(
-                                      hit.reason == SearchMatchReason.alias
-                                          ? 'Also known as "${hit.matchedText}"'
-                                          : 'Near ${hit.matchedText}',
-                                      style: Theme.of(context).textTheme.bodySmall,
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (hit.reason == SearchMatchReason.landmark) ...[
+                                          Icon(Icons.near_me_rounded,
+                                              size: 14, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                                          const SizedBox(width: 4),
+                                        ],
+                                        Flexible(
+                                          child: Text(
+                                            hit.reason == SearchMatchReason.alias
+                                                ? 'Also known as "${hit.matchedText}"'
+                                                : 'Near ${hit.matchedText}',
+                                            style: Theme.of(context).textTheme.bodySmall,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                 ],
                               ),
@@ -216,18 +237,67 @@ class _RecentAndFavourites extends StatelessWidget {
         ),
       );
     }
+
+    // Top pick: the single most relevant station right now — the last
+    // place you searched for if there is one, else your first favourite —
+    // pulled out and given its own visual weight so a daily commuter's most
+    // likely destination isn't buried in an equally-weighted list.
+    final topPickIsRecent = recents.isNotEmpty;
+    final topPick = topPickIsRecent ? recents.first : (favourites.isNotEmpty ? favourites.first : null);
+    final remainingFavourites = topPickIsRecent ? favourites : favourites.skip(1).toList();
+    final remainingRecents = topPickIsRecent ? recents.skip(1).toList() : recents;
+
     return ListView(
       padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, AppSpacing.xxl),
       children: [
-        if (favourites.isNotEmpty) ...[
-          const SearchSectionLabel('Favourites', topSpacing: AppSpacing.lg),
-          for (final station in favourites) StationRow(station: station, icon: Icons.star_rounded, onTap: onTap),
+        if (topPick != null) ...[
+          _TopPickCard(station: topPick, isRecent: topPickIsRecent, onTap: onTap),
+          const SizedBox(height: AppSpacing.lg),
         ],
-        if (recents.isNotEmpty) ...[
+        if (remainingFavourites.isNotEmpty) ...[
+          const SearchSectionLabel('Favourites', topSpacing: AppSpacing.lg),
+          for (final station in remainingFavourites) StationRow(station: station, icon: Icons.star_rounded, onTap: onTap),
+        ],
+        if (remainingRecents.isNotEmpty) ...[
           const SearchSectionLabel('Recent searches', topSpacing: AppSpacing.lg),
-          for (final station in recents) StationRow(station: station, icon: Icons.history_rounded, onTap: onTap),
+          for (final station in remainingRecents) StationRow(station: station, icon: Icons.history_rounded, onTap: onTap),
         ],
       ],
+    );
+  }
+}
+
+class _TopPickCard extends StatelessWidget {
+  const _TopPickCard({required this.station, required this.isRecent, required this.onTap});
+
+  final Station station;
+  final bool isRecent;
+  final void Function(Station) onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return GlassSurface(
+      onTap: () => onTap(station),
+      child: Row(
+        children: [
+          IconBadge(
+            icon: isRecent ? Icons.history_rounded : Icons.star_rounded,
+            gradient: AppColors.heroGradientFor(),
+          ),
+          const SizedBox(width: AppSpacing.lg),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(isRecent ? 'BACK TO' : 'FAVOURITE', style: theme.textTheme.labelSmall),
+                Text(station.name, style: theme.textTheme.titleLarge),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_right_rounded),
+        ],
+      ),
     );
   }
 }

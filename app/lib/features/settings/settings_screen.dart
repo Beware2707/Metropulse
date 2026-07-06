@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -6,7 +7,9 @@ import '../../core/config.dart';
 import '../../core/design/app_colors.dart';
 import '../../core/design/app_spacing.dart';
 import '../../core/widgets/ambient_background.dart';
+import '../../core/widgets/app_bottom_sheet.dart';
 import '../../core/widgets/glass_surface.dart';
+import '../../core/widgets/gradient_button.dart';
 import '../../core/widgets/icon_badge.dart';
 import '../../core/widgets/section_header.dart';
 import '../../providers/core_providers.dart';
@@ -24,7 +27,9 @@ class SettingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(themeModeProvider);
     final apiBase = ref.watch(apiBaseProvider);
-    final bundle = ref.watch(offlineBundleProvider).valueOrNull;
+    final bundleAsync = ref.watch(offlineBundleProvider);
+    final bundle = bundleAsync.valueOrNull;
+    final bundleLoading = bundleAsync.isLoading;
     final highContrast = ref.watch(highContrastProvider);
     final dynamicColorEnabled = ref.watch(dynamicColorEnabledProvider);
     final textScale = ref.watch(textScaleFactorProvider);
@@ -55,13 +60,17 @@ class SettingsScreen extends ConsumerWidget {
                             (ThemeMode.light, 'Light', Icons.light_mode_rounded),
                             (ThemeMode.dark, 'Dark', Icons.dark_mode_rounded),
                           ])
-                            RadioListTile<ThemeMode>(value: mode, secondary: Icon(icon), title: Text(label)),
+                            RadioListTile<ThemeMode>(
+                              value: mode,
+                              secondary: IconBadge(icon: icon),
+                              title: Text(label),
+                            ),
                         ],
                       ),
                     ),
                     const Divider(height: 1, indent: 20, endIndent: 20),
                     SwitchListTile(
-                      secondary: const Icon(Icons.wallpaper_rounded),
+                      secondary: const IconBadge(icon: Icons.wallpaper_rounded),
                       title: const Text('Dynamic colour'),
                       subtitle: const Text('Match your device wallpaper theme, where supported'),
                       value: dynamicColorEnabled,
@@ -79,7 +88,7 @@ class SettingsScreen extends ConsumerWidget {
                 child: Column(
                   children: [
                     SwitchListTile(
-                      secondary: const Icon(Icons.contrast_rounded),
+                      secondary: const IconBadge(icon: Icons.contrast_rounded),
                       title: const Text('High contrast'),
                       subtitle: const Text('Increases colour contrast throughout the app'),
                       value: highContrast,
@@ -89,7 +98,7 @@ class SettingsScreen extends ConsumerWidget {
                       },
                     ),
                     ListTile(
-                      leading: const Icon(Icons.text_fields_rounded),
+                      leading: const IconBadge(icon: Icons.text_fields_rounded),
                       title: const Text('Text size'),
                       subtitle: Slider(
                         value: textScale,
@@ -102,72 +111,6 @@ class SettingsScreen extends ConsumerWidget {
                           ref.invalidate(textScaleFactorProvider);
                         },
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              const SectionHeader(title: 'Notifications'),
-              GlassSurface(
-                padding: EdgeInsets.zero,
-                child: Column(
-                  children: [
-                    SwitchListTile(
-                      secondary: const Icon(Icons.notifications_active_rounded),
-                      title: const Text('Alerts and reminders'),
-                      subtitle: const Text(
-                        'Destination, interchange, last-train, leave-home and service alerts',
-                      ),
-                      value: notificationsEnabled,
-                      onChanged: (value) async {
-                        await ref.read(localStoreProvider).setNotificationsEnabled(value);
-                        ref.invalidate(notificationsEnabledProvider);
-                      },
-                    ),
-                    const Divider(height: 1, indent: 20, endIndent: 20),
-                    ListTile(
-                      leading: const Icon(Icons.inbox_rounded),
-                      title: const Text('View all notifications'),
-                      trailing: const Icon(Icons.chevron_right_rounded),
-                      onTap: () => context.push('/notifications'),
-                    ),
-                  ],
-                ),
-              ),
-              const SectionHeader(title: 'Backend'),
-              GlassSurface(
-                padding: EdgeInsets.zero,
-                child: ListTile(
-                  leading: const Icon(Icons.dns_rounded),
-                  title: const Text('API server'),
-                  subtitle: Text(apiBase),
-                  trailing: const Icon(Icons.edit_rounded),
-                  onTap: () => _editApiBase(context, ref),
-                ),
-              ),
-              const SectionHeader(title: 'Offline data'),
-              GlassSurface(
-                padding: EdgeInsets.zero,
-                child: Column(
-                  children: [
-                    ListTile(
-                      leading: const Icon(Icons.offline_pin_rounded),
-                      title: Text(bundle == null
-                          ? 'Not downloaded'
-                          : '${bundle.stations.length} stations · ${bundle.routes.length} lines cached'),
-                      subtitle: bundle == null ? null : Text('Dataset version ${bundle.version}'),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.refresh_rounded),
-                        onPressed: () => ref.invalidate(offlineBundleProvider),
-                      ),
-                    ),
-                    const Divider(height: 1, indent: 20, endIndent: 20),
-                    ListTile(
-                      leading: const Icon(Icons.delete_outline_rounded),
-                      title: const Text('Clear cached history and searches'),
-                      subtitle: const Text(
-                        'Removes cached favourites, journey history and recent searches (station data is kept)',
-                      ),
-                      onTap: () => _confirmClearCache(context, ref),
                     ),
                   ],
                 ),
@@ -191,13 +134,91 @@ class SettingsScreen extends ConsumerWidget {
                   ],
                 ),
               ),
+              const SectionHeader(title: 'Notifications'),
+              GlassSurface(
+                padding: EdgeInsets.zero,
+                child: Column(
+                  children: [
+                    SwitchListTile(
+                      secondary: const IconBadge(icon: Icons.notifications_active_rounded),
+                      title: const Text('Alerts and reminders'),
+                      subtitle: const Text(
+                        'Destination, interchange, last-train, leave-home and service alerts',
+                      ),
+                      value: notificationsEnabled,
+                      onChanged: (value) async {
+                        await ref.read(localStoreProvider).setNotificationsEnabled(value);
+                        ref.invalidate(notificationsEnabledProvider);
+                      },
+                    ),
+                    const Divider(height: 1, indent: 20, endIndent: 20),
+                    ListTile(
+                      leading: const IconBadge(icon: Icons.inbox_rounded),
+                      title: const Text('View all notifications'),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () => context.push('/notifications'),
+                    ),
+                  ],
+                ),
+              ),
+              if (kDebugMode) ...[
+                const SectionHeader(title: 'Backend'),
+                GlassSurface(
+                  padding: EdgeInsets.zero,
+                  child: ListTile(
+                    leading: const IconBadge(icon: Icons.dns_rounded),
+                    title: const Text('API server'),
+                    subtitle: Text(apiBase),
+                    trailing: const Icon(Icons.edit_rounded),
+                    onTap: () => _editApiBase(context, ref),
+                  ),
+                ),
+              ],
+              const SectionHeader(title: 'Offline data'),
+              GlassSurface(
+                padding: EdgeInsets.zero,
+                child: Column(
+                  children: [
+                    ListTile(
+                      leading: const IconBadge(icon: Icons.offline_pin_rounded),
+                      title: Text(bundle == null
+                          ? 'Not downloaded'
+                          : '${bundle.stations.length} stations · ${bundle.routes.length} lines cached'),
+                      subtitle: bundle == null ? null : Text('Dataset version ${bundle.version}'),
+                      trailing: bundleLoading
+                          ? const Padding(
+                              padding: EdgeInsets.all(13),
+                              child: SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(strokeWidth: 2.5),
+                              ),
+                            )
+                          : IconPillButton(
+                              icon: Icons.refresh_rounded,
+                              tooltip: 'Refresh',
+                              onPressed: () => ref.invalidate(offlineBundleProvider),
+                            ),
+                    ),
+                    const Divider(height: 1, indent: 20, endIndent: 20),
+                    ListTile(
+                      leading: const IconBadge(icon: Icons.delete_outline_rounded),
+                      title: const Text('Clear cached history and searches'),
+                      subtitle: const Text(
+                        'Removes cached favourites, journey history and recent searches (station data is kept)',
+                      ),
+                      onTap: () => _confirmClearCache(context, ref),
+                    ),
+                  ],
+                ),
+              ),
               const SectionHeader(title: 'About'),
               GlassSurface(
                 padding: EdgeInsets.zero,
                 child: ListTile(
                   leading: IconBadge(icon: Icons.directions_subway_filled, gradient: AppColors.heroGradientFor()),
                   title: const Text('MetroPulse'),
-                  subtitle: const Text('Version ${AppConfig.appVersion}'),
+                  subtitle: const Text('Version ${AppConfig.appVersion} · Metro Intelligence inside'),
                 ),
               ),
             ],
@@ -210,22 +231,44 @@ class SettingsScreen extends ConsumerWidget {
   Future<void> _editApiBase(BuildContext context, WidgetRef ref) async {
     final store = ref.read(localStoreProvider);
     final controller = TextEditingController(text: store.apiBase);
-    final result = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('API server'),
-        content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.url,
-          decoration: const InputDecoration(hintText: 'http://host:8000'),
+    final result = await showAppBottomSheet<String>(
+      context,
+      builder: (sheetContext) => Padding(
+        padding: const EdgeInsets.fromLTRB(AppSpacing.xl, AppSpacing.lg, AppSpacing.xl, AppSpacing.xxl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('API server', style: Theme.of(sheetContext).textTheme.titleLarge),
+            const SizedBox(height: AppSpacing.lg),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              keyboardType: TextInputType.url,
+              decoration: const InputDecoration(hintText: 'http://host:8000'),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+            Row(
+              children: [
+                Expanded(
+                  child: GhostButton(
+                    label: 'Cancel',
+                    expand: true,
+                    onPressed: () => Navigator.of(sheetContext).pop(),
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: PrimaryButton(
+                    label: 'Save',
+                    expand: true,
+                    onPressed: () => Navigator.of(sheetContext).pop(controller.text.trim()),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(controller.text.trim()),
-            child: const Text('Save'),
-          ),
-        ],
       ),
     );
     if (result != null && result.isNotEmpty) {
@@ -236,18 +279,43 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   Future<void> _confirmClearCache(BuildContext context, WidgetRef ref) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Clear your cached data?'),
-        content: const Text(
-          "This clears your favourites, journey history and recent searches from this device. Don't "
-          'worry — nothing is deleted from your account.',
+    final confirmed = await showAppBottomSheet<bool>(
+      context,
+      builder: (sheetContext) => Padding(
+        padding: const EdgeInsets.fromLTRB(AppSpacing.xl, AppSpacing.lg, AppSpacing.xl, AppSpacing.xxl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Clear your cached data?', style: Theme.of(sheetContext).textTheme.titleLarge),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              "This clears your favourites, journey history and recent searches from this device. Don't "
+              'worry — nothing is deleted from your account.',
+              style: Theme.of(sheetContext).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: AppSpacing.xl),
+            Row(
+              children: [
+                Expanded(
+                  child: GhostButton(
+                    label: 'Cancel',
+                    expand: true,
+                    onPressed: () => Navigator.of(sheetContext).pop(false),
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: PrimaryButton(
+                    label: 'Clear',
+                    expand: true,
+                    onPressed: () => Navigator.of(sheetContext).pop(true),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: const Text('Clear')),
-        ],
       ),
     );
     if (confirmed != true) return;
@@ -261,7 +329,9 @@ class SettingsScreen extends ConsumerWidget {
       ..invalidate(favouriteStationsProvider)
       ..invalidate(recentSearchIdsProvider);
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('All cleared!')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Favourites, history and recent searches cleared')),
+      );
     }
   }
 }

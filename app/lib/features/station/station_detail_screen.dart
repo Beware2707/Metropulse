@@ -11,7 +11,9 @@ import '../../core/widgets/glass_surface.dart';
 import '../../core/widgets/icon_badge.dart';
 import '../../core/widgets/line_chip.dart';
 import '../../core/widgets/live_indicator.dart';
+import '../../core/widgets/moment_row.dart';
 import '../../core/widgets/section_header.dart';
+import '../../data/ws_client.dart';
 import '../../providers/core_providers.dart';
 import '../../providers/live_providers.dart';
 import '../favourites/favourites_screen.dart';
@@ -39,27 +41,35 @@ class StationDetailScreen extends ConsumerWidget {
     final arrivals = ref.watch(arrivalsForStationProvider(stopId));
     final lastTrain = ref.watch(_lastTrainProvider(stopId));
     final exits = ref.watch(_exitsProvider(stopId));
-    final favourites = ref.watch(favouriteStationsProvider);
-    final isFavourite = favourites.valueOrNull?.any((f) => f['stop_id'] == stopId) ?? false;
+
+    // The last-train fact only feels urgent late at night; outside that
+    // window it's demoted to a single low-key row near the bottom instead of
+    // a prominent "Tonight" section.
+    final hour = DateTime.now().hour;
+    final isNight = hour >= 20 || hour < 4;
+
+    final lastTrainRow = MomentRow(
+      leading: const IconBadge(icon: Icons.nightlight_rounded, color: AppColors.night),
+      title: Text('Last train', style: Theme.of(context).textTheme.titleMedium),
+      subtitle: lastTrain.when(
+        data: (data) => Text(
+          data == null
+              ? "We don't have tonight's service info yet"
+              : '${data['headsign'] ?? data['route_id']} at '
+                  '${clockTime(DateTime.tryParse('${data['departure_at']}'))}',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        loading: () => const Text('…'),
+        error: (_, __) => const Text('Not available offline'),
+      ),
+    );
 
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: Text(station?.name ?? stopId),
         actions: [
-          IconButton(
-            icon: Icon(isFavourite ? Icons.star_rounded : Icons.star_outline_rounded,
-                color: isFavourite ? AppColors.warning : null),
-            onPressed: () async {
-              final repository = ref.read(favouritesRepositoryProvider);
-              if (isFavourite) {
-                await repository.remove(stopId);
-              } else {
-                await repository.save(stopId);
-              }
-              ref.invalidate(favouriteStationsProvider);
-            },
-          ),
+          _FavouriteToggle(stopId: stopId),
           const SizedBox(width: AppSpacing.sm),
         ],
       ),
@@ -76,8 +86,7 @@ class StationDetailScreen extends ConsumerWidget {
                 ],
               ),
               const SizedBox(height: AppSpacing.md),
-              if (arrivals.isEmpty)
-                const EmptyState(icon: Icons.train_rounded, message: 'No trains headed this way right now.'),
+              if (arrivals.isEmpty) const _EmptyArrivals(),
               for (final train in arrivals)
                 Padding(
                   padding: const EdgeInsets.only(bottom: AppSpacing.sm),
@@ -103,72 +112,101 @@ class StationDetailScreen extends ConsumerWidget {
                     ),
                   ),
                 ),
-              const SectionHeader(title: 'Tonight'),
-              GlassSurface(
-                child: Row(
-                  children: [
-                    const IconBadge(icon: Icons.nightlight_rounded),
-                    const SizedBox(width: AppSpacing.md),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Last train', style: Theme.of(context).textTheme.titleMedium),
-                          lastTrain.when(
-                            data: (data) => Text(
-                              data == null
-                                  ? "We don't have tonight's service info yet"
-                                  : '${data['headsign'] ?? data['route_id']} at '
-                                      '${clockTime(DateTime.tryParse('${data['departure_at']}'))}',
-                              style: Theme.of(context).textTheme.bodyMedium,
-                            ),
-                            loading: () => const Text('…'),
-                            error: (_, __) => const Text('Not available offline'),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              if (isNight) ...[
+                const SectionHeader(title: 'Tonight'),
+                GlassSurface(child: lastTrainRow),
+              ],
               const SectionHeader(title: 'Exits'),
               exits.when(
                 data: (data) => data.isEmpty
                     ? const EmptyState(icon: Icons.exit_to_app_rounded, message: "We don't have exit info for this station yet.")
-                    : Column(
+                    : MomentList(
                         children: [
                           for (final exit in data)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                              child: GlassSurface(
-                                child: Row(
-                                  children: [
-                                    const IconBadge(icon: Icons.exit_to_app_rounded),
-                                    const SizedBox(width: AppSpacing.md),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text('${exit['name']}', style: Theme.of(context).textTheme.titleMedium),
-                                          if (exit['landmarks'] is List && (exit['landmarks'] as List).isNotEmpty)
-                                            Text((exit['landmarks'] as List).join(', '),
-                                                style: Theme.of(context).textTheme.bodySmall),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
+                            MomentRow(
+                              leading: const IconBadge(icon: Icons.exit_to_app_rounded),
+                              title: Text('${exit['name']}', style: Theme.of(context).textTheme.titleMedium),
+                              subtitle: exit['landmarks'] is List && (exit['landmarks'] as List).isNotEmpty
+                                  ? Text((exit['landmarks'] as List).join(', '),
+                                      style: Theme.of(context).textTheme.bodySmall)
+                                  : null,
                             ),
                         ],
                       ),
                 loading: () => const SizedBox.shrink(),
                 error: (_, __) => const SizedBox.shrink(),
               ),
+              if (!isNight) ...[
+                const SizedBox(height: AppSpacing.xxl),
+                MomentList(children: [lastTrainRow]),
+              ],
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+/// No live arrivals to show — but "no trains" reads as broken to a
+/// first-time user if the WS connection simply hasn't finished (re)joining
+/// yet, so this distinguishes "still connecting" from "genuinely nothing
+/// scheduled".
+class _EmptyArrivals extends ConsumerWidget {
+  const _EmptyArrivals();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final status = ref.watch(wsStatusProvider).valueOrNull;
+    final message = switch (status) {
+      WsStatus.connecting => 'Connecting to live arrivals…',
+      WsStatus.reconnecting => 'Reconnecting to live arrivals…',
+      _ => 'No trains headed this way right now.',
+    };
+    return EmptyState(icon: Icons.train_rounded, message: message);
+  }
+}
+
+/// The favourite-star toggle, kept optimistic: the icon flips the instant
+/// you tap it, the save/remove call happens in the background, and only
+/// then does the favourites provider get invalidated to reconcile with the
+/// server. If the call throws, the optimistic flag reverts.
+class _FavouriteToggle extends ConsumerStatefulWidget {
+  const _FavouriteToggle({required this.stopId});
+
+  final String stopId;
+
+  @override
+  ConsumerState<_FavouriteToggle> createState() => _FavouriteToggleState();
+}
+
+class _FavouriteToggleState extends ConsumerState<_FavouriteToggle> {
+  bool? _optimistic;
+
+  @override
+  Widget build(BuildContext context) {
+    final favourites = ref.watch(favouriteStationsProvider);
+    final serverFavourite = favourites.valueOrNull?.any((f) => f['stop_id'] == widget.stopId) ?? false;
+    final isFavourite = _optimistic ?? serverFavourite;
+
+    return IconButton(
+      icon: Icon(isFavourite ? Icons.star_rounded : Icons.star_outline_rounded,
+          color: isFavourite ? AppColors.warning : null),
+      onPressed: () async {
+        final next = !isFavourite;
+        setState(() => _optimistic = next);
+        final repository = ref.read(favouritesRepositoryProvider);
+        try {
+          if (next) {
+            await repository.save(widget.stopId);
+          } else {
+            await repository.remove(widget.stopId);
+          }
+          ref.invalidate(favouriteStationsProvider);
+        } catch (_) {
+          if (mounted) setState(() => _optimistic = !next);
+        }
+      },
     );
   }
 }

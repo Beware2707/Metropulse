@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -19,6 +21,7 @@ import '../../domain/models/station.dart';
 import '../../domain/models/train.dart';
 import '../../providers/core_providers.dart';
 import '../../providers/live_providers.dart';
+import '../home/home_providers.dart' show favouriteStationsProvider;
 import 'train_animator.dart';
 
 /// The live network map: coloured line geometry, stations, and trains that
@@ -39,21 +42,53 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
   Map<String, Train> _latestTrains = const {};
   bool _downloadingTiles = false;
 
+  /// Null while still checking; true once a saved 'delhi-metro' region is
+  /// confirmed, so the download button can read as "already saved" instead
+  /// of always prompting a first download.
+  bool? _hasOfflineRegion;
+
+  bool _showMapHint = false;
+  Timer? _hintTimer;
+
   static const _trainsSource = 'mp-trains';
   static const _stationsSource = 'mp-stations';
   static const _linesSource = 'mp-lines';
+  static const _offlineRegionName = 'delhi-metro';
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _checkOfflineRegion();
+    if (!ref.read(localStoreProvider).hasSeenMapHint) {
+      _showMapHint = true;
+      _hintTimer = Timer(const Duration(seconds: 4), _dismissMapHint);
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _hintTimer?.cancel();
     _animator.dispose();
     super.dispose();
+  }
+
+  void _dismissMapHint() {
+    _hintTimer?.cancel();
+    if (!mounted || !_showMapHint) return;
+    setState(() => _showMapHint = false);
+    ref.read(localStoreProvider).markMapHintSeen();
+  }
+
+  Future<void> _checkOfflineRegion() async {
+    try {
+      final regions = await getListOfRegions();
+      if (!mounted) return;
+      setState(() => _hasOfflineRegion = regions.any((r) => r.metadata['name'] == _offlineRegionName));
+    } on Exception {
+      if (mounted) setState(() => _hasOfflineRegion = false);
+    }
   }
 
   @override
@@ -91,41 +126,62 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, 0),
-              child: Row(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  GlassSurface(
-                    blur: true,
-                    borderRadius: AppRadius.pillR,
-                    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.md),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.map_rounded, size: 18, color: Theme.of(context).colorScheme.onSurface),
-                        const SizedBox(width: AppSpacing.sm),
-                        Text('Live map', style: Theme.of(context).textTheme.titleSmall),
-                        const SizedBox(width: AppSpacing.sm),
-                        const LiveIndicator(),
-                      ],
-                    ),
-                  ),
-                  const Spacer(),
-                  _downloadingTiles
-                      ? const GlassSurface(
-                          blur: true,
-                          borderRadius: AppRadius.pillR,
-                          padding: EdgeInsets.all(AppSpacing.md),
-                          child: SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                        )
-                      : IconPillButton(
-                          icon: Icons.download_for_offline_rounded,
-                          tooltip: 'Download offline map area',
-                          onPressed: _downloadOfflineTiles,
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      GlassSurface(
+                        blur: true,
+                        borderRadius: AppRadius.pillR,
+                        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.md),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.map_rounded, size: 18, color: Theme.of(context).colorScheme.onSurface),
+                            const SizedBox(width: AppSpacing.sm),
+                            Text('Live map', style: Theme.of(context).textTheme.titleSmall),
+                            const SizedBox(width: AppSpacing.sm),
+                            const LiveIndicator(),
+                          ],
                         ),
+                      ),
+                      const Spacer(),
+                      _downloadingTiles
+                          ? const GlassSurface(
+                              blur: true,
+                              borderRadius: AppRadius.pillR,
+                              padding: EdgeInsets.all(AppSpacing.md),
+                              child: SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                            )
+                          : IconPillButton(
+                              icon: _hasOfflineRegion == true
+                                  ? Icons.offline_pin_rounded
+                                  : Icons.download_for_offline_rounded,
+                              tooltip: _hasOfflineRegion == true
+                                  ? 'Offline map saved — tap to refresh'
+                                  : 'Download offline map area',
+                              onPressed: _downloadOfflineTiles,
+                            ),
+                    ],
+                  ),
+                  if (_showMapHint) ...[
+                    const SizedBox(height: AppSpacing.sm),
+                    GestureDetector(
+                      onTap: _dismissMapHint,
+                      child: GlassSurface(
+                        blur: true,
+                        borderRadius: AppRadius.pillR,
+                        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.sm),
+                        child: Text('Dots are trains, moving live', style: Theme.of(context).textTheme.labelSmall),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -226,6 +282,33 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
 
     _styleReady = true;
     _onTrains(ref.read(liveTrainsProvider));
+    unawaited(_flyToHomeIfKnown(map, bundle));
+  }
+
+  /// A daily commuter opening the map is almost always checking on their own
+  /// line, not the whole network — if a 'Home' favourite is known, start
+  /// there instead of the full-network overview.
+  Future<void> _flyToHomeIfKnown(MapLibreMapController map, OfflineBundle? bundle) async {
+    if (bundle == null) return;
+    List<Map<String, dynamic>> favourites;
+    try {
+      favourites = await ref.read(favouriteStationsProvider.future);
+    } on Exception {
+      return;
+    }
+    if (!mounted) return;
+    Map<String, dynamic>? home;
+    for (final favourite in favourites) {
+      if ('${favourite['label']}'.toLowerCase() == 'home') {
+        home = favourite;
+        break;
+      }
+    }
+    if (home == null) return;
+    final stopId = '${home['stop_id']}';
+    final station = bundle.stations.where((s) => s.stopId == stopId).firstOrNull;
+    if (station == null) return;
+    await map.animateCamera(CameraUpdate.newLatLngZoom(LatLng(station.lat, station.lon), 14));
   }
 
   /// Cache map tiles for the Delhi metro region so the map renders offline.
@@ -243,8 +326,9 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
           minZoom: 9,
           maxZoom: 13,
         ),
-        metadata: {'name': 'delhi-metro'},
+        metadata: {'name': _offlineRegionName},
       );
+      if (mounted) setState(() => _hasOfflineRegion = true);
       messenger.showSnackBar(
           const SnackBar(content: Text('Map saved for offline use!')));
     } on Exception {
@@ -255,21 +339,44 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
     }
   }
 
-  /// Hit-test the trains layer on tap (stable across maplibre_gl versions,
-  /// unlike the feature-tap callback whose signature has churned).
+  /// Hit-test trains, stations, and train clusters on tap (stable across
+  /// maplibre_gl versions, unlike the feature-tap callback whose signature
+  /// has churned). A train opens its live card; a station jumps straight to
+  /// its detail screen; a cluster zooms in on itself rather than requiring a
+  /// manual pinch.
   Future<void> _onMapClick(dynamic point, LatLng latLng) async {
     final map = _map;
     if (map == null) return;
     final features = await map.queryRenderedFeatures(
-      point, ['mp-trains-layer'], null,
+      point,
+      ['mp-trains-layer', 'mp-stations-layer', 'mp-train-clusters'],
+      null,
     );
     if (features.isEmpty) return;
     final first = features.first;
     final properties =
         (first is Map ? first['properties'] : null) as Map<dynamic, dynamic>?;
+
     final vehicleId = properties?['vehicleId']?.toString();
     if (vehicleId != null && vehicleId.isNotEmpty && mounted) {
       _showTrainSheet(vehicleId);
+      return;
+    }
+
+    final stopId = properties?['stopId']?.toString();
+    if (stopId != null && stopId.isNotEmpty && mounted) {
+      context.push('/station/$stopId');
+      return;
+    }
+
+    if (properties?['point_count'] != null) {
+      final geometry = (first is Map ? first['geometry'] : null) as Map<dynamic, dynamic>?;
+      final coordinates = geometry?['coordinates'] as List<dynamic>?;
+      if (coordinates == null || coordinates.length < 2) return;
+      final lon = (coordinates[0] as num).toDouble();
+      final lat = (coordinates[1] as num).toDouble();
+      final currentZoom = map.cameraPosition?.zoom ?? AppConfig.initialZoom;
+      await map.animateCamera(CameraUpdate.newLatLngZoom(LatLng(lat, lon), currentZoom + 2));
     }
   }
 
@@ -317,7 +424,7 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
           for (final station in bundle?.stations ?? const <Station>[])
             {
               'type': 'Feature',
-              'properties': {'name': station.name},
+              'properties': {'name': station.name, 'stopId': station.stopId},
               'geometry': {
                 'type': 'Point',
                 'coordinates': [station.lon, station.lat],
@@ -413,15 +520,23 @@ class _TrainSheet extends ConsumerWidget {
           Wrap(
             spacing: AppSpacing.md,
             runSpacing: AppSpacing.md,
+            // Current/Destination stay full-weight; Speed/Direction recede
+            // (they're trivia next to the Next-stop ETA above, not decisions).
             children: [
               if (train.currentStation != null)
                 StatPill(icon: Icons.my_location_rounded, label: 'Current', value: train.currentStation!.name),
-              if (speed != null)
-                StatPill(icon: Icons.speed_rounded, label: 'Speed', value: '${(speed * 3.6).round()} km/h'),
-              if (train.headsign != null)
-                StatPill(icon: Icons.explore_rounded, label: 'Direction', value: train.headsign!),
               if (train.destination != null)
                 StatPill(icon: Icons.flag_rounded, label: 'Destination', value: train.destination!.name),
+              if (speed != null)
+                Opacity(
+                  opacity: 0.7,
+                  child: StatPill(icon: Icons.speed_rounded, label: 'Speed', value: '${(speed * 3.6).round()} km/h'),
+                ),
+              if (train.headsign != null)
+                Opacity(
+                  opacity: 0.7,
+                  child: StatPill(icon: Icons.explore_rounded, label: 'Direction', value: train.headsign!),
+                ),
             ],
           ),
           if (train.remainingStations.isNotEmpty) ...[

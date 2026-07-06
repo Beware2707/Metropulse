@@ -6,6 +6,7 @@ import '../domain/models/commute_card.dart';
 import '../domain/models/eta.dart';
 import '../domain/models/intelligence.dart';
 import '../domain/models/journey.dart';
+import '../domain/models/replay.dart';
 import '../domain/models/station.dart';
 import '../domain/models/train.dart';
 import 'api_client.dart';
@@ -458,5 +459,31 @@ class IntelligenceRepository {
         .whereType<Map<String, dynamic>>()
         .map(InferredPlace.fromJson)
         .toList(growable: false);
+  }
+}
+
+/// Commute Replay: what a completed trip (or a month of them) actually cost
+/// and saved — Spotify-Wrapped-style, but for the metro.
+class ReplayRepository {
+  ReplayRepository(this._api);
+
+  final ApiClient _api;
+
+  /// The most recently completed trip, replayed. Null when the user hasn't
+  /// completed a journey yet (not an error).
+  Future<TripReplay?> latestTrip() async {
+    try {
+      final response = await _api.dio.get<Map<String, dynamic>>('/api/v1/me/replay/latest-trip');
+      return TripReplay.fromJson(response.data!);
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
+  /// A rolling 30-day summary of the user's completed trips.
+  Future<MonthlyReplay> monthly() async {
+    final response = await _api.dio.get<Map<String, dynamic>>('/api/v1/me/replay/monthly');
+    return MonthlyReplay.fromJson(response.data!);
   }
 }

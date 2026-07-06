@@ -5,11 +5,14 @@ import 'package:go_router/go_router.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
 import '../../core/design/app_colors.dart';
+import '../../core/design/app_motion.dart';
+import '../../core/design/app_radius.dart';
 import '../../core/design/app_spacing.dart';
 import '../../core/widgets/ambient_background.dart';
 import '../../core/widgets/glass_surface.dart';
 import '../../core/widgets/gradient_button.dart';
 import '../../domain/voice_intent.dart';
+import '../home/home_providers.dart';
 import 'voice_assistant_controller.dart';
 
 /// Metro Assistant: a voice-first companion that answers metro-related
@@ -102,6 +105,9 @@ class _VoiceAssistantScreenState extends ConsumerState<VoiceAssistantScreen> {
     setState(() {
       _listening = false;
       _thinking = true;
+      _transcript = text;
+      _response = null;
+      _error = null;
     });
     final intent = parseVoiceIntent(text);
     final answer = await ref.read(voiceAssistantControllerProvider).answer(intent);
@@ -116,11 +122,14 @@ class _VoiceAssistantScreenState extends ConsumerState<VoiceAssistantScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final commuteCard = ref.watch(commuteCardProvider).valueOrNull;
     final statusText = _listening
         ? 'Listening…'
         : _thinking
             ? 'Thinking…'
-            : 'Ask about your journey';
+            : commuteCard != null
+                ? 'Ask about your trip to ${commuteCard.destinationName}'
+                : 'Ask about your journey';
 
     return Scaffold(
       body: AmbientBackground(
@@ -157,7 +166,13 @@ class _VoiceAssistantScreenState extends ConsumerState<VoiceAssistantScreen> {
                         if (_transcript.isNotEmpty)
                           Padding(
                             padding: const EdgeInsets.only(bottom: AppSpacing.lg),
-                            child: GlassSurface(child: Text('"$_transcript"', style: theme.textTheme.titleMedium)),
+                            child: _response != null
+                                ? Text(
+                                    '"$_transcript"',
+                                    style: theme.textTheme.bodySmall
+                                        ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                                  )
+                                : GlassSurface(child: Text('"$_transcript"', style: theme.textTheme.titleMedium)),
                           ),
                         if (_response != null)
                           GlassSurface(
@@ -171,8 +186,12 @@ class _VoiceAssistantScreenState extends ConsumerState<VoiceAssistantScreen> {
                                 Expanded(
                                   child: Text(
                                     _response!,
-                                    style: const TextStyle(
-                                        color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600, height: 1.4),
+                                    style: theme.textTheme.headlineSmall?.copyWith(
+                                      color: Colors.white,
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.w700,
+                                      height: 1.3,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -184,14 +203,13 @@ class _VoiceAssistantScreenState extends ConsumerState<VoiceAssistantScreen> {
                             child: Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
                           ),
                         const SizedBox(height: AppSpacing.xl),
-                        const Wrap(
+                        Wrap(
                           alignment: WrapAlignment.center,
                           spacing: AppSpacing.sm,
                           runSpacing: AppSpacing.sm,
                           children: [
-                            _SamplePrompt('When should I leave?'),
-                            _SamplePrompt('Which coach should I board?'),
-                            _SamplePrompt('What is my next station?'),
+                            for (final prompt in _samplePrompts(ref))
+                              _SamplePrompt(prompt, onTap: _handleFinalTranscript),
                           ],
                         ),
                       ],
@@ -211,20 +229,96 @@ class _VoiceAssistantScreenState extends ConsumerState<VoiceAssistantScreen> {
   }
 }
 
-class _SamplePrompt extends StatelessWidget {
-  const _SamplePrompt(this.text);
+/// Generic prompts shown when the user has an active journey, a known
+/// commute, and a favourite set aren't distinguishing enough — i.e. the
+/// existing fallback set, unchanged.
+const _genericPrompts = [
+  'When should I leave?',
+  "I'm running late",
+  'Which coach should I board?',
+  'What is my next station?',
+];
+
+/// Chooses the four sample prompts based on real app state, most relevant
+/// first: an active journey beats a known commute beats a true cold start,
+/// each falling back to the generic set otherwise. Every prompt here is
+/// confirmed answerable by [VoiceAssistantController] via [parseVoiceIntent].
+List<String> _samplePrompts(WidgetRef ref) {
+  final journey = ref.watch(activeJourneyProvider).valueOrNull;
+  if (journey != null) {
+    return const [
+      'Which coach should I board?',
+      'What is my next station?',
+      'Am I going the right way?',
+      "I'm running late",
+    ];
+  }
+  final commuteCard = ref.watch(commuteCardProvider).valueOrNull;
+  if (commuteCard != null) {
+    return const [
+      'When should I leave?',
+      "I'm running late",
+      'Which coach should I board?',
+      'What is the fare?',
+    ];
+  }
+  final favourites = ref.watch(favouriteStationsProvider).valueOrNull ?? const [];
+  if (favourites.isEmpty) {
+    return const [
+      'How do I get to Rajiv Chowk?',
+      'How do I get to Connaught Place?',
+      "What's the fare to Connaught Place?",
+      'When should I leave?',
+    ];
+  }
+  return _genericPrompts;
+}
+
+/// A tappable example question — tapping it answers immediately, exactly as
+/// if it had been spoken, so the "instant answer, no long conversation"
+/// promise is demonstrable without a working microphone.
+class _SamplePrompt extends StatefulWidget {
+  const _SamplePrompt(this.text, {required this.onTap});
 
   final String text;
+  final ValueChanged<String> onTap;
+
+  @override
+  State<_SamplePrompt> createState() => _SamplePromptState();
+}
+
+class _SamplePromptState extends State<_SamplePrompt> {
+  bool _pressed = false;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(999),
+    final reduceMotion = MediaQuery.of(context).disableAnimations;
+    final content = Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => widget.onTap(widget.text),
+        borderRadius: AppRadius.pillR,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+            borderRadius: AppRadius.pillR,
+          ),
+          child: Text(widget.text, style: Theme.of(context).textTheme.labelMedium),
+        ),
       ),
-      child: Text(text, style: Theme.of(context).textTheme.labelMedium),
+    );
+
+    return GestureDetector(
+      onTapDown: reduceMotion ? null : (_) => setState(() => _pressed = true),
+      onTapUp: reduceMotion ? null : (_) => setState(() => _pressed = false),
+      onTapCancel: reduceMotion ? null : () => setState(() => _pressed = false),
+      child: AnimatedScale(
+        scale: reduceMotion ? 1.0 : (_pressed ? 0.96 : 1.0),
+        duration: AppMotion.fast,
+        curve: AppMotion.standard,
+        child: content,
+      ),
     );
   }
 }
@@ -241,7 +335,7 @@ class _MicButton extends StatefulWidget {
 
 class _MicButtonState extends State<_MicButton> with SingleTickerProviderStateMixin {
   late final AnimationController _pulse =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 1200))..repeat(reverse: true);
+      AnimationController(vsync: this, duration: AppMotion.pulse)..repeat(reverse: true);
 
   @override
   void dispose() {

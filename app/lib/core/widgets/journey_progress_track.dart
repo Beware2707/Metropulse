@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../design/app_motion.dart';
+
 /// The flagship animated journey-progress track: a capsule rail that fills
 /// with a gradient and carries a glowing "you are here" dot which glides
 /// smoothly to its new position whenever `fraction` changes — whether that
@@ -34,8 +36,8 @@ class JourneyProgressTrack extends StatelessWidget {
               ),
               TweenAnimationBuilder<double>(
                 tween: Tween(begin: 0, end: value),
-                duration: const Duration(milliseconds: 900),
-                curve: Curves.easeOutCubic,
+                duration: AppMotion.glide,
+                curve: AppMotion.standard,
                 builder: (context, animated, _) {
                   final fillWidth = (trackWidth * animated).clamp(height, trackWidth);
                   return Stack(
@@ -77,7 +79,7 @@ class _GlowDot extends StatefulWidget {
 
 class _GlowDotState extends State<_GlowDot> with SingleTickerProviderStateMixin {
   late final AnimationController _controller =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 1300))..repeat(reverse: true);
+      AnimationController(vsync: this, duration: AppMotion.pulse)..repeat(reverse: true);
 
   @override
   void dispose() {

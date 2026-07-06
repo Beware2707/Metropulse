@@ -19,6 +19,13 @@ void main() {
     expect(parseVoiceIntent('what time should I leave for work').kind, VoiceIntentKind.whenToLeave);
   });
 
+  test('recognises "I\'m running late" as a distinct intent from "when should I leave"', () {
+    expect(parseVoiceIntent("I'm running late").kind, VoiceIntentKind.runningLate);
+    expect(parseVoiceIntent('running late for my train').kind, VoiceIntentKind.runningLate);
+    expect(parseVoiceIntent('I am behind schedule').kind, VoiceIntentKind.runningLate);
+    expect(parseVoiceIntent('When should I leave?').kind, VoiceIntentKind.whenToLeave);
+  });
+
   test('recognises coach questions', () {
     expect(parseVoiceIntent('Which coach should I board?').kind, VoiceIntentKind.whichCoach);
     expect(parseVoiceIntent('what is the best coach').kind, VoiceIntentKind.whichCoach);

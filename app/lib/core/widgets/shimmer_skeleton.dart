@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../design/app_motion.dart';
 import '../design/app_radius.dart';
 
 /// A moving shimmer-sweep placeholder shown while a section loads — the
@@ -18,7 +19,7 @@ class ShimmerBlock extends StatefulWidget {
 
 class _ShimmerBlockState extends State<ShimmerBlock> with SingleTickerProviderStateMixin {
   late final AnimationController _controller =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 1400))..repeat();
+      AnimationController(vsync: this, duration: AppMotion.pulse)..repeat();
 
   @override
   void dispose() {

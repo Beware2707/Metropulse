@@ -153,6 +153,36 @@ class LocalStore {
     await _box.put('pinned_journeys', jsonEncode(updated));
   }
 
+  // -- dismissed save-journey prompts (per origin/destination pair) --------------
+
+  List<String> get _dismissedSavePromptKeys {
+    final raw = _box.get('dismissed_save_prompts');
+    if (raw == null) return const [];
+    try {
+      return (jsonDecode(raw) as List<dynamic>).map((e) => '$e').toList(growable: false);
+    } on FormatException {
+      return const [];
+    }
+  }
+
+  /// True once the rider has tapped "Not now" for this exact route before —
+  /// so the arrival sheet stops re-asking for a route it already knows the
+  /// answer to.
+  bool hasDismissedSavePrompt({required String originStopId, required String destinationStopId}) =>
+      _dismissedSavePromptKeys.contains('$originStopId>$destinationStopId');
+
+  Future<void> dismissSavePrompt({required String originStopId, required String destinationStopId}) async {
+    final key = '$originStopId>$destinationStopId';
+    final existing = _dismissedSavePromptKeys;
+    if (existing.contains(key)) return;
+    await _box.put('dismissed_save_prompts', jsonEncode([...existing, key]));
+  }
+
+  // -- one-time hints ---------------------------------------------------------------
+
+  bool get hasSeenMapHint => _box.get('has_seen_map_hint') == 'true';
+  Future<void> markMapHintSeen() => _box.put('has_seen_map_hint', 'true');
+
   // -- offline station cache -----------------------------------------------------
 
   OfflineBundle? get cachedBundle {

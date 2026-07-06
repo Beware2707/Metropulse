@@ -51,6 +51,10 @@ final remindersRepositoryProvider = Provider<RemindersRepository>(
   (ref) => RemindersRepository(ref.watch(apiClientProvider)),
 );
 
+final replayRepositoryProvider = Provider<ReplayRepository>(
+  (ref) => ReplayRepository(ref.watch(apiClientProvider)),
+);
+
 /// The offline bundle: cached copy first, silently refreshed when stale.
 final offlineBundleProvider =
     AsyncNotifierProvider<OfflineBundleNotifier, OfflineBundle?>(

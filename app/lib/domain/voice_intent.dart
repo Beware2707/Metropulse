@@ -6,6 +6,7 @@
 enum VoiceIntentKind {
   routeTo,
   whenToLeave,
+  runningLate,
   whichCoach,
   nextStation,
   fareQuery,
@@ -37,6 +38,10 @@ final List<(RegExp, VoiceIntentKind)> _patterns = [
   ),
   (RegExp(r'\b(next station|next stop|where am i)\b'), VoiceIntentKind.nextStation),
   (RegExp(r'\b(which coach|what coach|best coach|coach should i)\b'), VoiceIntentKind.whichCoach),
+  (
+    RegExp(r"\b(running late|i'?m late|behind schedule|late for (my|the) train)\b"),
+    VoiceIntentKind.runningLate,
+  ),
   (
     RegExp(r'\b(when (should|do|can) i leave|what time should i leave|leave now|leave for)\b'),
     VoiceIntentKind.whenToLeave,

@@ -21,6 +21,7 @@ from metropulse.domain.intelligence import (
     SmartRecommendation,
 )
 from metropulse.domain.journey import JourneyPlan, RideLeg
+from metropulse.domain.replay import MonthlyReplay, TripReplay
 
 
 # --- Users -------------------------------------------------------------------
@@ -754,4 +755,71 @@ class InferredPlaceOut(BaseModel):
             confidence=place.confidence,
             sample_size=place.sample_size,
             rationale=place.rationale,
+        )
+
+
+# --- Commute Replay -------------------------------------------------------------
+
+
+class TripReplayOut(BaseModel):
+    """The story of one completed trip — every figure is a documented
+    estimate (see application/intelligence/commute_impact.py), never a live
+    pricing/traffic feed."""
+
+    origin_stop_id: str
+    origin_name: str
+    destination_stop_id: str
+    destination_name: str
+    started_at: datetime
+    ended_at: datetime
+    duration_seconds: float
+    distance_km: float
+    metro_fare_rupees: int
+    estimated_cab_fare_rupees: int
+    money_saved_rupees: int
+    time_saved_seconds: float
+    co2_saved_kg: float
+
+    @classmethod
+    def from_domain(cls, replay: TripReplay) -> "TripReplayOut":
+        """Build from the domain value."""
+        return cls(
+            origin_stop_id=replay.origin_stop_id,
+            origin_name=replay.origin_name,
+            destination_stop_id=replay.destination_stop_id,
+            destination_name=replay.destination_name,
+            started_at=replay.started_at,
+            ended_at=replay.ended_at,
+            duration_seconds=replay.duration_seconds,
+            distance_km=replay.distance_km,
+            metro_fare_rupees=replay.metro_fare_rupees,
+            estimated_cab_fare_rupees=replay.estimated_cab_fare_rupees,
+            money_saved_rupees=replay.money_saved_rupees,
+            time_saved_seconds=replay.time_saved_seconds,
+            co2_saved_kg=replay.co2_saved_kg,
+        )
+
+
+class MonthlyReplayOut(BaseModel):
+    """A rolling-window summary of completed trips — the "This Month" card."""
+
+    period_start: datetime
+    period_end: datetime
+    trip_count: int
+    total_distance_km: float
+    total_time_saved_seconds: float
+    total_money_saved_rupees: int
+    total_co2_saved_kg: float
+
+    @classmethod
+    def from_domain(cls, replay: MonthlyReplay) -> "MonthlyReplayOut":
+        """Build from the domain value."""
+        return cls(
+            period_start=replay.period_start,
+            period_end=replay.period_end,
+            trip_count=replay.trip_count,
+            total_distance_km=replay.total_distance_km,
+            total_time_saved_seconds=replay.total_time_saved_seconds,
+            total_money_saved_rupees=replay.total_money_saved_rupees,
+            total_co2_saved_kg=replay.total_co2_saved_kg,
         )

@@ -32,11 +32,13 @@ class _PrimaryButtonState extends State<PrimaryButton> {
   @override
   Widget build(BuildContext context) {
     final disabled = widget.onPressed == null;
+    final reduceMotion = MediaQuery.of(context).disableAnimations;
     final gradient = widget.gradient ?? AppColors.heroGradientFor();
     final scheme = Theme.of(context).colorScheme;
 
+    final scale = reduceMotion ? 1.0 : (_pressed ? 0.96 : 1.0);
     final child = AnimatedScale(
-      scale: _pressed ? 0.96 : 1.0,
+      scale: scale,
       duration: AppMotion.fast,
       curve: AppMotion.standard,
       child: Container(
@@ -78,17 +80,18 @@ class _PrimaryButtonState extends State<PrimaryButton> {
     );
 
     return GestureDetector(
-      onTapDown: disabled ? null : (_) => setState(() => _pressed = true),
-      onTapUp: disabled ? null : (_) => setState(() => _pressed = false),
-      onTapCancel: disabled ? null : () => setState(() => _pressed = false),
+      onTapDown: disabled || reduceMotion ? null : (_) => setState(() => _pressed = true),
+      onTapUp: disabled || reduceMotion ? null : (_) => setState(() => _pressed = false),
+      onTapCancel: disabled || reduceMotion ? null : () => setState(() => _pressed = false),
       onTap: widget.onPressed,
       child: widget.expand ? SizedBox(width: double.infinity, child: child) : child,
     );
   }
 }
 
-/// The secondary action: a glass pill, same footprint as [PrimaryButton].
-class GhostButton extends StatelessWidget {
+/// The secondary action: a glass pill, same footprint as [PrimaryButton],
+/// with the same press-scale micro-interaction.
+class GhostButton extends StatefulWidget {
   const GhostButton({super.key, required this.label, this.icon, this.onPressed, this.expand = false});
 
   final String label;
@@ -97,8 +100,17 @@ class GhostButton extends StatelessWidget {
   final bool expand;
 
   @override
+  State<GhostButton> createState() => _GhostButtonState();
+}
+
+class _GhostButtonState extends State<GhostButton> {
+  bool _pressed = false;
+
+  @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final reduceMotion = MediaQuery.of(context).disableAnimations;
+    final disabled = widget.onPressed == null;
     final content = Container(
       height: 58,
       padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -106,26 +118,39 @@ class GhostButton extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (icon != null) ...[Icon(icon, size: 20, color: scheme.onSurface), const SizedBox(width: 8)],
-          Text(label, style: TextStyle(fontWeight: FontWeight.w700, color: scheme.onSurface)),
+          if (widget.icon != null) ...[
+            Icon(widget.icon, size: 20, color: scheme.onSurface),
+            const SizedBox(width: 8),
+          ],
+          Text(widget.label, style: TextStyle(fontWeight: FontWeight.w700, color: scheme.onSurface)),
         ],
       ),
     );
-    return Material(
+    final material = Material(
       color: scheme.surfaceContainerHighest,
       shape: RoundedRectangleBorder(borderRadius: AppRadius.pillR, side: BorderSide(color: scheme.outlineVariant)),
       child: InkWell(
         borderRadius: AppRadius.pillR,
-        onTap: onPressed,
-        child: expand ? SizedBox(width: double.infinity, child: content) : content,
+        onTapDown: disabled || reduceMotion ? null : (_) => setState(() => _pressed = true),
+        onTapUp: disabled || reduceMotion ? null : (_) => setState(() => _pressed = false),
+        onTapCancel: disabled || reduceMotion ? null : () => setState(() => _pressed = false),
+        onTap: widget.onPressed,
+        child: widget.expand ? SizedBox(width: double.infinity, child: content) : content,
       ),
+    );
+    return AnimatedScale(
+      scale: reduceMotion ? 1.0 : (_pressed ? 0.96 : 1.0),
+      duration: AppMotion.fast,
+      curve: AppMotion.standard,
+      child: material,
     );
   }
 }
 
 /// A round floating icon button — replaces bare `IconButton` in app bars and
-/// toolbars. `filled: true` gives it the brand gradient treatment.
-class IconPillButton extends StatelessWidget {
+/// toolbars. `filled: true` gives it the brand gradient treatment. Presses
+/// scale down slightly, matching [PrimaryButton] and [GhostButton].
+class IconPillButton extends StatefulWidget {
   const IconPillButton({
     super.key,
     required this.icon,
@@ -140,26 +165,44 @@ class IconPillButton extends StatelessWidget {
   final bool filled;
 
   @override
+  State<IconPillButton> createState() => _IconPillButtonState();
+}
+
+class _IconPillButtonState extends State<IconPillButton> {
+  bool _pressed = false;
+
+  @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final button = Material(
-      color: filled ? null : scheme.surfaceContainerHighest,
+    final reduceMotion = MediaQuery.of(context).disableAnimations;
+    final disabled = widget.onPressed == null;
+    final material = Material(
+      color: widget.filled ? null : scheme.surfaceContainerHighest,
       shape: const CircleBorder(),
       child: Ink(
         decoration:
-            filled ? BoxDecoration(gradient: AppColors.heroGradientFor(), shape: BoxShape.circle) : null,
+            widget.filled ? BoxDecoration(gradient: AppColors.heroGradientFor(), shape: BoxShape.circle) : null,
         child: InkWell(
           customBorder: const CircleBorder(),
-          onTap: onPressed,
+          onTapDown: disabled || reduceMotion ? null : (_) => setState(() => _pressed = true),
+          onTapUp: disabled || reduceMotion ? null : (_) => setState(() => _pressed = false),
+          onTapCancel: disabled || reduceMotion ? null : () => setState(() => _pressed = false),
+          onTap: widget.onPressed,
           child: SizedBox(
             width: 48,
             height: 48,
-            child: Icon(icon, size: 22, color: filled ? Colors.white : scheme.onSurface),
+            child: Icon(widget.icon, size: 22, color: widget.filled ? Colors.white : scheme.onSurface),
           ),
         ),
       ),
     );
-    if (tooltip == null) return button;
-    return Tooltip(message: tooltip!, child: button);
+    final button = AnimatedScale(
+      scale: reduceMotion ? 1.0 : (_pressed ? 0.96 : 1.0),
+      duration: AppMotion.fast,
+      curve: AppMotion.standard,
+      child: material,
+    );
+    if (widget.tooltip == null) return button;
+    return Tooltip(message: widget.tooltip!, child: button);
   }
 }

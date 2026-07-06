@@ -9,21 +9,22 @@ import '../../core/design/app_spacing.dart';
 import '../../core/formatters.dart';
 import '../../core/l10n_ext.dart';
 import '../../core/widgets/ambient_background.dart';
-import '../../core/widgets/async_section.dart';
+import '../../core/widgets/app_bottom_sheet.dart';
 import '../../core/widgets/coach_chip.dart';
-import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/glass_surface.dart';
 import '../../core/widgets/gradient_button.dart';
 import '../../core/widgets/icon_badge.dart';
 import '../../core/widgets/line_chip.dart';
 import '../../core/widgets/live_indicator.dart';
+import '../../core/widgets/moment_row.dart';
 import '../../core/widgets/reveal_animations.dart';
 import '../../core/widgets/search_entry_pill.dart';
-import '../../core/widgets/shimmer_skeleton.dart';
 import '../../domain/fare.dart';
 import '../../domain/home_context.dart';
 import '../../domain/models/commute_card.dart';
+import '../../domain/models/intelligence.dart';
 import '../../domain/models/journey.dart';
+import '../../domain/models/station.dart';
 import '../../providers/core_providers.dart';
 import '../../providers/live_providers.dart';
 import 'home_providers.dart';
@@ -32,14 +33,18 @@ export 'home_providers.dart' show activeJourneyProvider, commuteCardProvider;
 
 final _dayCaptionFormat = DateFormat('EEEE, h:mm a');
 
-/// Home: the commuter dashboard. The commute card answers "when do I leave,
-/// what do I board, which platform/coach, am I delayed" before anything
-/// else; map and planner are one tap away but never the first thing.
+/// Home: Emotion → Decision → Action → Information. A greeting, one massive
+/// search, then a single flowing list of whatever facts are actually true
+/// right now — never a stack of bordered cards competing for attention.
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Hide the "Plan a journey" FAB whenever a journey is already active —
+    // its own banner is the action to take then, not a second route-planning
+    // entry point competing for the same corner of the screen.
+    final hasActiveJourney = ref.watch(activeJourneyProvider).valueOrNull != null;
     return Scaffold(
       extendBodyBehindAppBar: true,
       body: AmbientBackground(
@@ -59,27 +64,23 @@ class HomeScreen extends ConsumerWidget {
                     ..invalidate(nearbyStationsProvider)
                     ..invalidate(weatherProvider);
                 },
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final isWide = constraints.maxWidth >= 720;
-                    return Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 1100),
-                        child: _HomeContent(isWide: isWide),
-                      ),
-                    );
-                  },
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 640),
+                    child: const _HomeContent(),
+                  ),
                 ),
               ),
-              Positioned(
-                right: AppSpacing.lg,
-                bottom: 108,
-                child: PrimaryButton(
-                  label: context.t.journeyPlanCta,
-                  icon: Icons.alt_route_rounded,
-                  onPressed: () => context.push('/planner'),
+              if (!hasActiveJourney)
+                Positioned(
+                  right: AppSpacing.lg,
+                  bottom: 108,
+                  child: PrimaryButton(
+                    label: context.t.journeyPlanCta,
+                    icon: Icons.alt_route_rounded,
+                    onPressed: () => context.push('/planner'),
+                  ),
                 ),
-              ),
             ],
           ),
         ),
@@ -88,10 +89,8 @@ class HomeScreen extends ConsumerWidget {
   }
 }
 
-/// The home screen's opening moment: not a static "Good morning" but a
-/// single resolved fact for right now (leave-in countdown, last-train
-/// countdown, or an explore prompt), so the app already knows what day it
-/// is before the user asks anything.
+/// The opening moment: not a static "Good morning" but a day/time/weather
+/// aware line, so the app already knows what day it is before being asked.
 class _Header extends ConsumerWidget {
   const _Header();
 
@@ -160,199 +159,26 @@ class _Header extends ConsumerWidget {
 }
 
 class _HomeContent extends ConsumerWidget {
-  const _HomeContent({required this.isWide});
-
-  final bool isWide;
+  const _HomeContent();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final journey = ref.watch(activeJourneyProvider).valueOrNull;
 
-    final primaryRaw = <Widget>[
+    final raw = <Widget>[
       const _Header(),
-      const SizedBox(height: AppSpacing.xl),
+      const SizedBox(height: AppSpacing.xxxl),
       SearchEntryPill(hint: 'Where to?', onTap: () => context.push('/search')),
-      if (journey != null) const _ActiveJourneyBanner(),
-      const _CommuteHero(),
-      const _SmartSuggestionCard(),
-      const _AlertsSection(),
-    ];
-    final secondaryRaw = <Widget>[
-      const _FavouritesSection(),
-      const _NearbySection(),
-      const _LastTrainSection(),
-      const _RecentJourneysSection(),
-    ];
-    final primary = [
-      for (var i = 0; i < primaryRaw.length; i++)
-        DelayedReveal(delay: Duration(milliseconds: 40 * i), child: primaryRaw[i]),
-    ];
-    final secondary = [
-      for (var i = 0; i < secondaryRaw.length; i++)
-        DelayedReveal(delay: Duration(milliseconds: 60 * i + 120), child: secondaryRaw[i]),
+      const SizedBox(height: AppSpacing.xxxl),
+      if (journey != null) ...[const _ActiveJourneyBanner(), const SizedBox(height: AppSpacing.xl)],
+      const _MomentsFlow(),
     ];
 
-    if (!isWide) {
-      return ListView(
-        padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, 180),
-        children: [...primary, ...secondary],
-      );
-    }
-    return SingleChildScrollView(
+    return ListView(
       padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, 180),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(flex: 3, child: Column(children: primary)),
-          const SizedBox(width: AppSpacing.lg),
-          Expanded(flex: 2, child: Column(children: secondary)),
-        ],
-      ),
-    );
-  }
-}
-
-// --- Commute hero --------------------------------------------------------------
-
-class _CommuteHero extends ConsumerWidget {
-  const _CommuteHero();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final card = ref.watch(commuteCardProvider);
-    return Padding(
-      padding: const EdgeInsets.only(top: AppSpacing.xl),
-      child: card.when(
-        loading: () => const ShimmerBlock(height: 240, radius: AppRadius.xl),
-        error: (_, __) => EmptyState(
-          icon: Icons.cloud_off_rounded,
-          message: context.t.homeSectionError,
-          actionLabel: context.t.retry,
-          onAction: () => ref.invalidate(commuteCardProvider),
-        ),
-        data: (data) => data == null ? const _SetupCommuteCard() : _CommuteCardView(card: data),
-      ),
-    );
-  }
-}
-
-class _CommuteCardView extends ConsumerWidget {
-  const _CommuteCardView({required this.card});
-
-  final CommuteCard card;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final suggestedPlan = ref.watch(homeSuggestedPlanProvider).valueOrNull;
-    final fare = suggestedPlan == null ? null : estimateFare(suggestedPlan);
-    return Semantics(
-      label: 'Commute card: ${card.originName} to ${card.destinationName}',
-      child: GlassSurface(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: AppColors.heroGradientWide,
-        ),
-        border: false,
-        padding: const EdgeInsets.all(AppSpacing.xxl),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(card.greeting, style: theme.textTheme.titleMedium?.copyWith(color: Colors.white70)),
-            const SizedBox(height: 4),
-            Text(
-              '${card.originName} → ${card.destinationName}',
-              style: theme.textTheme.headlineSmall?.copyWith(color: Colors.white),
-            ),
-            const SizedBox(height: 14),
-            if (card.routeLongName != null) LineChip(label: card.routeLongName!, colorHex: card.routeColor),
-            const SizedBox(height: 22),
-            if (card.leaveInSeconds != null)
-              Text(
-                context.t.homeLeaveIn(minutesLabel(card.leaveInSeconds)),
-                style: theme.textTheme.displaySmall?.copyWith(color: Colors.white),
-              )
-            else
-              Text(context.t.homeNoDepartures, style: theme.textTheme.titleMedium?.copyWith(color: Colors.white)),
-            const SizedBox(height: 22),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                _HeroStat(label: context.t.nextMetro, value: clockTime(card.nextDepartureAt)),
-                _HeroStat(label: context.t.crowding, value: card.crowding),
-                if (card.platformHint != null) _HeroStat(label: context.t.platform, value: card.platformHint!),
-                if (card.recommendedCoach != null)
-                  _HeroStat(label: context.t.journeyCoach, value: '${card.recommendedCoach! + 1}'),
-                _HeroStat(label: context.t.eta, value: minutesLabel(card.travelSeconds)),
-                if (fare != null) _HeroStat(label: 'Fare (est.)', value: '₹${fare.rupees}'),
-                if (card.interchangeNames.isNotEmpty)
-                  _HeroStat(label: context.t.interchange, value: card.interchangeNames.join(', ')),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _HeroStat extends StatelessWidget {
-  const _HeroStat({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.16), borderRadius: AppRadius.mdR),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 180),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(label.toUpperCase(),
-                style: const TextStyle(
-                    color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 0.6)),
-            Text(value,
-                style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SetupCommuteCard extends StatelessWidget {
-  const _SetupCommuteCard();
-
-  @override
-  Widget build(BuildContext context) {
-    return GlassSurface(
-      onTap: () => context.push('/favourites'),
-      child: Row(
-        children: [
-          IconBadge(icon: Icons.add_home_work_rounded, gradient: AppColors.heroGradientFor(), size: 52, iconSize: 26),
-          const SizedBox(width: AppSpacing.lg),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(context.t.homeSetupCommuteTitle, style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 4),
-                Text(context.t.homeSetupCommuteBody, style: Theme.of(context).textTheme.bodyMedium),
-              ],
-            ),
-          ),
-          const Icon(Icons.chevron_right_rounded),
-        ],
-      ),
+      children: [
+        for (var i = 0; i < raw.length; i++) DelayedReveal(delay: Duration(milliseconds: 40 * i), child: raw[i]),
+      ],
     );
   }
 }
@@ -362,338 +188,325 @@ class _ActiveJourneyBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: AppSpacing.lg),
-      child: GlassSurface(
-        gradient: LinearGradient(colors: [AppColors.live.withValues(alpha: 0.92), AppColors.brandBlue.withValues(alpha: 0.92)]),
-        border: false,
-        onTap: () => context.push('/journey'),
-        child: Row(
-          children: [
-            const Icon(Icons.navigation_rounded, color: Colors.white),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(context.t.journeyInProgress,
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16)),
-                  Text(context.t.journeyReturnTap, style: const TextStyle(color: Colors.white70, fontSize: 13)),
-                ],
-              ),
-            ),
-            const Icon(Icons.chevron_right_rounded, color: Colors.white),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// --- Smart suggestion (Metro Intelligence) -----------------------------------------
-
-/// Metro Intelligence's prediction for the commute this user is about to
-/// make, learned from their own journey history. Silently absent (not an
-/// empty state) until there's enough history to learn a pattern from.
-class _SmartSuggestionCard extends ConsumerWidget {
-  const _SmartSuggestionCard();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final prediction = ref.watch(commutePredictionProvider).valueOrNull;
-    if (prediction == null) return const SizedBox.shrink();
-
-    final theme = Theme.of(context);
-    final (confidenceLabel, confidenceColor) = switch (prediction.confidence) {
-      >= 0.75 => ('Confident', AppColors.success),
-      >= 0.4 => ('Learning', AppColors.warning),
-      _ => ('Early guess', AppColors.brandBlue),
-    };
-
-    return Padding(
-      padding: const EdgeInsets.only(top: AppSpacing.lg),
-      child: GlassSurface(
-        onTap: () => context.push(
-          '/planner?origin=${prediction.originStopId}&destination=${prediction.destinationStopId}',
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    return GlassSurface(
+      gradient: LinearGradient(colors: [AppColors.live.withValues(alpha: 0.92), AppColors.brandBlue.withValues(alpha: 0.92)]),
+      border: false,
+      onTap: () => context.push('/journey'),
+      child: Row(
+        children: [
+          const Icon(Icons.navigation_rounded, color: Colors.white),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                IconBadge(icon: Icons.auto_awesome_rounded, gradient: AppColors.heroGradientFor()),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(child: Text('Smart suggestion', style: theme.textTheme.titleMedium)),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: confidenceColor.withValues(alpha: 0.15),
-                    borderRadius: AppRadius.pillR,
-                  ),
-                  child: Text(
-                    confidenceLabel.toUpperCase(),
-                    style: theme.textTheme.labelSmall?.copyWith(color: confidenceColor),
-                  ),
-                ),
+                Text(context.t.journeyInProgress,
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16)),
+                Text(context.t.journeyReturnTap, style: const TextStyle(color: Colors.white70, fontSize: 13)),
               ],
             ),
-            const SizedBox(height: AppSpacing.md),
-            Text('${prediction.originName} → ${prediction.destinationName}',
-                style: theme.textTheme.titleLarge),
-            const SizedBox(height: 4),
-            Text('Usually around ${clockTime(prediction.predictedDepartureAt)}',
-                style: theme.textTheme.bodyMedium),
-            const SizedBox(height: AppSpacing.sm),
-            Text(prediction.basis, style: theme.textTheme.labelSmall),
-            if (prediction.recommendedCoach != null || prediction.recommendedExitName != null) ...[
-              const SizedBox(height: AppSpacing.md),
-              Wrap(
-                spacing: AppSpacing.sm,
-                runSpacing: AppSpacing.sm,
-                children: [
-                  if (prediction.recommendedCoach != null)
-                    CoachChip(coach: prediction.recommendedCoach! + 1, dense: true),
-                  if (prediction.recommendedExitName != null)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surfaceContainerHighest,
-                        borderRadius: AppRadius.pillR,
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.exit_to_app_rounded, size: 14),
-                          const SizedBox(width: 4),
-                          Text(prediction.recommendedExitName!, style: theme.textTheme.labelMedium),
-                        ],
-                      ),
-                    ),
-                ],
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// --- Alerts ---------------------------------------------------------------------
-
-class _AlertsSection extends ConsumerWidget {
-  const _AlertsSection();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    ref.listen(serviceAlertBannerProvider, (_, __) => ref.invalidate(activeAlertsProvider));
-    final alerts = ref.watch(activeAlertsProvider);
-    return AsyncSection<List<Map<String, dynamic>>>(
-      title: context.t.homeLiveAlerts,
-      value: alerts,
-      isEmpty: (data) => data.isEmpty,
-      emptyMessage: context.t.homeNoAlerts,
-      emptyIcon: Icons.verified_rounded,
-      onRetry: () => ref.invalidate(activeAlertsProvider),
-      builder: (context, data) => Column(
-        children: [
-          for (final alert in data)
-            Padding(
-              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-              child: GlassSurface(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    IconBadge(
-                      icon: switch ('${alert['severity']}') {
-                        'severe' => Icons.error_rounded,
-                        'warning' => Icons.warning_rounded,
-                        _ => Icons.info_rounded,
-                      },
-                      color: switch ('${alert['severity']}') {
-                        'severe' => AppColors.danger.withValues(alpha: 0.16),
-                        'warning' => AppColors.warning.withValues(alpha: 0.16),
-                        _ => null,
-                      },
-                      foreground: switch ('${alert['severity']}') {
-                        'severe' => AppColors.danger,
-                        'warning' => AppColors.warning,
-                        _ => null,
-                      },
-                    ),
-                    const SizedBox(width: AppSpacing.md),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('${alert['title']}', style: Theme.of(context).textTheme.titleMedium),
-                          Text('${alert['description']}',
-                              maxLines: 2, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodyMedium),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+          ),
+          const Icon(Icons.chevron_right_rounded, color: Colors.white),
         ],
       ),
     );
   }
 }
 
-// --- Favourites -----------------------------------------------------------------
-
-class _FavouritesSection extends ConsumerWidget {
-  const _FavouritesSection();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final favourites = ref.watch(favouriteStationsProvider);
-    final stations = ref.watch(stationIndexProvider);
-    return AsyncSection<List<Map<String, dynamic>>>(
-      title: context.t.homeFavouriteStations,
-      value: favourites,
-      isEmpty: (data) => data.isEmpty,
-      emptyMessage: context.t.homeNoFavourites,
-      emptyIcon: Icons.star_rounded,
-      onRetry: () => ref.invalidate(favouriteStationsProvider),
-      trailing: IconPillButton(
-        icon: Icons.edit_rounded,
-        tooltip: 'Manage favourites',
-        onPressed: () => context.push('/favourites'),
-      ),
-      builder: (context, data) => SizedBox(
-        height: 96,
-        child: ListView.separated(
-          scrollDirection: Axis.horizontal,
-          itemCount: data.length,
-          separatorBuilder: (_, __) => const SizedBox(width: AppSpacing.md),
-          itemBuilder: (context, index) {
-            final row = data[index];
-            final name = stations['${row['stop_id']}']?.name ?? '${row['stop_id']}';
-            final label = '${row['label'] ?? ''}'.toLowerCase();
-            final icon = switch (label) {
-              'home' => Icons.home_rounded,
-              'work' => Icons.work_rounded,
-              _ => Icons.star_rounded,
-            };
-            return _FavouriteChip(name: name, icon: icon, onTap: () => context.push('/station/${row['stop_id']}'));
-          },
-        ),
-      ),
-    );
-  }
-}
-
-class _FavouriteChip extends StatelessWidget {
-  const _FavouriteChip({required this.name, required this.icon, required this.onTap});
-
-  final String name;
-  final IconData icon;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: SizedBox(
-        width: 76,
-        child: Column(
-          children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(gradient: AppColors.heroGradientFor(), shape: BoxShape.circle),
-              child: Icon(icon, color: Colors.white, size: 24),
-            ),
-            const SizedBox(height: 6),
-            Text(name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// --- Nearby ---------------------------------------------------------------------
-
-class _NearbySection extends ConsumerWidget {
-  const _NearbySection();
+/// Everything that used to be a stack of separately-bordered card sections
+/// (commute, alerts, favourites, nearby, last train, recent journeys) is now
+/// one flowing, divider-separated list. A section that has nothing to say
+/// right now contributes zero rows — it doesn't reserve empty space or show
+/// an empty-state card of its own.
+class _MomentsFlow extends ConsumerWidget {
+  const _MomentsFlow();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final nearby = ref.watch(nearbyStationsProvider);
-    return AsyncSection<NearbyState>(
-      title: context.t.homeNearbyStations,
-      value: nearby,
-      isEmpty: (state) => state is NearbyUnavailable,
-      emptyMessage: context.t.homeLocationOff,
-      emptyIcon: Icons.location_off_rounded,
-      onRetry: () => ref.invalidate(nearbyStationsProvider),
-      builder: (context, state) => switch (state) {
-        NearbyNeedsPermission() => GlassSurface(
-            child: Row(
-              children: [
-                const IconBadge(icon: Icons.location_off_rounded),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(child: Text(context.t.homeLocationOff, style: Theme.of(context).textTheme.bodyMedium)),
-                GhostButton(
-                    label: context.t.homeEnableLocation, onPressed: () => ref.invalidate(nearbyStationsProvider)),
-              ],
-            ),
-          ),
-        NearbyReady(:final stations) => SizedBox(
-            height: 116,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: stations.length,
-              separatorBuilder: (_, __) => const SizedBox(width: AppSpacing.md),
-              itemBuilder: (context, index) {
-                final nearbyStation = stations[index];
-                return _NearbyCard(
-                  name: nearbyStation.station.name,
-                  distance: distanceLabel(nearbyStation.distanceM),
-                  onTap: () => context.push('/station/${nearbyStation.station.stopId}'),
-                );
-              },
-            ),
-          ),
-        NearbyUnavailable() => const SizedBox.shrink(),
+    ref.listen(serviceAlertBannerProvider, (_, __) => ref.invalidate(activeAlertsProvider));
+    final rows = <Widget>[];
+
+    final commute = ref.watch(commuteCardProvider);
+    final prediction = ref.watch(commutePredictionProvider).valueOrNull;
+    commute.when(
+      loading: () {},
+      error: (_, __) {},
+      data: (card) {
+        if (card != null) {
+          rows.add(_CommuteRow(card: card));
+        } else if (prediction != null) {
+          rows.add(_SmartSuggestionRow(prediction: prediction));
+        } else {
+          rows.add(const _SetupCommuteRow());
+        }
       },
     );
+
+    final alerts = ref.watch(activeAlertsProvider).valueOrNull ?? const [];
+    for (final alert in alerts) {
+      rows.add(_AlertRow(alert: alert));
+    }
+
+    final pinned = ref.watch(pinnedJourneysProvider);
+    final stations = ref.watch(stationIndexProvider);
+    for (final journey in pinned) {
+      rows.add(_PinnedJourneyRow(journey: journey, stations: stations));
+    }
+
+    final nearby = ref.watch(nearbyStationsProvider).valueOrNull;
+    if (nearby is NearbyReady && nearby.stations.isNotEmpty) {
+      final closest = nearby.stations.first;
+      rows.add(
+        MomentRow(
+          leading: const IconBadge(icon: Icons.place_rounded),
+          title: Text(closest.station.name, style: Theme.of(context).textTheme.titleMedium),
+          subtitle: Text('${distanceLabel(closest.distanceM)} away', style: Theme.of(context).textTheme.bodyMedium),
+          onTap: () => context.push('/station/${closest.station.stopId}'),
+        ),
+      );
+    } else if (nearby is NearbyNeedsPermission) {
+      rows.add(
+        MomentRow(
+          leading: const IconBadge(icon: Icons.location_off_rounded),
+          title: Text(context.t.homeLocationOff, style: Theme.of(context).textTheme.titleMedium),
+          trailing: GhostButton(
+            label: context.t.homeEnableLocation,
+            onPressed: () => ref.invalidate(nearbyStationsProvider),
+          ),
+        ),
+      );
+    }
+
+    final favourites = ref.watch(favouriteStationsProvider).valueOrNull ?? const [];
+    if (favourites.isNotEmpty) {
+      final names = favourites.map((row) {
+        final label = '${row['label'] ?? ''}'.trim();
+        if (label.isNotEmpty) return label;
+        return stations['${row['stop_id']}']?.name ?? '${row['stop_id']}';
+      }).toList();
+      rows.add(
+        MomentRow(
+          leading: const IconBadge(icon: Icons.star_rounded),
+          title: Text('Favourites', style: Theme.of(context).textTheme.titleMedium),
+          subtitle: Text(names.join(' · '), style: Theme.of(context).textTheme.bodyMedium),
+          onTap: () => context.push('/favourites'),
+        ),
+      );
+    }
+
+    final lastTrain = ref.watch(homeLastTrainProvider).valueOrNull;
+    if (lastTrain != null) {
+      rows.add(_LastTrainRow(info: lastTrain, stations: stations));
+    }
+
+    final recent = ref.watch(recentJourneysProvider).valueOrNull ?? const [];
+    if (recent.isNotEmpty) {
+      rows.add(_RecentJourneyRow(journey: recent.first, stations: stations, hasMore: recent.length > 1));
+    }
+
+    return MomentList(children: rows);
   }
 }
 
-class _NearbyCard extends StatelessWidget {
-  const _NearbyCard({required this.name, required this.distance, required this.onTap});
+// --- Commute / Smart suggestion / Setup ------------------------------------------
 
-  final String name;
-  final String distance;
-  final VoidCallback onTap;
+class _CommuteRow extends StatelessWidget {
+  const _CommuteRow({required this.card});
+
+  final CommuteCard card;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 152,
-      child: GlassSurface(
-        onTap: onTap,
-        padding: const EdgeInsets.all(AppSpacing.md),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const IconBadge(icon: Icons.place_rounded, size: 36, iconSize: 18),
-            const SizedBox(height: AppSpacing.sm),
-            Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleSmall),
-            Text(distance, style: Theme.of(context).textTheme.bodySmall),
-          ],
-        ),
+    final theme = Theme.of(context);
+    final leaveText =
+        card.leaveInSeconds != null ? context.t.homeLeaveIn(minutesLabel(card.leaveInSeconds)) : context.t.homeNoDepartures;
+    return MomentRow(
+      leading: IconBadge(icon: Icons.directions_subway_filled_rounded, gradient: AppColors.heroGradientFor()),
+      title: Text(leaveText, style: theme.textTheme.titleLarge),
+      subtitle: Text('${card.originName} → ${card.destinationName}', style: theme.textTheme.bodyMedium),
+      trailing: card.recommendedCoach != null ? CoachChip(coach: card.recommendedCoach! + 1, dense: true) : null,
+      onTap: () => _showCommuteDetail(context, card),
+    );
+  }
+
+  Future<void> _showCommuteDetail(BuildContext context, CommuteCard card) {
+    return showAppBottomSheet(
+      context,
+      builder: (sheetContext) => Consumer(
+        builder: (sheetContext, ref, __) {
+          final theme = Theme.of(sheetContext);
+          final suggestedPlan = ref.watch(homeSuggestedPlanProvider).valueOrNull;
+          final fare = suggestedPlan == null ? null : estimateFare(suggestedPlan);
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(AppSpacing.xl, AppSpacing.lg, AppSpacing.xl, AppSpacing.xxl),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(card.greeting, style: theme.textTheme.bodyMedium),
+                const SizedBox(height: 4),
+                Text('${card.originName} → ${card.destinationName}', style: theme.textTheme.headlineSmall),
+                if (card.routeLongName != null) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  LineChip(label: card.routeLongName!, colorHex: card.routeColor),
+                ],
+                const SizedBox(height: AppSpacing.lg),
+                MomentList(
+                  children: [
+                    _DetailRow(label: context.t.nextMetro, value: clockTime(card.nextDepartureAt)),
+                    _DetailRow(label: context.t.crowding, value: card.crowding),
+                    if (card.platformHint != null) _DetailRow(label: context.t.platform, value: card.platformHint!),
+                    _DetailRow(label: context.t.eta, value: minutesLabel(card.travelSeconds)),
+                    if (fare != null) _DetailRow(label: 'Fare (est.)', value: '₹${fare.rupees}'),
+                    if (card.interchangeNames.isNotEmpty)
+                      _DetailRow(
+                        label: context.t.interchange,
+                        value: 'Change at ${card.interchangeNames.join(', ')}',
+                      ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                PrimaryButton(
+                  label: 'Plan this route',
+                  icon: Icons.alt_route_rounded,
+                  expand: true,
+                  onPressed: () {
+                    Navigator.of(sheetContext).pop();
+                    sheetContext.push('/planner');
+                  },
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  const _DetailRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return MomentRow(
+      dense: true,
+      title: Text(label, style: theme.textTheme.bodyMedium),
+      trailing: Text(value, style: theme.textTheme.titleSmall),
+    );
+  }
+}
+
+class _SmartSuggestionRow extends StatelessWidget {
+  const _SmartSuggestionRow({required this.prediction});
+
+  final CommutePrediction prediction;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    // Metro Intelligence, quietly: a habit the app has noticed, not a model
+    // confidence score — so the tiers read as "how well-worn is this
+    // routine", never as ML jargon.
+    final (confidenceLabel, confidenceColor) = switch (prediction.confidence) {
+      >= 0.75 => ('Routine', AppColors.success),
+      >= 0.4 => ('Noticed', AppColors.warning),
+      _ => ('Hint', AppColors.brandBlue),
+    };
+    return MomentRow(
+      leading: IconBadge(icon: Icons.insights_rounded, gradient: AppColors.heroGradientFor()),
+      title: Text('${prediction.originName} → ${prediction.destinationName}', style: theme.textTheme.titleLarge),
+      subtitle: Text('Usually around ${clockTime(prediction.predictedDepartureAt)}', style: theme.textTheme.bodyMedium),
+      trailing: Container(
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.xs),
+        decoration: BoxDecoration(color: confidenceColor.withValues(alpha: 0.15), borderRadius: AppRadius.pillR),
+        child: Text(confidenceLabel.toUpperCase(), style: theme.textTheme.labelSmall?.copyWith(color: confidenceColor)),
+      ),
+      onTap: () => context.push('/planner?origin=${prediction.originStopId}&destination=${prediction.destinationStopId}'),
+    );
+  }
+}
+
+class _SetupCommuteRow extends StatelessWidget {
+  const _SetupCommuteRow();
+
+  @override
+  Widget build(BuildContext context) {
+    return MomentRow(
+      leading: IconBadge(icon: Icons.add_home_work_rounded, gradient: AppColors.heroGradientFor()),
+      title: Text(context.t.homeSetupCommuteTitle, style: Theme.of(context).textTheme.titleMedium),
+      subtitle: Text(context.t.homeSetupCommuteBody, style: Theme.of(context).textTheme.bodyMedium),
+      onTap: () => context.push('/favourites'),
+    );
+  }
+}
+
+// --- Alerts ---------------------------------------------------------------------
+
+class _AlertRow extends StatelessWidget {
+  const _AlertRow({required this.alert});
+
+  final Map<String, dynamic> alert;
+
+  @override
+  Widget build(BuildContext context) {
+    final severity = '${alert['severity']}';
+    final row = MomentRow(
+      leading: IconBadge(
+        icon: switch (severity) {
+          'severe' => Icons.error_rounded,
+          'warning' => Icons.warning_rounded,
+          _ => Icons.info_rounded,
+        },
+        color: switch (severity) {
+          'severe' => AppColors.danger.withValues(alpha: 0.16),
+          'warning' => AppColors.warning.withValues(alpha: 0.16),
+          _ => null,
+        },
+        foreground: switch (severity) {
+          'severe' => AppColors.danger,
+          'warning' => AppColors.warning,
+          _ => null,
+        },
+      ),
+      title: Text('${alert['title']}', style: Theme.of(context).textTheme.titleMedium),
+      subtitle: Text('${alert['description']}',
+          maxLines: 2, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodyMedium),
+    );
+    if (severity != 'severe') return row;
+    // A severe alert gets a faint whole-row tint too, not just its icon —
+    // the one moment on Home that should read as unmissable even at a glance.
+    return Container(
+      decoration: BoxDecoration(color: AppColors.danger.withValues(alpha: 0.08), borderRadius: AppRadius.mdR),
+      child: row,
+    );
+  }
+}
+
+// --- Pinned journeys --------------------------------------------------------------
+
+class _PinnedJourneyRow extends StatelessWidget {
+  const _PinnedJourneyRow({required this.journey, required this.stations});
+
+  final Map<String, dynamic> journey;
+  final Map<String, Station> stations;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final originName = stations['${journey['origin_stop_id']}']?.name ?? journey['origin_stop_id'];
+    final destinationName = stations['${journey['destination_stop_id']}']?.name ?? journey['destination_stop_id'];
+    return MomentRow(
+      leading: const IconBadge(icon: Icons.push_pin_rounded),
+      title: Text('${journey['label']}', style: theme.textTheme.titleMedium),
+      subtitle: Text('$originName → $destinationName', style: theme.textTheme.bodyMedium),
+      onTap: () => context.push(
+        '/planner?origin=${journey['origin_stop_id']}&destination=${journey['destination_stop_id']}',
       ),
     );
   }
@@ -701,115 +514,75 @@ class _NearbyCard extends StatelessWidget {
 
 // --- Last train -----------------------------------------------------------------
 
-class _LastTrainSection extends ConsumerWidget {
-  const _LastTrainSection();
+class _LastTrainRow extends ConsumerWidget {
+  const _LastTrainRow({required this.info, required this.stations});
+
+  final Map<String, dynamic> info;
+  final Map<String, Station> stations;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final lastTrain = ref.watch(homeLastTrainProvider);
-    final stations = ref.watch(stationIndexProvider);
-    return AsyncSection<Map<String, dynamic>?>(
-      title: context.t.homeLastTrain,
-      value: lastTrain,
-      isEmpty: (data) => data == null,
-      emptyMessage: context.t.homeNoLastTrain,
-      emptyIcon: Icons.nightlight_rounded,
-      onRetry: () => ref.invalidate(homeLastTrainProvider),
-      builder: (context, data) {
-        final info = data!;
-        final departure = DateTime.tryParse('${info['departure_at']}');
-        final stationName = stations['${info['stop_id']}']?.name ?? '${info['stop_id']}';
-        return GlassSurface(
-          onTap: () => context.push('/station/${info['stop_id']}'),
-          child: Row(
-            children: [
-              const IconBadge(icon: Icons.nightlight_rounded),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('$stationName · ${clockTime(departure)}', style: Theme.of(context).textTheme.titleMedium),
-                    Text('${info['headsign'] ?? info['route_id']}', style: Theme.of(context).textTheme.bodyMedium),
-                  ],
-                ),
-              ),
-              GhostButton(
-                label: 'Remind me',
-                onPressed: () async {
-                  final messenger = ScaffoldMessenger.of(context);
-                  await ref.read(remindersRepositoryProvider).createLastTrain(
-                        stopId: '${info['stop_id']}',
-                        routeId: info['route_id'] as String?,
-                      );
-                  messenger.showSnackBar(
-                    const SnackBar(content: Text("You'll be reminded before it departs.")),
-                  );
-                },
-              ),
-            ],
-          ),
-        );
-      },
+    final theme = Theme.of(context);
+    final departure = DateTime.tryParse('${info['departure_at']}');
+    final stationName = stations['${info['stop_id']}']?.name ?? '${info['stop_id']}';
+    return MomentRow(
+      leading: const IconBadge(icon: Icons.nightlight_rounded),
+      title: Text('$stationName · ${clockTime(departure)}', style: theme.textTheme.titleMedium),
+      subtitle: Text('${info['headsign'] ?? info['route_id']}', style: theme.textTheme.bodyMedium),
+      trailing: GhostButton(
+        label: 'Remind me',
+        onPressed: () async {
+          final messenger = ScaffoldMessenger.of(context);
+          await ref.read(remindersRepositoryProvider).createLastTrain(
+                stopId: '${info['stop_id']}',
+                routeId: info['route_id'] as String?,
+              );
+          messenger.showSnackBar(const SnackBar(content: Text("You'll be reminded before it departs.")));
+        },
+      ),
     );
   }
 }
 
 // --- Recent journeys --------------------------------------------------------------
 
-class _RecentJourneysSection extends ConsumerWidget {
-  const _RecentJourneysSection();
+class _RecentJourneyRow extends StatelessWidget {
+  const _RecentJourneyRow({required this.journey, required this.stations, required this.hasMore});
+
+  final Journey journey;
+  final Map<String, Station> stations;
+  final bool hasMore;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final journeys = ref.watch(recentJourneysProvider);
-    final stations = ref.watch(stationIndexProvider);
-    return AsyncSection<List<Journey>>(
-      title: context.t.homeRecentJourneys,
-      value: journeys,
-      isEmpty: (data) => data.isEmpty,
-      emptyMessage: context.t.homeNoRecentJourneys,
-      emptyIcon: Icons.history_rounded,
-      onRetry: () => ref.invalidate(recentJourneysProvider),
-      trailing: TextButton(onPressed: () => context.push('/journeys/history'), child: const Text('See all')),
-      builder: (context, data) => Column(
-        children: [
-          for (final journey in data)
-            Padding(
-              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-              child: GlassSurface(
-                onTap: () => context.push('/planner'),
-                child: Row(
-                  children: [
-                    IconBadge(
-                      icon: switch (journey.status) {
-                        'completed' => Icons.check_circle_rounded,
-                        'missed' => Icons.error_rounded,
-                        _ => Icons.remove_circle_rounded,
-                      },
-                    ),
-                    const SizedBox(width: AppSpacing.md),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '${stations[journey.originStopId]?.name ?? journey.originStopId}'
-                            ' → '
-                            '${stations[journey.destinationStopId]?.name ?? journey.destinationStopId}',
-                            style: Theme.of(context).textTheme.titleSmall,
-                          ),
-                          Text(journey.status, style: Theme.of(context).textTheme.bodySmall),
-                        ],
-                      ),
-                    ),
-                    const Icon(Icons.chevron_right_rounded),
-                  ],
-                ),
-              ),
-            ),
-        ],
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return MomentRow(
+      leading: IconBadge(
+        icon: switch (journey.status) {
+          'completed' => Icons.check_circle_rounded,
+          'missed' => Icons.error_rounded,
+          _ => Icons.remove_circle_rounded,
+        },
+        color: switch (journey.status) {
+          'completed' => AppColors.success.withValues(alpha: 0.16),
+          'missed' => AppColors.danger.withValues(alpha: 0.16),
+          _ => null,
+        },
+        foreground: switch (journey.status) {
+          'completed' => AppColors.success,
+          'missed' => AppColors.danger,
+          _ => null,
+        },
       ),
+      title: Text(
+        '${stations[journey.originStopId]?.name ?? journey.originStopId}'
+        ' → '
+        '${stations[journey.destinationStopId]?.name ?? journey.destinationStopId}',
+        style: theme.textTheme.titleMedium,
+      ),
+      subtitle: Text(hasMore ? '${journey.status} · see all recent journeys' : journey.status,
+          style: theme.textTheme.bodyMedium),
+      onTap: () => context.push('/journeys/history'),
     );
   }
 }

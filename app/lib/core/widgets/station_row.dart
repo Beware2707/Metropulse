@@ -9,14 +9,35 @@ import 'icon_badge.dart';
 /// A single tappable station result — shared between the full-screen Search
 /// takeover and the in-sheet station picker so both stay visually identical.
 class StationRow extends StatelessWidget {
-  const StationRow({super.key, required this.station, required this.icon, required this.onTap});
+  const StationRow({
+    super.key,
+    required this.station,
+    required this.icon,
+    required this.onTap,
+    this.subtitle,
+    this.subtitleIcon,
+    this.dimmed = false,
+  });
 
   final Station station;
   final IconData icon;
   final void Function(Station) onTap;
 
+  /// An optional caption beneath the station name — "Also known as…" for an
+  /// alias match, "Near…" for a landmark match.
+  final String? subtitle;
+
+  /// A small icon shown before [subtitle] (e.g. a near-me pin for a
+  /// landmark match) — ignored when [subtitle] is null.
+  final IconData? subtitleIcon;
+
+  /// Slightly de-emphasises the title — used for weaker (landmark-only)
+  /// matches so a daily commuter's exact-name hits still read as primary.
+  final bool dimmed;
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.sm),
       child: GlassSurface(
@@ -25,7 +46,31 @@ class StationRow extends StatelessWidget {
           children: [
             IconBadge(icon: icon, color: AppColors.brandBlue.withValues(alpha: 0.14), foreground: AppColors.brandBlue),
             const SizedBox(width: AppSpacing.md),
-            Expanded(child: Text(station.name, style: Theme.of(context).textTheme.titleMedium)),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    station.name,
+                    style: theme.textTheme.titleMedium?.copyWith(color: dimmed ? theme.colorScheme.onSurface.withValues(alpha: 0.72) : null),
+                  ),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 2),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (subtitleIcon != null) ...[
+                          Icon(subtitleIcon, size: 14, color: theme.colorScheme.onSurfaceVariant),
+                          const SizedBox(width: 4),
+                        ],
+                        Flexible(child: Text(subtitle!, style: theme.textTheme.bodySmall)),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
           ],
         ),
       ),

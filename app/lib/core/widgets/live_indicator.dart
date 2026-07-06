@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/ws_client.dart';
 import '../../providers/live_providers.dart';
 import '../design/app_colors.dart';
+import '../design/app_motion.dart';
 import '../design/app_radius.dart';
 
 /// A pulsing dot + label reflecting the WebSocket connection state, inside a
@@ -18,7 +19,7 @@ class LiveIndicator extends ConsumerStatefulWidget {
 class _LiveIndicatorState extends ConsumerState<LiveIndicator>
     with SingleTickerProviderStateMixin {
   late final AnimationController _pulse =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 1100))..repeat(reverse: true);
+      AnimationController(vsync: this, duration: AppMotion.pulse)..repeat(reverse: true);
 
   @override
   void dispose() {

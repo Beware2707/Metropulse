@@ -112,7 +112,18 @@
       "Bash(curl -sL \"https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbY2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8L6tjPQ.ttf\" -o jbm-700.ttf --max-time 20)",
       "Bash(python3 build_moodboard.py)",
       "Bash(python3 -c \"import sys; print\\(sys.platform\\)\")",
-      "Bash(python3 build_moments.py)"
+      "Bash(python3 build_moments.py)",
+      "Bash(python3 build_design_language.py)",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/test_commute_impact.py -q)",
+      "Bash(python -m pytest -q)",
+      "Bash(xargs grep -l \"mergedOfflineRegions\\\\|getListOfRegions\\\\|OfflineRegion \")",
+      "Bash(powershell -c \"Select-String -Path 'C:\\\\Users\\\\riddl\\\\Downloads\\\\Metro\\\\app\\\\lib\\\\providers\\\\core_providers.dart' -Pattern 'favouriteStopIdsProvider|recentSearchIdsProvider'\")",
+      "Bash(xargs grep -l \"OfflineRegion\\\\b\")",
+      "Bash(find / -type d -iname \"maplibre_gl*\" 2>/dev/null)",
+      "Bash(find / -maxdepth 6 -iname \"maplibre_gl*\" -type d 2>/dev/null | head -20; grep -n \"maplibre_gl\" /c/Users/riddl/Downloads/Metro/app/pubspec.lock | head -5)",
+      "Bash(grep -A1 \"^  maplibre_gl:$\")",
+      "Bash(awk '/^  maplibre_gl:$/,/version:/' /c/Users/riddl/Downloads/Metro/app/pubspec.lock)",
+      "Bash(git --no-pager diff --stat app/lib)"
     ]
   }
 }
