@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android blocks plain HTTP by default since API 28. The test backend
+  currently runs on a bare EC2 IP with no TLS certificate (no domain name to
+  issue one against), so cleartext is allowed for that one address only;
+  everything else on the device still defaults to HTTPS-only. Remove this
+  once the backend is served over a real domain with TLS.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">13.206.122.235</domain>
+    </domain-config>
+</network-security-config>

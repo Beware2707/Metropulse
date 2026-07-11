@@ -21,7 +21,7 @@ class GtfsValidationError(MetroPulseError):
 
 
 class FeedFetchError(MetroPulseError):
-    """Raised when the realtime feed cannot be downloaded."""
+    """Raised when a GTFS feed (realtime or static) cannot be downloaded."""
 
 
 class FeedDecodeError(MetroPulseError):

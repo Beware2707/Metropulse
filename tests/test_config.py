@@ -15,6 +15,10 @@ def test_defaults_are_sane() -> None:
     assert settings.poll_interval_seconds == 5.0
     assert settings.stale_after_seconds == 90.0
     assert settings.gtfs_rt_vehicle_positions_url.endswith("VehiclePositions.pb")
+    # Off by default -- see config.Settings.gtfs_static_auto_update_enabled.
+    assert settings.gtfs_static_auto_update_enabled is False
+    assert settings.gtfs_static_url.endswith("staticDMRC/")
+    assert settings.gtfs_static_check_interval_seconds == 86400.0
 
 
 def test_env_parsing(monkeypatch: pytest.MonkeyPatch) -> None:

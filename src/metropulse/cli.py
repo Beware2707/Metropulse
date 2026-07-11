@@ -3,6 +3,10 @@
 Commands:
     python -m metropulse.cli load-static <gtfs.zip>      validate + load into PostgreSQL
     python -m metropulse.cli validate-static <gtfs.zip>  validate only
+    python -m metropulse.cli check-gtfs-update            check DMRC's static feed once, load if changed
+                                                           (NOT read-only: a fresh DB's first run has no
+                                                           prior ETag on record, so it always loads --
+                                                           see check_gtfs_update()'s docstring)
     python -m metropulse.cli run-worker                  run the realtime polling worker
 """
 
@@ -31,10 +35,12 @@ from metropulse.application.intelligence.delay_predictor import DelayPredictionS
 from metropulse.application.intelligence.proactive_scheduler import (
     ProactiveCommuteSchedulerService,
 )
+from metropulse.application.gtfs_static_updater import GtfsStaticUpdateService
 from metropulse.application.realtime_engine import RealtimeEngine, cleanup_history
 from metropulse.application.schedule_position_source import ScheduleEstimatedPositionSource
 from metropulse.infrastructure.claude.client import ClaudeClient
 from metropulse.infrastructure.gemini.client import GeminiClient
+from metropulse.infrastructure.gtfs_static.dmrc_client import DmrcStaticFeedClient
 from metropulse.infrastructure.llm_fallback import MultiProviderLlmClient
 from metropulse.infrastructure.openai.client import OpenAiClient
 from metropulse.infrastructure.redis.stream_bus import RedisStreamConsumer
@@ -42,7 +48,7 @@ from metropulse.infrastructure.redis.vehicle_store import UPDATES_STREAM
 from metropulse.tracing import configure_tracing
 from metropulse.application.static_loader import GtfsStaticLoader
 from metropulse.config import Settings, get_settings
-from metropulse.domain.exceptions import GtfsValidationError
+from metropulse.domain.exceptions import FeedFetchError, GtfsValidationError
 from metropulse.infrastructure.gtfs_rt.client import GtfsRtClient
 from metropulse.logging_config import configure_logging
 from metropulse.wiring import build_http_client, build_resources
@@ -93,6 +99,53 @@ async def validate_static(settings: Settings, zip_path: Path) -> int:
         await resources.close()
 
 
+async def check_gtfs_update(settings: Settings) -> int:
+    """Run one DMRC static feed check-and-maybe-load cycle immediately.
+
+    Manual counterpart to the ``gtfs-static-update`` scheduled job (see
+    ``run_worker``) -- useful for testing/operating the feature without
+    waiting for ``gtfs_static_check_interval_seconds`` to elapse. Runs
+    regardless of ``settings.gtfs_static_auto_update_enabled``, same as
+    ``load-static``/``validate-static`` run regardless of any scheduler
+    setting. Returns a process exit code.
+
+    NOT a read-only check: change detection is a remote ETag compared
+    against the last one this database has on record. The very first run
+    against a fresh database has no prior ETag to compare against, so it
+    is always treated as "changed" and performs a real transactional
+    replace of the static schedule tables -- including superseding any
+    manually-applied override (see data/raw_gtfs/OVERRIDE_NOTES.md) with
+    whatever DMRC's live feed actually contains. Confirm you want that
+    before running this against a database seeded from an overridden
+    dataset for the first time.
+    """
+    resources = build_resources(settings)
+    http = build_http_client(settings)
+    try:
+        service = GtfsStaticUpdateService(
+            DmrcStaticFeedClient(
+                http, settings.gtfs_static_url, max_attempts=settings.fetch_max_attempts
+            ),
+            GtfsStaticLoader(resources.session_factory),
+            resources.session_factory,
+        )
+        try:
+            result = await service.check_for_update()
+        except FeedFetchError as exc:
+            print(f"cannot fetch DMRC static feed: {exc}", file=sys.stderr)
+            return 2
+        if result is None:
+            print("no update applied (feed unchanged, or new data failed validation -- see logs)")
+            return 0
+        print(result.summary())
+        for warning in result.report.warnings:
+            print(warning.render())
+        return 0
+    finally:
+        await http.aclose()
+        await resources.close()
+
+
 async def run_worker(settings: Settings) -> int:
     """Run the realtime polling worker until interrupted."""
     resources = build_resources(settings)
@@ -115,6 +168,20 @@ async def run_worker(settings: Settings) -> int:
         else:
             position_source = ScheduleEstimatedPositionSource(
                 resources.session_factory, resources.commuter.last_train, resources.resolver
+            )
+
+        # gtfs_static_auto_update_enabled gates the periodic DMRC static
+        # feed check entirely -- off by default (see
+        # config.Settings.gtfs_static_auto_update_enabled). None here means
+        # the scheduler job below is simply never registered.
+        gtfs_static_updater: GtfsStaticUpdateService | None = None
+        if settings.gtfs_static_auto_update_enabled:
+            gtfs_static_updater = GtfsStaticUpdateService(
+                DmrcStaticFeedClient(
+                    http, settings.gtfs_static_url, max_attempts=settings.fetch_max_attempts
+                ),
+                GtfsStaticLoader(resources.session_factory),
+                resources.session_factory,
             )
 
         rule_engine = CommuterRuleEngine(
@@ -272,6 +339,15 @@ async def run_worker(settings: Settings) -> int:
             args=[resources.session_factory, settings.analytics_retention_days],
             id="analytics-retention",
         )
+        if gtfs_static_updater is not None:
+            scheduler.add_job(
+                gtfs_static_updater.check_for_update_safe,
+                "interval",
+                seconds=settings.gtfs_static_check_interval_seconds,
+                max_instances=1,
+                coalesce=True,
+                id="gtfs-static-update",
+            )
         scheduler.start()
         logger.info(
             "realtime worker started: polling every %.1fs, staleness threshold %.0fs",
@@ -323,6 +399,15 @@ def build_parser() -> argparse.ArgumentParser:
     validate = sub.add_parser("validate-static", help="validate a GTFS static ZIP")
     validate.add_argument("zip_path", type=Path, help="path to the GTFS static ZIP")
 
+    sub.add_parser(
+        "check-gtfs-update",
+        help=(
+            "check DMRC's static feed once and load it if changed -- NOT read-only: "
+            "a database's first-ever run has no prior ETag to compare, so it always "
+            "loads (see check_gtfs_update()'s docstring)"
+        ),
+    )
+
     sub.add_parser("run-worker", help="run the realtime polling worker")
     return parser
 
@@ -339,6 +424,8 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(load_static(settings, args.zip_path))
     if args.command == "validate-static":
         return asyncio.run(validate_static(settings, args.zip_path))
+    if args.command == "check-gtfs-update":
+        return asyncio.run(check_gtfs_update(settings))
     if args.command == "run-worker":
         try:
             return asyncio.run(run_worker(settings))

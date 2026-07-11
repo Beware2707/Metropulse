@@ -51,6 +51,22 @@ class Settings(BaseSettings):
     # confirmed to actually be Delhi Metro rolling stock.
     gtfs_rt_enabled: bool = False
 
+    # DMRC's static GTFS feed, and an optional background job that
+    # periodically checks it for updates and auto-loads a new one when found
+    # (see application/gtfs_static_updater.py). Off by default: the endpoint
+    # only accepts a POST with a CSRF cookie/token pair, satisfied today by
+    # a documented but unofficial workaround (see
+    # infrastructure/gtfs_static/dmrc_client.py) that could break if DMRC
+    # changes their site -- so this is an explicit opt-in, not something
+    # silently polling a third-party site by default. When enabled, the
+    # worker POSTs to this URL every gtfs_static_check_interval_seconds and
+    # only re-validates/reloads when the response's ETag actually differs
+    # from the last one seen (see infrastructure/db DatasetVersion rows of
+    # kind "gtfs_static_remote_etag").
+    gtfs_static_url: str = "https://otd.delhi.gov.in/data/staticDMRC/"
+    gtfs_static_auto_update_enabled: bool = False
+    gtfs_static_check_interval_seconds: float = Field(default=86400.0, gt=0)
+
     # Realtime engine
     poll_interval_seconds: float = Field(default=5.0, gt=0)
     http_timeout_seconds: float = Field(default=10.0, gt=0)

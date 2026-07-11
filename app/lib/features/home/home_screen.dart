@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -40,11 +42,48 @@ final _dayCaptionFormat = DateFormat('EEEE, h:mm a');
 /// Home: Emotion → Decision → Action → Information. A greeting, one massive
 /// search, then a single flowing list of whatever facts are actually true
 /// right now — never a stack of bordered cards competing for attention.
-class HomeScreen extends ConsumerWidget {
+class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends ConsumerState<HomeScreen> {
+  // The screen's data (commute timing, last train, alerts...) and the
+  // "now" it's judged against are only ever fetched once per provider
+  // build, so without a ticker the whole page freezes at whatever moment
+  // it happened to load until something forces a rebuild -- pull-to-refresh
+  // being the only such trigger otherwise. This keeps "leave in X min" and
+  // similar honest without the user having to ask.
+  Timer? _refreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) => _refresh());
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  void _refresh() {
+    ref
+      ..invalidate(commuteCardProvider)
+      ..invalidate(activeJourneyProvider)
+      ..invalidate(activeAlertsProvider)
+      ..invalidate(recentJourneysProvider)
+      ..invalidate(favouriteStationsProvider)
+      ..invalidate(homeLastTrainProvider)
+      ..invalidate(nearbyStationsProvider)
+      ..invalidate(weatherProvider);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     // Hide the "Plan a journey" FAB whenever a journey is already active —
     // its own banner is the action to take then, not a second route-planning
     // entry point competing for the same corner of the screen.
@@ -57,17 +96,7 @@ class HomeScreen extends ConsumerWidget {
           child: Stack(
             children: [
               RefreshIndicator(
-                onRefresh: () async {
-                  ref
-                    ..invalidate(commuteCardProvider)
-                    ..invalidate(activeJourneyProvider)
-                    ..invalidate(activeAlertsProvider)
-                    ..invalidate(recentJourneysProvider)
-                    ..invalidate(favouriteStationsProvider)
-                    ..invalidate(homeLastTrainProvider)
-                    ..invalidate(nearbyStationsProvider)
-                    ..invalidate(weatherProvider);
-                },
+                onRefresh: () async => _refresh(),
                 child: Center(
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 640),
