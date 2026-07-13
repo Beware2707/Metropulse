@@ -19,6 +19,7 @@ dependencies = [
     "pydantic>=2.7",
     "pydantic-settings>=2.2",
     "tenacity>=8.3",
+    "openpyxl>=3.1",
 ]
 
 [project.optional-dependencies]
@@ -70,6 +71,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["apscheduler.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["openpyxl.*"]
 ignore_missing_imports = true
 
 [tool.coverage.run]

@@ -8,6 +8,7 @@ import '../features/journey_mode/journey_mode_screen.dart';
 import '../features/legal/legal_content.dart';
 import '../features/legal/legal_doc_screen.dart';
 import '../features/map/live_map_screen.dart';
+import '../features/network_map/network_map_screen.dart';
 import '../features/notifications/notifications_screen.dart';
 import '../features/onboarding/onboarding_screen.dart';
 import '../features/planner/journey_planner_screen.dart';
@@ -60,6 +61,13 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/planner',
         builder: (_, state) => JourneyPlannerScreen(
+          initialOriginId: state.uri.queryParameters['origin'],
+          initialDestinationId: state.uri.queryParameters['destination'],
+        ),
+      ),
+      GoRoute(
+        path: '/network-map',
+        builder: (_, state) => NetworkMapScreen(
           initialOriginId: state.uri.queryParameters['origin'],
           initialDestinationId: state.uri.queryParameters['destination'],
         ),

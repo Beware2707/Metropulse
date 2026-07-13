@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
@@ -171,6 +172,34 @@ class StationDetailOut(StationOut):
     """Station detail including the routes serving it."""
 
     routes: list[RouteOut]
+
+
+class StationFacilityOut(BaseModel):
+    """Curated station accessibility + parking facilities."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    stop_id: str
+    station_code: str | None
+    elevated: bool | None
+    toilet: bool | None
+    gate_location: str | None
+    parking_lots: list[dict[str, Any]] | None
+    match_method: str
+
+
+class LastMileRouteOut(BaseModel):
+    """Curated shared-mobility (e-rickshaw) last-mile route."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    route_id: str
+    route_short_name: str | None
+    route_long_name: str | None
+    start_time: str | None
+    end_time: str | None
+    headway_secs: int | None
+    stops: list[dict[str, Any]]
 
 
 class StationListOut(BaseModel):

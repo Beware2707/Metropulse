@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/config.dart';
 import '../../core/design/app_colors.dart';
@@ -171,6 +172,12 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
                       ),
                       const Spacer(),
                       IconPillButton(
+                        icon: Icons.account_tree_rounded,
+                        tooltip: 'Network map (diagram view)',
+                        onPressed: () => context.push('/network-map'),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      IconPillButton(
                         icon: Icons.search_rounded,
                         tooltip: 'Search stations',
                         onPressed: _openStationSearch,
@@ -193,10 +200,8 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
                                 icon: _hasOfflineRegion == true
                                     ? Icons.offline_pin_rounded
                                     : Icons.download_for_offline_rounded,
-                                tooltip: _hasOfflineRegion == true
-                                    ? 'Offline map saved — tap to refresh'
-                                    : 'Download offline map area',
-                                onPressed: _downloadOfflineTiles,
+                                tooltip: 'Offline & maps',
+                                onPressed: _openOfflineOptions,
                               ),
                             ),
                     ],
@@ -386,6 +391,69 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
     final station = await context.push<Station>('/search?mapPicker=true');
     if (station != null && mounted) {
       await _flyToStation(station);
+    }
+  }
+
+  /// The offline/maps menu: cache tiles for the live map, or grab DMRC's
+  /// official network-map PDF for offline reference.
+  void _openOfflineOptions() {
+    showAppBottomSheet<void>(
+      context,
+      builder: (sheetContext) => Padding(
+        padding: const EdgeInsets.fromLTRB(
+            AppSpacing.xl, AppSpacing.lg, AppSpacing.xl, AppSpacing.xxl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Offline & maps', style: Theme.of(sheetContext).textTheme.titleLarge),
+            const SizedBox(height: AppSpacing.md),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(
+                _hasOfflineRegion == true
+                    ? Icons.offline_pin_rounded
+                    : Icons.download_for_offline_rounded,
+              ),
+              title: Text(_hasOfflineRegion == true
+                  ? 'Refresh saved offline area'
+                  : 'Save this area for offline use'),
+              subtitle: const Text('Caches the live map tiles for the Delhi region'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _downloadOfflineTiles();
+              },
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.map_outlined),
+              title: const Text('Official DMRC network map (PDF)'),
+              subtitle: const Text('Opens DMRC\'s official map to view or save'),
+              trailing: const Icon(Icons.open_in_new_rounded, size: 18),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _openDmrcMap();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Open DMRC's own hosted, publicly-downloadable network-map PDF in the
+  /// browser. We link to their official file rather than bundling a copy —
+  /// the map artwork is DMRC's copyright.
+  Future<void> _openDmrcMap() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final ok = await launchUrl(
+      Uri.parse(AppConfig.dmrcNetworkMapUrl),
+      mode: LaunchMode.externalApplication,
+    );
+    if (!ok) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text("Couldn't open the DMRC map — check your connection.")),
+      );
     }
   }
 

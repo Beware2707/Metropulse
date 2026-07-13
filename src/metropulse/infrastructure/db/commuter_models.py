@@ -301,6 +301,56 @@ class CoachExitHint(Base):
     coach_index: Mapped[int] = mapped_column(Integer)
 
 
+class StationFacility(Base):
+    """Station accessibility + parking facilities, curated from a Delhi
+    Transport Stack dataset (dmrc_station_details_with_parking.xlsx) and
+    matched to GTFS stops by normalized name / nearest-coordinate
+    fallback -- see metropulse.application.commuter.station_facility_loader.
+
+    Like station_exits, this is curated reference data, not live commuter
+    data -- a re-run of the loader replaces the table wholesale in a
+    transaction (see the module docstring's rule 1).
+    """
+
+    __tablename__ = "station_facilities"
+
+    id: Mapped[int] = mapped_column(BigIntPk, primary_key=True, autoincrement=True)
+    stop_id: Mapped[str] = mapped_column(String(64), index=True, unique=True)
+    station_code: Mapped[str | None] = mapped_column(String(16))
+    elevated: Mapped[bool | None] = mapped_column(Boolean)
+    toilet: Mapped[bool | None] = mapped_column(Boolean)
+    gate_location: Mapped[str | None] = mapped_column(Text)
+    parking_lots: Mapped[list[dict[str, Any]] | None] = mapped_column(JsonB)
+    match_method: Mapped[str] = mapped_column(String(16))
+
+
+class LastMileRoute(Base):
+    """A shared-mobility (e-rickshaw) last-mile route anchored at a metro
+    station, curated from a Delhi Transport Stack GTFS feed
+    (shared_mobility_gtfs_v1.zip) and matched to GTFS stops by normalized
+    name / nearest-coordinate fallback -- see
+    metropulse.application.commuter.last_mile_loader.
+
+    Curated reference data in its OWN table, deliberately separate from
+    the core GTFS static tables (which get wholesale-replaced whenever
+    DMRC's feed reloads -- see the module docstring's rule 1). A re-run
+    of this loader replaces only this table wholesale in a transaction.
+    """
+
+    __tablename__ = "last_mile_routes"
+
+    id: Mapped[int] = mapped_column(BigIntPk, primary_key=True, autoincrement=True)
+    route_id: Mapped[str] = mapped_column(String(64), index=True, unique=True)
+    hub_stop_id: Mapped[str] = mapped_column(String(64), index=True)
+    hub_match_method: Mapped[str] = mapped_column(String(16))
+    route_short_name: Mapped[str | None] = mapped_column(String(128))
+    route_long_name: Mapped[str | None] = mapped_column(String(255))
+    start_time: Mapped[str | None] = mapped_column(String(8))
+    end_time: Mapped[str | None] = mapped_column(String(8))
+    headway_secs: Mapped[int | None] = mapped_column(Integer)
+    stops: Mapped[list[dict[str, Any]]] = mapped_column(JsonB)
+
+
 class CrowdObservation(Base):
     """Crowding data points from any source: user reports, sensors, models.
 

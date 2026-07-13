@@ -196,6 +196,15 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
                     ),
                   ),
                 const SizedBox(height: AppSpacing.lg),
+                GhostButton(
+                  label: 'View on network map',
+                  icon: Icons.account_tree_rounded,
+                  expand: true,
+                  onPressed: () => context.push(
+                    '/network-map?origin=${_origin!.stopId}&destination=${_destination!.stopId}',
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
                 PrimaryButton(
                   label: "Let's go",
                   icon: Icons.navigation_rounded,

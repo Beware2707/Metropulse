@@ -71,6 +71,30 @@ class StationsRepository {
       return const [];
     }
   }
+
+  Future<Map<String, dynamic>?> facilities(String stopId) async {
+    try {
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/api/v1/stations/$stopId/facilities',
+      );
+      return response.data;
+    } on DioException {
+      return null;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> lastMileRoutes(String stopId) async {
+    try {
+      final response = await _api.dio.get<List<dynamic>>(
+        '/api/v1/stations/$stopId/last-mile',
+      );
+      return (response.data ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .toList();
+    } on DioException {
+      return const [];
+    }
+  }
 }
 
 /// Live-train reads (the WS stream is primary; these back detail screens).

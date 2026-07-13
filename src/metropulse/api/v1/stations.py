@@ -6,7 +6,18 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from metropulse.api.deps import get_session
-from metropulse.api.schemas import RouteOut, StationDetailOut, StationListOut, StationOut
+from metropulse.api.schemas import (
+    LastMileRouteOut,
+    RouteOut,
+    StationDetailOut,
+    StationFacilityOut,
+    StationListOut,
+    StationOut,
+)
+from metropulse.infrastructure.db.commuter_repositories import (
+    LastMileRouteRepository,
+    StationFacilityRepository,
+)
 from metropulse.infrastructure.db.repositories import StopRepository
 
 router = APIRouter(tags=["stations"])
@@ -47,3 +58,30 @@ async def get_station(
         }
     )
     return detail
+
+
+@router.get("/stations/{station_id}/facilities", response_model=StationFacilityOut)
+async def get_station_facilities(
+    station_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> StationFacilityOut:
+    """Curated accessibility + parking facilities for one station."""
+    facility = await StationFacilityRepository(session).get(station_id)
+    if facility is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="no facility data curated for this station",
+        )
+    return StationFacilityOut.model_validate(facility)
+
+
+@router.get("/stations/{station_id}/last-mile", response_model=list[LastMileRouteOut])
+async def get_station_last_mile(
+    station_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> list[LastMileRouteOut]:
+    """Curated shared-mobility (e-rickshaw) last-mile routes hubbed at a
+    station. Unlike /facilities, an empty list (not a 404) is the normal
+    response when no last-mile options are curated for this station."""
+    routes = await LastMileRouteRepository(session).for_station(station_id)
+    return [LastMileRouteOut.model_validate(route) for route in routes]

@@ -24,6 +24,7 @@ from metropulse.infrastructure.db.commuter_models import (
     Feedback,
     Journey,
     JourneyEvent,
+    LastMileRoute,
     LastTrainReminder,
     LeaveHomeReminder,
     LlmDelayRefinement,
@@ -31,6 +32,7 @@ from metropulse.infrastructure.db.commuter_models import (
     PredictedDepartureNotice,
     ServiceAlert,
     StationExit,
+    StationFacility,
     User,
 )
 
@@ -632,6 +634,62 @@ class StationExitRepository:
                 | (CoachExitHint.direction_id.is_(None))
             )
         result = await self._session.execute(stmt)
+        return result.scalars().all()
+
+
+class StationFacilityRepository:
+    """Curated station accessibility/parking facilities.
+
+    Wholesale-replace convention (see the model's docstring): each loader
+    run wipes the table and re-adds every row inside one transaction, so
+    stale rows for stations dropped from a newer dataset can't linger.
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def replace_all(self, rows: Sequence[StationFacility]) -> None:
+        """Delete every existing row and stage the replacement set.
+
+        Caller owns the transaction and commits.
+        """
+        await self._session.execute(delete(StationFacility))
+        self._session.add_all(rows)
+
+    async def get(self, stop_id: str) -> StationFacility | None:
+        """Facility row for a station, or None if none is curated."""
+        result = await self._session.execute(
+            select(StationFacility).where(StationFacility.stop_id == stop_id)
+        )
+        return result.scalar_one_or_none()
+
+
+class LastMileRouteRepository:
+    """Curated shared-mobility (e-rickshaw) last-mile routes.
+
+    Wholesale-replace convention (see the model's docstring): each loader
+    run wipes the table and re-adds every row inside one transaction, so
+    stale routes for hubs dropped from a newer feed can't linger.
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def replace_all(self, rows: Sequence[LastMileRoute]) -> None:
+        """Delete every existing row and stage the replacement set.
+
+        Caller owns the transaction and commits.
+        """
+        await self._session.execute(delete(LastMileRoute))
+        self._session.add_all(rows)
+
+    async def for_station(self, stop_id: str) -> Sequence[LastMileRoute]:
+        """All last-mile routes hubbed at a station, ordered by short name."""
+        result = await self._session.execute(
+            select(LastMileRoute)
+            .where(LastMileRoute.hub_stop_id == stop_id)
+            .order_by(LastMileRoute.route_short_name)
+        )
         return result.scalars().all()
 
 

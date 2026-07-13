@@ -31,6 +31,16 @@ final _exitsProvider = FutureProvider.autoDispose
   return ref.watch(stationsRepositoryProvider).exits(stopId);
 });
 
+final _facilitiesProvider = FutureProvider.autoDispose
+    .family<Map<String, dynamic>?, String>((ref, stopId) async {
+  return ref.watch(stationsRepositoryProvider).facilities(stopId);
+});
+
+final _lastMileProvider = FutureProvider.autoDispose
+    .family<List<Map<String, dynamic>>, String>((ref, stopId) async {
+  return ref.watch(stationsRepositoryProvider).lastMileRoutes(stopId);
+});
+
 /// Per-train ETA for an arrivals-board row, keyed by vehicle id — the same
 /// call `train_detail_screen.dart` and `live_map_screen.dart` make.
 final _arrivalEtaProvider = FutureProvider.autoDispose.family<VehicleEta?, String>((ref, vehicleId) async {
@@ -50,6 +60,8 @@ class StationDetailScreen extends ConsumerWidget {
     final arrivals = ref.watch(arrivalsForStationProvider(stopId));
     final lastTrain = ref.watch(_lastTrainProvider(stopId));
     final exits = ref.watch(_exitsProvider(stopId));
+    final facilities = ref.watch(_facilitiesProvider(stopId));
+    final lastMile = ref.watch(_lastMileProvider(stopId));
 
     // The last-train fact only feels urgent late at night; outside that
     // window it's demoted to a single low-key row near the bottom instead of
@@ -162,6 +174,36 @@ class StationDetailScreen extends ConsumerWidget {
                 loading: () => const SizedBox.shrink(),
                 error: (_, __) => const SizedBox.shrink(),
               ),
+              facilities.when(
+                data: (data) {
+                  if (data == null) return const SizedBox.shrink();
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SectionHeader(title: 'Facilities'),
+                      GlassSurface(child: _FacilitiesContent(data: data)),
+                    ],
+                  );
+                },
+                loading: () => const SizedBox.shrink(),
+                error: (_, __) => const SizedBox.shrink(),
+              ),
+              if (lastMile.hasValue && lastMile.value!.isNotEmpty) ...[
+                const SectionHeader(title: 'Last-mile options'),
+                MomentList(
+                  children: [
+                    for (final route in lastMile.value!)
+                      MomentRow(
+                        leading: const IconBadge(icon: Icons.electric_rickshaw_rounded),
+                        title: Text(
+                          route['route_long_name'] ?? route['route_short_name'] ?? 'Last-mile route',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        subtitle: _LastMileSubtitle(route: route),
+                      ),
+                  ],
+                ),
+              ],
               if (!isNight && lastTrain.hasValue && lastTrain.value != null) ...[
                 const SizedBox(height: AppSpacing.xxl),
                 MomentList(children: [lastTrainRow]),
@@ -171,6 +213,120 @@ class StationDetailScreen extends ConsumerWidget {
         ),
       ),
     );
+  }
+}
+
+/// The 'Facilities' section body: elevated/underground, toilet, gate
+/// location, and parking lots, as curated rows — whichever facts the
+/// backend has data for. The section itself is omitted entirely (see the
+/// `facilities.when` call above) rather than shown empty, unlike Exits.
+class _FacilitiesContent extends StatelessWidget {
+  const _FacilitiesContent({required this.data});
+
+  final Map<String, dynamic> data;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final rows = <Widget>[];
+
+    final elevated = data['elevated'] as bool?;
+    if (elevated != null) {
+      rows.add(MomentRow(
+        leading: IconBadge(
+          icon: elevated ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded,
+        ),
+        title: Text(
+          elevated ? 'Elevated station' : 'Underground station',
+          style: textTheme.titleMedium,
+        ),
+      ));
+    }
+
+    if (data['toilet'] == true) {
+      rows.add(MomentRow(
+        leading: const IconBadge(icon: Icons.wc_rounded),
+        title: Text('Toilet available', style: textTheme.titleMedium),
+      ));
+    }
+
+    final gateLocation = data['gate_location'] as String?;
+    if (gateLocation != null && gateLocation.isNotEmpty) {
+      rows.add(MomentRow(
+        leading: const IconBadge(icon: Icons.signpost_rounded),
+        title: Text(gateLocation, style: textTheme.titleMedium),
+      ));
+    }
+
+    final parkingLots = data['parking_lots'] as List<dynamic>?;
+    if (parkingLots != null && parkingLots.isNotEmpty) {
+      for (final lot in parkingLots.whereType<Map<String, dynamic>>()) {
+        final car = lot['car'] as int?;
+        final cycle = lot['cycle'] as int?;
+        final motorcycle = lot['motorcycle'] as int?;
+        final parts = <String>[
+          if (car != null) '$car cars',
+          if (cycle != null) '$cycle bikes',
+          if (motorcycle != null) '$motorcycle motorcycles',
+        ];
+        final operatorName = lot['operator'] as String?;
+        rows.add(MomentRow(
+          leading: const IconBadge(icon: Icons.local_parking_rounded),
+          title: Text(parts.isEmpty ? 'Parking' : parts.join(' - '), style: textTheme.titleMedium),
+          subtitle: operatorName != null && operatorName.isNotEmpty
+              ? Text('Operated by $operatorName', style: textTheme.bodySmall)
+              : null,
+        ));
+      }
+    }
+
+    return MomentList(children: rows);
+  }
+}
+
+/// The 'Last-mile options' row subtitle: an operating-hours + headway
+/// summary line, followed by a short list of destination stop names (the
+/// route's `stops` array, excluding the hub stop itself at sequence 1).
+class _LastMileSubtitle extends StatelessWidget {
+  const _LastMileSubtitle({required this.route});
+
+  final Map<String, dynamic> route;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
+    final startTime = route['start_time'] as String?;
+    final endTime = route['end_time'] as String?;
+    final headwaySecs = route['headway_secs'] as int?;
+    final hoursParts = <String>[
+      if (startTime != null && endTime != null)
+        'Runs ${startTime.substring(0, 5)}-${endTime.substring(0, 5)}'
+      else if (startTime != null)
+        'From ${startTime.substring(0, 5)}'
+      else if (endTime != null)
+        'Until ${endTime.substring(0, 5)}',
+      if (headwaySecs != null) 'every ${headwaySecs ~/ 60} min',
+    ];
+
+    final stops = (route['stops'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .toList();
+    final destinations = stops.length > 1 ? stops.sublist(1) : const <Map<String, dynamic>>[];
+    final destNames = destinations.take(4).map((s) => '${s['name']}').toList();
+    final remaining = destinations.length - destNames.length;
+
+    final lines = <Widget>[
+      if (hoursParts.isNotEmpty) Text(hoursParts.join(' - '), style: textTheme.bodySmall),
+      if (destNames.isNotEmpty)
+        Text(
+          remaining > 0 ? '${destNames.join(' - ')} +$remaining more' : destNames.join(' - '),
+          style: textTheme.bodySmall,
+        ),
+    ];
+
+    if (lines.isEmpty) return const SizedBox.shrink();
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: lines);
   }
 }
 

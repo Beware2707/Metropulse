@@ -17,6 +17,19 @@ class AppConfig {
 
   static const String appVersion = '1.0.0';
 
+  /// DMRC's official, publicly-downloadable network-map PDF, hosted on DMRC's
+  /// own server. We link out to it (opened in the browser / downloaded from
+  /// DMRC directly) rather than bundling the file — the map artwork is DMRC's
+  /// copyright; linking to their official public download is fine, hosting a
+  /// copy of it ourselves is not. The URL carries a content hash, so it needs
+  /// updating whenever DMRC republishes a new edition (check the "Download
+  /// Map" button on https://delhimetrorail.com/map for the current link).
+  static const String dmrcNetworkMapUrl = String.fromEnvironment(
+    'MP_DMRC_MAP_URL',
+    defaultValue:
+        'https://delhimetrorail.com/static/media/DMRC-NMRC-NCRTC-Network-Map-02.07.2026.06f70dd2.pdf',
+  );
+
   /// Delhi city centre — the initial camera before any data loads.
   static const double initialLat = 28.6139;
   static const double initialLon = 77.2090;

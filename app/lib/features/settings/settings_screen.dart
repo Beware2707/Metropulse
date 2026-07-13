@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/config.dart';
 import '../../core/design/app_colors.dart';
@@ -187,6 +188,15 @@ class SettingsScreen extends ConsumerWidget {
                       ),
               ),
               ListTile(
+                leading: const IconBadge(icon: Icons.map_outlined),
+                title: const Text('Official DMRC network map (PDF)'),
+                subtitle: const Text(
+                  'Opens DMRC\'s official map to view or save for offline reference',
+                ),
+                trailing: const Icon(Icons.open_in_new_rounded, size: 18),
+                onTap: () => _openDmrcMap(context),
+              ),
+              ListTile(
                 leading: IconBadge(
                   icon: Icons.delete_outline_rounded,
                   color: AppColors.danger.withValues(alpha: 0.16),
@@ -269,6 +279,16 @@ class SettingsScreen extends ConsumerWidget {
       await store.saveApiBase(result);
       ref.invalidate(apiBaseProvider);
       ref.invalidate(apiClientProvider);
+    }
+  }
+
+  Future<void> _openDmrcMap(BuildContext context) async {
+    final uri = Uri.parse(AppConfig.dmrcNetworkMapUrl);
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Couldn't open the DMRC map — check your connection.")),
+      );
     }
   }
 

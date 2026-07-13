@@ -7,6 +7,11 @@ Commands:
                                                            (NOT read-only: a fresh DB's first run has no
                                                            prior ETag on record, so it always loads --
                                                            see check_gtfs_update()'s docstring)
+    python -m metropulse.cli load-station-facilities <xlsx>  load curated station accessibility/parking
+                                                           facilities from a Delhi Transport Stack xlsx
+    python -m metropulse.cli load-last-mile <zip_path>    load curated shared-mobility (e-rickshaw)
+                                                           last-mile routes from a Delhi Transport Stack
+                                                           GTFS feed (shared_mobility_gtfs_v1.zip)
     python -m metropulse.cli run-worker                  run the realtime polling worker
 """
 
@@ -26,7 +31,9 @@ import contextlib
 from typing import Any
 
 from metropulse.application.commuter.analytics import purge_analytics
+from metropulse.application.commuter.last_mile_loader import load_last_mile_routes
 from metropulse.application.commuter.rule_engine import CommuterRuleEngine
+from metropulse.application.commuter.station_facility_loader import load_station_facilities
 from metropulse.application.consumers import EtaWarmer, FeedAnalyticsRecorder
 from metropulse.application.intelligence.llm_delay_refiner import (
     LlmDelayRefinementScheduler,
@@ -143,6 +150,66 @@ async def check_gtfs_update(settings: Settings) -> int:
         return 0
     finally:
         await http.aclose()
+        await resources.close()
+
+
+async def load_station_facilities_cmd(settings: Settings, xlsx_path: Path) -> int:
+    """Load curated station accessibility/parking facilities from an xlsx.
+
+    Prints how many facilities were loaded, how many matched by name vs.
+    nearest-coordinate fallback, and -- critically -- every xlsx row that
+    matched neither, with its station_name/station_code, so an operator can
+    see exactly what needs manual attention. This must never be swallowed
+    or summarized away. Returns a process exit code.
+    """
+    resources = build_resources(settings)
+    try:
+        result = await load_station_facilities(resources.session_factory, xlsx_path)
+        print(f"loaded {len(result.facilities)} station facilities")
+        print(f"  matched by name: {result.name_matched}")
+        print(f"  matched by coordinate: {result.coordinate_matched}")
+        if result.unmatched:
+            print(f"  unmatched: {len(result.unmatched)} row(s) need manual attention:")
+            for row in result.unmatched:
+                print(
+                    f"    station_name={row.get('station_name')!r} "
+                    f"station_code={row.get('station_code')!r}"
+                )
+        else:
+            print("  unmatched: 0")
+        return 0
+    finally:
+        await resources.close()
+
+
+async def load_last_mile_cmd(settings: Settings, zip_path: Path) -> int:
+    """Load curated shared-mobility (e-rickshaw) last-mile routes from a
+    Delhi Transport Stack GTFS feed.
+
+    Prints how many routes were loaded, how many hub stops matched by name
+    vs. nearest-coordinate fallback, and -- critically -- every unmatched
+    route's route_id/route_short_name/hub-stop-name, so an operator can see
+    exactly what needs manual attention. This must never be swallowed or
+    summarized away. Returns a process exit code.
+    """
+    resources = build_resources(settings)
+    try:
+        result = await load_last_mile_routes(resources.session_factory, zip_path)
+        print(f"loaded {len(result.routes)} last-mile routes")
+        print(f"  matched by name: {result.name_matched}")
+        print(f"  matched by coordinate: {result.coordinate_matched}")
+        if result.unmatched:
+            print(f"  unmatched: {len(result.unmatched)} route(s) need manual attention:")
+            for row in result.unmatched:
+                print(
+                    f"    route_id={row.get('route_id')!r} "
+                    f"route_short_name={row.get('route_short_name')!r} "
+                    f"hub_stop_name={row.get('hub_stop_name')!r}"
+                )
+        else:
+            print("  unmatched: 0")
+        return 0
+    finally:
         await resources.close()
 
 
@@ -408,6 +475,22 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    load_facilities = sub.add_parser(
+        "load-station-facilities",
+        help="load curated station accessibility/parking facilities from an xlsx",
+    )
+    load_facilities.add_argument(
+        "xlsx_path", type=Path, help="path to the station facilities xlsx"
+    )
+
+    load_last_mile = sub.add_parser(
+        "load-last-mile",
+        help="load curated shared-mobility (e-rickshaw) last-mile routes from a GTFS ZIP",
+    )
+    load_last_mile.add_argument(
+        "zip_path", type=Path, help="path to the shared-mobility GTFS ZIP"
+    )
+
     sub.add_parser("run-worker", help="run the realtime polling worker")
     return parser
 
@@ -426,6 +509,10 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(validate_static(settings, args.zip_path))
     if args.command == "check-gtfs-update":
         return asyncio.run(check_gtfs_update(settings))
+    if args.command == "load-station-facilities":
+        return asyncio.run(load_station_facilities_cmd(settings, args.xlsx_path))
+    if args.command == "load-last-mile":
+        return asyncio.run(load_last_mile_cmd(settings, args.zip_path))
     if args.command == "run-worker":
         try:
             return asyncio.run(run_worker(settings))
