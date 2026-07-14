@@ -20,6 +20,8 @@ import '../../domain/models/eta.dart';
 import '../../providers/core_providers.dart';
 import '../../providers/live_providers.dart';
 import '../favourites/favourites_screen.dart';
+import '../notifications/notifications_providers.dart';
+import 'last_train_reminder.dart';
 
 final _lastTrainProvider = FutureProvider.autoDispose
     .family<Map<String, dynamic>?, String>((ref, stopId) async {
@@ -152,7 +154,15 @@ class StationDetailScreen extends ConsumerWidget {
                 ),
               if (isNight) ...[
                 const SectionHeader(title: 'Tonight'),
-                GlassSurface(child: lastTrainRow),
+                GlassSurface(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      lastTrainRow,
+                      _LastTrainReminderButton(stopId: stopId),
+                    ],
+                  ),
+                ),
               ],
               const SectionHeader(title: 'Exits'),
               exits.when(
@@ -207,6 +217,7 @@ class StationDetailScreen extends ConsumerWidget {
               if (!isNight && lastTrain.hasValue && lastTrain.value != null) ...[
                 const SizedBox(height: AppSpacing.xxl),
                 MomentList(children: [lastTrainRow]),
+                _LastTrainReminderButton(stopId: stopId),
               ],
             ],
           ),
@@ -362,6 +373,119 @@ class _ArrivalEtaSubtitle extends ConsumerWidget {
     final seconds = eta.valueOrNull?.nextStation?.etaSeconds;
     final label = seconds == null ? 'Approaching' : '${minutesLabel(seconds)} away';
     return Text(label, style: Theme.of(context).textTheme.bodySmall);
+  }
+}
+
+/// "Remind me before the last train": posts the backend last-train reminder
+/// (the reliable, cross-device path) AND schedules an on-device local
+/// notification [lastTrainReminderLeadMinutes] before this station's last
+/// boardable departure. Both are best-effort and fail honestly:
+///  - unknown last-train time  -> a plain "can't set a reminder yet" note;
+///  - last train under the lead -> "too soon" note, no false promise;
+///  - notification permission denied / schedule refused -> the backend
+///    reminder still stands, and the SnackBar says the device alert didn't.
+class _LastTrainReminderButton extends ConsumerStatefulWidget {
+  const _LastTrainReminderButton({required this.stopId});
+
+  final String stopId;
+
+  @override
+  ConsumerState<_LastTrainReminderButton> createState() =>
+      _LastTrainReminderButtonState();
+}
+
+class _LastTrainReminderButtonState
+    extends ConsumerState<_LastTrainReminderButton> {
+  bool _busy = false;
+  bool _scheduled = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final data = ref.watch(_lastTrainProvider(widget.stopId)).valueOrNull;
+    final departureAt = DateTime.tryParse('${data?['departure_at']}');
+
+    Widget note(String text) => Padding(
+          padding: const EdgeInsets.only(top: AppSpacing.sm),
+          child: Text(
+            text,
+            style: theme.textTheme.bodySmall
+                ?.copyWith(color: theme.colorScheme.outline),
+          ),
+        );
+
+    if (data == null || departureAt == null) {
+      return note("We can't set a reminder until tonight's last-train time is known.");
+    }
+
+    if (_scheduled) {
+      return note("Reminder set — we'll nudge you $lastTrainReminderLeadMinutes minutes before it leaves.");
+    }
+
+    final fireAt = lastTrainReminderTime(
+      departureAt: departureAt,
+      now: DateTime.now(),
+    );
+    if (fireAt == null) {
+      return note('The last train is under $lastTrainReminderLeadMinutes minutes away — too soon to set a reminder.');
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.sm),
+      child: GhostButton(
+        label: 'Remind me before the last train',
+        icon: Icons.notifications_active_rounded,
+        expand: true,
+        onPressed: _busy ? null : () => _schedule(data, departureAt, fireAt),
+      ),
+    );
+  }
+
+  Future<void> _schedule(
+    Map<String, dynamic> data,
+    DateTime departureAt,
+    DateTime fireAt,
+  ) async {
+    setState(() => _busy = true);
+
+    // The backend reminder is the dependable path (it survives an app
+    // restart); a failure here shouldn't block the on-device attempt.
+    try {
+      await ref.read(remindersRepositoryProvider).createLastTrain(
+            stopId: widget.stopId,
+            routeId: data['route_id'] as String?,
+            directionId: (data['direction_id'] as num?)?.toInt(),
+            leadMinutes: lastTrainReminderLeadMinutes,
+          );
+    } on Exception {
+      // Best-effort; the local notification below is still worth trying.
+    }
+
+    final stationName =
+        ref.read(stationIndexProvider)[widget.stopId]?.name ?? widget.stopId;
+    final scheduled = await ref.read(notificationsServiceProvider).scheduleAt(
+          id: widget.stopId.hashCode & 0x7fffffff,
+          title: 'Last train soon',
+          body:
+              'The last train from $stationName leaves at ${clockTime(departureAt)}. '
+              'Time to head for the platform.',
+          when: fireAt,
+        );
+
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _scheduled = scheduled;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          scheduled
+              ? 'Reminder set for ${clockTime(fireAt)} — $lastTrainReminderLeadMinutes minutes before the last train.'
+              : "We saved your reminder, but couldn't set a device alert — check notification permissions in Settings.",
+        ),
+      ),
+    );
   }
 }
 

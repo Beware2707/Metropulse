@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
@@ -162,6 +163,17 @@ def create_app(
         """The internal ops dashboard (data calls require the admin key)."""
         return DASHBOARD_HTML
 
+    @app.get("/s/{token}", response_class=HTMLResponse, include_in_schema=False)
+    async def shared_journey_page(token: str) -> str:
+        """Minimal self-contained public page for a shared live journey.
+
+        Polls ``/api/v1/shared-journeys/{token}`` every 15s. No external asset
+        or script hosts -- the only outbound link is an 'Open in Maps' anchor.
+        The page carries no user identity; it renders only the PII-free public
+        view.
+        """
+        return _shared_journey_page(token)
+
     @app.get("/metrics", response_class=PlainTextResponse, tags=["ops"])
     async def metrics() -> str:
         """Prometheus text-format metrics (dependency-free exposition)."""
@@ -203,6 +215,122 @@ def create_app(
         return "\n".join(lines) + "\n"
 
     return app
+
+
+_SHARED_JOURNEY_PAGE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Shared journey</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+         margin: 0; padding: 1.5rem; line-height: 1.5; }
+  main { max-width: 32rem; margin: 0 auto; }
+  h1 { font-size: 1.25rem; margin: 0 0 1rem; }
+  .route { font-size: 1.1rem; font-weight: 600; margin: 0.5rem 0 1rem; }
+  .status { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 1rem;
+            font-size: 0.8rem; font-weight: 600; background: #2e7d32; color: #fff; }
+  .status.ended, .status.expired { background: #757575; }
+  .seen, .eta { margin: 0.5rem 0; }
+  .muted { opacity: 0.7; font-size: 0.9rem; }
+  a.maps { display: inline-block; margin-top: 1rem; padding: 0.6rem 1rem;
+           border-radius: 0.5rem; background: #1565c0; color: #fff;
+           text-decoration: none; font-weight: 600; }
+  a.maps[hidden] { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Live journey</h1>
+  <p><span id="status" class="status">…</span></p>
+  <p id="route" class="route">Loading…</p>
+  <p id="seen" class="seen muted"></p>
+  <p id="eta" class="eta muted"></p>
+  <a id="maps" class="maps" hidden rel="noopener noreferrer" target="_blank">Open in Maps</a>
+</main>
+<script>
+(function () {
+  var TOKEN = __TOKEN__;
+  var statusEl = document.getElementById("status");
+  var routeEl = document.getElementById("route");
+  var seenEl = document.getElementById("seen");
+  var etaEl = document.getElementById("eta");
+  var mapsEl = document.getElementById("maps");
+
+  function minutesAgo(iso) {
+    if (!iso) return null;
+    var then = new Date(iso).getTime();
+    if (isNaN(then)) return null;
+    return Math.max(0, Math.round((Date.now() - then) / 60000));
+  }
+
+  function render(d) {
+    var status = d.status || "active";
+    statusEl.textContent = status;
+    statusEl.className = "status " + status;
+    var origin = d.origin_name || "Origin";
+    var dest = d.destination_name || "Destination";
+    routeEl.textContent = origin + " \\u2192 " + dest;
+
+    if (status === "active" && d.last_lat != null && d.last_lon != null) {
+      var near = d.nearest_station ? ("near " + d.nearest_station) : "last position";
+      var mins = minutesAgo(d.updated_at);
+      seenEl.textContent = "Last seen " + near +
+        (mins != null ? ", " + mins + " min ago" : "");
+      mapsEl.href = "https://www.google.com/maps?q=" + d.last_lat + "," + d.last_lon;
+      mapsEl.hidden = false;
+    } else if (status === "active") {
+      seenEl.textContent = "Waiting for the first position update\\u2026";
+      mapsEl.hidden = true;
+    } else {
+      seenEl.textContent = status === "expired"
+        ? "This share link has expired."
+        : "This journey has ended.";
+      mapsEl.hidden = true;
+    }
+
+    etaEl.textContent = d.eta ? ("ETA " + new Date(d.eta).toLocaleTimeString()) : "";
+    return status;
+  }
+
+  var timer = null;
+  function poll() {
+    fetch("/api/v1/shared-journeys/" + encodeURIComponent(TOKEN))
+      .then(function (r) {
+        if (r.status === 404) { throw new Error("notfound"); }
+        return r.json();
+      })
+      .then(function (d) {
+        var status = render(d);
+        if (status !== "active" && timer) { clearInterval(timer); timer = null; }
+      })
+      .catch(function (e) {
+        if (e && e.message === "notfound") {
+          statusEl.textContent = "not found";
+          statusEl.className = "status expired";
+          routeEl.textContent = "This share link is not valid.";
+          seenEl.textContent = "";
+          mapsEl.hidden = true;
+          if (timer) { clearInterval(timer); timer = null; }
+        }
+      });
+  }
+
+  poll();
+  timer = setInterval(poll, 15000);
+})();
+</script>
+</body>
+</html>
+"""
+
+
+def _shared_journey_page(token: str) -> str:
+    """Render the public shared-journey page with the token safely embedded."""
+    return _SHARED_JOURNEY_PAGE.replace("__TOKEN__", json.dumps(token))
 
 
 async def _redis_listener(resources: AppResources) -> None:

@@ -7,6 +7,7 @@ import '../../core/design/app_colors.dart';
 import '../../core/design/app_radius.dart';
 import '../../core/design/app_spacing.dart';
 import '../../core/formatters.dart';
+import '../../core/l10n_ext.dart';
 import '../../core/theme.dart';
 import '../../core/widgets/ambient_background.dart';
 import '../../core/widgets/app_bottom_sheet.dart';
@@ -16,6 +17,7 @@ import '../../core/widgets/icon_badge.dart';
 import '../../core/widgets/line_chip.dart';
 import '../../core/widgets/moment_row.dart';
 import '../../core/widgets/reveal_animations.dart';
+import '../../core/widgets/section_header.dart';
 import '../../data/api_client.dart';
 import '../../data/repositories.dart';
 import '../../domain/crowding.dart';
@@ -25,6 +27,7 @@ import '../../domain/models/station.dart';
 import '../../providers/core_providers.dart';
 import '../home/home_providers.dart';
 import '../shared/station_search_sheet.dart';
+import 'latest_departure.dart';
 
 /// Journey planner: pick two stations, choose a route preference, get a
 /// visualised route with legs/interchanges/fare/timing, and hand the plan
@@ -45,7 +48,7 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
   Station? _origin;
   Station? _destination;
   RoutePreference _preference = RoutePreference.fastest;
-  bool _wheelchairRequested = false;
+  bool _stepFreePreferred = false;
   JourneyPlan? _plan;
   String? _error;
   bool _loading = false;
@@ -114,7 +117,7 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: const Text('Where are you going?'),
+        title: Text(context.t.journeyPlanCta),
       ),
       body: AmbientBackground(
         intensity: 0.6,
@@ -123,7 +126,7 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
             padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 100, AppSpacing.lg, 48),
             children: [
               _EndpointTile(
-                label: 'From',
+                label: context.t.plannerFrom,
                 icon: Icons.trip_origin_rounded,
                 station: _origin,
                 onTap: () => _pick(true),
@@ -139,7 +142,7 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
                 ),
               ),
               _EndpointTile(
-                label: 'To',
+                label: context.t.plannerTo,
                 icon: Icons.flag_rounded,
                 station: _destination,
                 onTap: () => _pick(false),
@@ -151,7 +154,7 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
               const SizedBox(height: AppSpacing.xl),
               _PreferenceSelector(
                 preference: _preference,
-                wheelchairRequested: _wheelchairRequested,
+                stepFreePreferred: _stepFreePreferred,
                 deltaCaption: _preferenceDeltaCaption,
                 onPreferenceChanged: (value) {
                   if (_loading || value == _preference) return;
@@ -163,7 +166,7 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
                   });
                   _planJourney();
                 },
-                onWheelchairToggled: (value) => setState(() => _wheelchairRequested = value),
+                onStepFreeToggled: _onStepFreeToggled,
               ),
               const SizedBox(height: AppSpacing.xl),
               if (_loading)
@@ -186,6 +189,13 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
                   delay: const Duration(milliseconds: 80),
                   child: _RouteVisualization(plan: _plan!),
                 ),
+                if (_stepFreePreferred) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  DelayedReveal(
+                    delay: const Duration(milliseconds: 100),
+                    child: _StepFreeInterchanges(plan: _plan!),
+                  ),
+                ],
                 const SizedBox(height: AppSpacing.lg),
                 for (var i = 0; i < _plan!.legs.length; i++)
                   DelayedReveal(
@@ -195,9 +205,14 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
                       child: _LegTile(leg: _plan!.legs[i]),
                     ),
                   ),
+                LatestDepartureRow(
+                  origin: _origin!.stopId,
+                  destination: _destination!.stopId,
+                ),
+                _OnwardSection(destination: _destination!),
                 const SizedBox(height: AppSpacing.lg),
                 GhostButton(
-                  label: 'View on network map',
+                  label: context.t.plannerViewOnMap,
                   icon: Icons.account_tree_rounded,
                   expand: true,
                   onPressed: () => context.push(
@@ -205,8 +220,23 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
                   ),
                 ),
                 const SizedBox(height: AppSpacing.sm),
+                GhostButton(
+                  label: context.t.plannerBuyTicket,
+                  icon: Icons.confirmation_number_rounded,
+                  expand: true,
+                  onPressed: () => context.push('/tickets'),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                GhostButton(
+                  label: context.t.plannerParkAndRide,
+                  icon: Icons.directions_car_rounded,
+                  expand: true,
+                  onPressed: () =>
+                      context.push('/park-and-ride?destination=${_destination!.stopId}'),
+                ),
+                const SizedBox(height: AppSpacing.sm),
                 PrimaryButton(
-                  label: "Let's go",
+                  label: context.t.plannerLetsGo,
                   icon: Icons.navigation_rounded,
                   expand: true,
                   onPressed: _startJourney,
@@ -238,7 +268,10 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
   Future<void> _pick(bool isOrigin) async {
     final station = await showAppBottomSheet<Station>(
       context,
-      builder: (_) => StationSearchSheet(title: isOrigin ? 'Where from?' : 'Where to?', isOrigin: isOrigin),
+      builder: (_) => StationSearchSheet(
+        title: isOrigin ? context.t.plannerWhereFrom : context.t.homeWhereTo,
+        isOrigin: isOrigin,
+      ),
     );
     if (station == null) return;
     setState(() {
@@ -287,18 +320,39 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
       if (!mounted) return;
       setState(() {
         _error = isConnectivityError(error)
-            ? "You're offline — we can't plan a trip without a connection right now."
-            : "We couldn't find a route between these stations.";
+            ? context.t.plannerOfflineError
+            : context.t.plannerNoRoute;
         _comparingPreferenceChange = false;
       });
     } on Exception {
       if (!mounted) return;
       setState(() {
-        _error = "We couldn't find a route between these stations.";
+        _error = context.t.plannerNoRoute;
         _comparingPreferenceChange = false;
       });
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  /// The "Step-free friendly" toggle nudges routing toward fewer changes —
+  /// which is genuinely fewer stair/interchange transfers — and surfaces the
+  /// interchange stations' facility facts under the plan. It makes no
+  /// wheelchair-accessibility guarantee (see [stepFreeHonestyCaption]).
+  void _onStepFreeToggled(bool value) {
+    final needsReplan =
+        value && _preference != RoutePreference.fewerTransfers && !_loading;
+    setState(() {
+      _stepFreePreferred = value;
+      if (needsReplan) {
+        _previousPlan = _plan;
+        _previousPlanPreference = _preference;
+        _comparingPreferenceChange = true;
+        _preference = RoutePreference.fewerTransfers;
+      }
+    });
+    if (needsReplan && _origin != null && _destination != null) {
+      _planJourney();
     }
   }
 
@@ -315,7 +369,7 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Save this route', style: Theme.of(sheetContext).textTheme.titleLarge),
+              Text(context.t.plannerSaveRoute, style: Theme.of(sheetContext).textTheme.titleLarge),
               const SizedBox(height: AppSpacing.lg),
               TextField(controller: controller, autofocus: true),
               const SizedBox(height: AppSpacing.xl),
@@ -323,7 +377,7 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
                 children: [
                   Expanded(
                     child: GhostButton(
-                      label: 'Cancel',
+                      label: context.t.actionCancel,
                       expand: true,
                       onPressed: () => Navigator.of(sheetContext).pop(),
                     ),
@@ -331,7 +385,7 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
                   const SizedBox(width: AppSpacing.md),
                   Expanded(
                     child: PrimaryButton(
-                      label: 'Save',
+                      label: context.t.actionSave,
                       expand: true,
                       onPressed: () => Navigator.of(sheetContext).pop(controller.text.trim()),
                     ),
@@ -351,7 +405,7 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
         );
     if (mounted) {
       ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Saved to your favourites!')));
+          .showSnackBar(SnackBar(content: Text(context.t.plannerSavedToFavourites)));
     }
   }
 
@@ -400,6 +454,96 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
       ..invalidate(activeJourneyProvider)
       ..invalidate(recentJourneysProvider);
     if (mounted) context.go('/journey');
+  }
+}
+
+/// The destination station's curated last-mile (e-rickshaw) routes — the
+/// same data the station detail screen shows, fetched through the existing
+/// StationsRepository.lastMileRoutes.
+final _onwardLastMileProvider = FutureProvider.autoDispose
+    .family<List<Map<String, dynamic>>, String>((ref, stopId) {
+  return ref.watch(stationsRepositoryProvider).lastMileRoutes(stopId);
+});
+
+/// "Onward from {destination}": the door-to-door story — after the metro
+/// legs, the real e-rickshaw continuations from the destination station.
+/// Renders nothing while loading, on error, or when the station has no
+/// curated last-mile routes.
+class _OnwardSection extends ConsumerWidget {
+  const _OnwardSection({required this.destination});
+
+  final Station destination;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final routes =
+        ref.watch(_onwardLastMileProvider(destination.stopId)).valueOrNull ??
+            const <Map<String, dynamic>>[];
+    if (routes.isEmpty) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SectionHeader(title: 'Onward from ${destination.name}'),
+        MomentList(
+          children: [
+            for (final route in routes)
+              MomentRow(
+                leading: const IconBadge(icon: Icons.electric_rickshaw_rounded),
+                title: Text(
+                  '${route['route_long_name'] ?? route['route_short_name'] ?? 'Last-mile route'}',
+                  style: theme.textTheme.titleMedium,
+                ),
+                subtitle: _OnwardSubtitle(route: route),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// "every N min until HH:MM", then up to three destination stop names (the
+/// route's `stops` array, minus the hub station itself at sequence 1).
+class _OnwardSubtitle extends StatelessWidget {
+  const _OnwardSubtitle({required this.route});
+
+  final Map<String, dynamic> route;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
+    final headwaySecs = route['headway_secs'] as int?;
+    final endTime = route['end_time'] as String?;
+    final serviceParts = <String>[
+      if (headwaySecs != null) 'every ${headwaySecs ~/ 60} min',
+      if (endTime != null && endTime.length >= 5)
+        'until ${endTime.substring(0, 5)}',
+    ];
+
+    final stops = (route['stops'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .toList();
+    final destinations =
+        stops.length > 1 ? stops.sublist(1) : const <Map<String, dynamic>>[];
+    final names = destinations.take(3).map((s) => '${s['name']}').toList();
+    final remaining = destinations.length - names.length;
+
+    final lines = <Widget>[
+      if (serviceParts.isNotEmpty)
+        Text(serviceParts.join(' '), style: textTheme.bodySmall),
+      if (names.isNotEmpty)
+        Text(
+          remaining > 0
+              ? '${names.join(' - ')} +$remaining more'
+              : names.join(' - '),
+          style: textTheme.bodySmall,
+        ),
+    ];
+
+    if (lines.isEmpty) return const SizedBox.shrink();
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: lines);
   }
 }
 
@@ -458,7 +602,7 @@ class _EndpointTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(label.toUpperCase(), style: theme.textTheme.labelSmall),
-                Text(station?.name ?? 'Choose $label station', style: theme.textTheme.titleLarge),
+                Text(station?.name ?? context.t.plannerChooseStation, style: theme.textTheme.titleLarge),
               ],
             ),
           ),
@@ -472,16 +616,16 @@ class _EndpointTile extends StatelessWidget {
 class _PreferenceSelector extends StatelessWidget {
   const _PreferenceSelector({
     required this.preference,
-    required this.wheelchairRequested,
+    required this.stepFreePreferred,
     required this.onPreferenceChanged,
-    required this.onWheelchairToggled,
+    required this.onStepFreeToggled,
     this.deltaCaption,
   });
 
   final RoutePreference preference;
-  final bool wheelchairRequested;
+  final bool stepFreePreferred;
   final ValueChanged<RoutePreference> onPreferenceChanged;
-  final ValueChanged<bool> onWheelchairToggled;
+  final ValueChanged<bool> onStepFreeToggled;
   final String? deltaCaption;
 
   @override
@@ -493,10 +637,10 @@ class _PreferenceSelector extends StatelessWidget {
           spacing: AppSpacing.sm,
           runSpacing: AppSpacing.sm,
           children: [
-            for (final (value, label) in const [
-              (RoutePreference.fastest, 'Fastest'),
-              (RoutePreference.fewerTransfers, 'Fewer changes'),
-              (RoutePreference.lessWalking, 'Less walking'),
+            for (final (value, label) in [
+              (RoutePreference.fastest, context.t.plannerPrefFastest),
+              (RoutePreference.fewerTransfers, context.t.plannerPrefFewerChanges),
+              (RoutePreference.lessWalking, context.t.plannerPrefLessWalking),
             ])
               ChoiceChip(
                 label: Text(label),
@@ -505,10 +649,11 @@ class _PreferenceSelector extends StatelessWidget {
                 onSelected: (_) => onPreferenceChanged(value),
               ),
             FilterChip(
-              label: const Text('Wheelchair-friendly'),
-              selected: wheelchairRequested,
+              avatar: const Icon(Icons.accessible_rounded, size: 18),
+              label: Text(context.t.plannerStepFree),
+              selected: stepFreePreferred,
               showCheckmark: false,
-              onSelected: onWheelchairToggled,
+              onSelected: onStepFreeToggled,
             ),
           ],
         ),
@@ -520,15 +665,112 @@ class _PreferenceSelector extends StatelessWidget {
               style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline),
             ),
           ),
-        if (wheelchairRequested)
-          Padding(
-            padding: const EdgeInsets.only(top: AppSpacing.sm),
-            child: Text(
-              "We don't have wheelchair-accessible routing for this network yet — here's the standard "
-              'route instead.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.error),
-            ),
+      ],
+    );
+  }
+}
+
+/// The honest caveat shown with the step-free facility facts: we nudge toward
+/// fewer changes and less walking (both real), but we have no live lift or
+/// escalator status and make no wheelchair-accessibility guarantee.
+const String stepFreeHonestyCaption =
+    "We prefer routes with fewer changes and less walking. We don't yet have "
+    'live lift or escalator status — check DMRC for step-free access on the day.';
+
+/// Step-free access summary ({stop_id: elevated}) for the curated station
+/// set, from the live facilities/summary endpoint. Empty while loading, on
+/// 404, or offline — the card degrades to "not published" per station.
+final _facilitiesSummaryProvider =
+    FutureProvider.autoDispose<Map<String, bool?>>((ref) {
+  return ref.watch(stationsRepositoryProvider).facilitiesSummary();
+});
+
+/// Under a step-free-preferred plan: the facility facts we actually have for
+/// each interchange station (elevated vs underground), plus the honest
+/// caveat. No fake "wheelchair accessible" guarantee — just the real facts.
+class _StepFreeInterchanges extends ConsumerWidget {
+  const _StepFreeInterchanges({required this.plan});
+
+  final JourneyPlan plan;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final stations = ref.watch(stationIndexProvider);
+    final elevated =
+        ref.watch(_facilitiesSummaryProvider).valueOrNull ?? const {};
+    final ids = plan.interchangeStopIds;
+
+    return GlassSurface(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const IconBadge(icon: Icons.accessible_rounded),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Text(context.t.plannerStepFree, style: theme.textTheme.titleMedium),
+              ),
+            ],
           ),
+          const SizedBox(height: AppSpacing.sm),
+          if (ids.isEmpty)
+            Text(
+              'This route has no interchanges — one train, no changes to make.',
+              style: theme.textTheme.bodyMedium,
+            )
+          else
+            for (final id in ids)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+                child: _InterchangeFact(
+                  name: stations[id]?.name ?? id,
+                  elevated: elevated[id],
+                ),
+              ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            stepFreeHonestyCaption,
+            style: theme.textTheme.bodySmall
+                ?.copyWith(color: theme.colorScheme.outline),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One interchange station's real, published level fact: elevated,
+/// underground, or "not published" when DMRC hasn't said (never guessed).
+class _InterchangeFact extends StatelessWidget {
+  const _InterchangeFact({required this.name, required this.elevated});
+
+  final String name;
+  final bool? elevated;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final (icon, fact) = switch (elevated) {
+      true => (Icons.arrow_upward_rounded, 'Elevated station'),
+      false => (Icons.arrow_downward_rounded, 'Underground station'),
+      null => (Icons.help_outline_rounded, 'Level not published — check on the day'),
+    };
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 18, color: theme.colorScheme.outline),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(name, style: theme.textTheme.titleSmall),
+              Text(fact, style: theme.textTheme.bodySmall),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -558,7 +800,7 @@ class _PlanSummary extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('TRAVEL TIME',
+                Text(context.t.plannerTravelTime,
                     style: theme.textTheme.labelSmall?.copyWith(color: Colors.white70)),
                 Text(minutesLabel(plan.expectedTravelSeconds),
                     style: theme.textTheme.displaySmall?.copyWith(color: Colors.white)),
@@ -567,11 +809,11 @@ class _PlanSummary extends StatelessWidget {
                   spacing: 10,
                   runSpacing: 10,
                   children: [
-                    _MiniStat(label: 'Arrive', value: clockTime(plan.expectedArrivalAt)),
-                    _MiniStat(label: 'Fare (est.)', value: '₹${fare.rupees}'),
-                    _MiniStat(label: 'Changes', value: '${plan.interchangeCount}'),
+                    _MiniStat(label: context.t.plannerStatArrive, value: clockTime(plan.expectedArrivalAt)),
+                    _MiniStat(label: context.t.fareEstimate, value: '₹${fare.rupees}'),
+                    _MiniStat(label: context.t.plannerStatChanges, value: '${plan.interchangeCount}'),
                     if (plan.walkingDistanceM > 0)
-                      _MiniStat(label: 'Walking', value: distanceLabel(plan.walkingDistanceM)),
+                      _MiniStat(label: context.t.plannerStatWalking, value: distanceLabel(plan.walkingDistanceM)),
                   ],
                 ),
               ],

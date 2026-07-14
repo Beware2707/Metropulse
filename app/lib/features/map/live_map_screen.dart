@@ -31,7 +31,7 @@ import '../home/home_providers.dart' show favouriteStationsProvider;
 import 'train_animator.dart';
 
 /// Explore is the 3rd of 4 shell tabs (Home, Journey, Explore, You) — see
-/// `RootShell.destinations`.
+/// `RootShell`.
 const _exploreTabIndex = 2;
 
 /// The live network map: coloured line geometry, stations, and trains that

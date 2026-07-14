@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable, Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,9 +11,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from metropulse.domain.entities import utcnow
 from metropulse.domain.events import ServiceAlertCreated
 from metropulse.domain.exceptions import NotTrackedError, UnknownEntityError
-from metropulse.infrastructure.db.commuter_models import DestinationAlert, ServiceAlert
+from metropulse.infrastructure.db.commuter_models import (
+    DestinationAlert,
+    RiderReport,
+    ServiceAlert,
+)
 from metropulse.infrastructure.db.commuter_repositories import (
     DestinationAlertRepository,
+    RiderReportRepository,
     ServiceAlertRepository,
 )
 from metropulse.infrastructure.db.repositories import StopRepository
@@ -21,6 +26,7 @@ from metropulse.infrastructure.redis.event_publisher import RedisDomainEventPubl
 from metropulse.infrastructure.redis.vehicle_store import RedisVehicleStore
 
 SEVERITIES = ("info", "warning", "severe")
+REPORT_CATEGORIES = ("delay", "crowding", "closure", "other")
 
 
 class DestinationAlertService:
@@ -164,6 +170,57 @@ class ServiceAlertService:
         return await ServiceAlertRepository(session).list_active(
             now or utcnow(), route_id=route_id, stop_id=stop_id
         )
+
+
+class RiderReportService:
+    """Community-sourced disruption reports.
+
+    Deliberately separate from :class:`ServiceAlertService`: these rows are
+    ``source='rider'`` and ``verified=False`` -- unverified crowd signals kept
+    distinct from authoritative operator alerts. The public read dedupes and
+    counts them by (stop_id, category) within a recent window; the reporting
+    user id is stored for moderation only and never surfaced.
+    """
+
+    async def create(
+        self,
+        session: AsyncSession,
+        user_id: str,
+        *,
+        message: str,
+        stop_id: str | None = None,
+        route_id: str | None = None,
+        category: str = "other",
+    ) -> RiderReport:
+        """Record a rider report.
+
+        Raises ``ValueError`` for an unknown category or an out-of-range
+        message length (1..280).
+        """
+        if category not in REPORT_CATEGORIES:
+            raise ValueError(f"category must be one of {REPORT_CATEGORIES}")
+        if not 1 <= len(message) <= 280:
+            raise ValueError("message must be 1..280 characters")
+        report = RiderReport(
+            user_id=user_id,
+            stop_id=stop_id,
+            route_id=route_id,
+            message=message,
+            category=category,
+            source="rider",
+            verified=False,
+            reported_at=utcnow(),
+        )
+        RiderReportRepository(session).add(report)
+        await session.flush()
+        return report
+
+    async def recent(
+        self, session: AsyncSession, since_minutes: int
+    ) -> list[tuple[RiderReport, int]]:
+        """Recent reports deduped/counted by (stop_id, category), newest first."""
+        since = utcnow() - timedelta(minutes=since_minutes)
+        return await RiderReportRepository(session).windowed_counted(since)
 
 
 def to_dict(alert: ServiceAlert) -> dict[str, Any]:

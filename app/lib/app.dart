@@ -86,6 +86,7 @@ class _MetroPulseAppState extends ConsumerState<MetroPulseApp>
     final highContrast = ref.watch(highContrastProvider);
     final dynamicColorEnabled = ref.watch(dynamicColorEnabledProvider);
     final textScale = ref.watch(textScaleFactorProvider);
+    final locale = ref.watch(localeProvider);
 
     // Once the socket comes back up after a drop, refresh the REST-backed
     // data that has no push channel of its own (a one-shot FutureProvider
@@ -122,6 +123,7 @@ class _MetroPulseAppState extends ConsumerState<MetroPulseApp>
           ),
           themeMode: themeMode,
           routerConfig: router,
+          locale: locale,
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           builder: (context, child) {

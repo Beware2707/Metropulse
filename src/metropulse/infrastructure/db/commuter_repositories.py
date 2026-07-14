@@ -30,7 +30,9 @@ from metropulse.infrastructure.db.commuter_models import (
     LlmDelayRefinement,
     Notification,
     PredictedDepartureNotice,
+    RiderReport,
     ServiceAlert,
+    SharedJourney,
     StationExit,
     StationFacility,
     User,
@@ -548,6 +550,78 @@ class JourneyRepository:
         return result.scalars().all()
 
 
+class SharedJourneyRepository:
+    """Public token-addressed shares of live journeys."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    def add(self, share: SharedJourney) -> None:
+        """Stage a new share."""
+        self._session.add(share)
+
+    async def by_token(self, token: str) -> SharedJourney | None:
+        """Share by its public token, or None."""
+        result = await self._session.execute(
+            select(SharedJourney).where(SharedJourney.token == token)
+        )
+        return result.scalar_one_or_none()
+
+    async def live_for_journey(
+        self, journey_id: int, now: datetime
+    ) -> SharedJourney | None:
+        """The still-unexpired share for a journey, newest first, if any."""
+        result = await self._session.execute(
+            select(SharedJourney)
+            .where(
+                SharedJourney.journey_id == journey_id,
+                SharedJourney.expires_at > now,
+            )
+            .order_by(SharedJourney.created_at.desc(), SharedJourney.id.desc())
+            .limit(1)
+        )
+        return result.scalars().first()
+
+
+class RiderReportRepository:
+    """Community-sourced disruption reports (source='rider', unverified)."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    def add(self, report: RiderReport) -> None:
+        """Stage a new rider report."""
+        self._session.add(report)
+
+    async def windowed_counted(
+        self, since: datetime
+    ) -> list[tuple[RiderReport, int]]:
+        """Recent reports deduped/counted by (stop_id, category), newest first.
+
+        Each distinct (stop_id, category) group within the window collapses to
+        its newest representative report, paired with how many riders reported
+        that same stop+category in the window. Grouping is done in Python so
+        the read is portable across SQLite (tests) and PostgreSQL without
+        dialect-specific JSON/DISTINCT-ON gymnastics; the window keeps the row
+        set small.
+        """
+        result = await self._session.execute(
+            select(RiderReport)
+            .where(RiderReport.reported_at >= since)
+            .order_by(RiderReport.reported_at.desc(), RiderReport.id.desc())
+        )
+        rows = result.scalars().all()
+        representatives: dict[tuple[str | None, str], RiderReport] = {}
+        counts: dict[tuple[str | None, str], int] = {}
+        for row in rows:
+            key = (row.stop_id, row.category)
+            if key not in representatives:
+                representatives[key] = row  # first seen == newest
+            counts[key] = counts.get(key, 0) + 1
+        # representatives preserves newest-first insertion order (dict is ordered).
+        return [(rep, counts[key]) for key, rep in representatives.items()]
+
+
 class NotificationRepository:
     """Per-user notification outbox."""
 
@@ -662,6 +736,11 @@ class StationFacilityRepository:
             select(StationFacility).where(StationFacility.stop_id == stop_id)
         )
         return result.scalar_one_or_none()
+
+    async def all_rows(self) -> Sequence[StationFacility]:
+        """Every curated facility row (bulk consumers: summaries, park & ride)."""
+        result = await self._session.execute(select(StationFacility))
+        return result.scalars().all()
 
 
 class LastMileRouteRepository:

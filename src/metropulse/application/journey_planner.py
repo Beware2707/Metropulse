@@ -199,6 +199,36 @@ class JourneyPlanner:
         async with self._lock:
             self._graph = None
 
+    async def travel_seconds_from(self, origin_stop_id: str) -> dict[str, float]:
+        """Expected travel seconds from one stop to every reachable stop.
+
+        Runs the same Dijkstra as :meth:`plan` but with no target, so the
+        search settles the whole network; returns the off-train ("at") cost
+        per stop, including the boarding-wait penalty, keyed by stop_id.
+        The origin itself maps to 0.0.
+
+        Raises :class:`UnknownEntityError` for an unknown origin.
+        """
+        graph = await self._get_graph()
+        if origin_stop_id not in graph.stop_names:
+            raise UnknownEntityError(f"stop '{origin_stop_id}' not found")
+
+        start: _State = ("at", origin_stop_id)
+        best: dict[_State, float] = {start: 0.0}
+        prev: dict[_State, tuple[_State, _Action]] = {}
+        counter = itertools.count()
+        queue: list[tuple[float, int, _State]] = [(0.0, next(counter), start)]
+        while queue:
+            cost, _, state = heapq.heappop(queue)
+            if cost > best.get(state, float("inf")):
+                continue
+            self._expand(graph, state, cost, self._params, best, prev, queue, counter)
+        return {
+            cast(str, state[1]): cost
+            for state, cost in best.items()
+            if state[0] == "at"
+        }
+
     # -- graph construction ---------------------------------------------------
 
     async def _get_graph(self) -> NetworkGraph:
@@ -331,49 +361,62 @@ class JourneyPlanner:
                 continue
             if state == target:
                 return self._reconstruct(prev, start, target)
+            self._expand(graph, state, cost, params, best, prev, queue, counter)
+        return None
 
-            if state[0] == "at":
-                stop_id = cast(str, state[1])
-                for key, index in graph.patterns_at.get(stop_id, []):
-                    pattern = graph.patterns[key]
-                    if index >= len(pattern.stops) - 1:
-                        continue  # boarding at the terminus is pointless
-                    self._relax(
-                        best, prev, queue, counter, state,
-                        ("on", key, index),
-                        cost + params.board_penalty_seconds,
-                        ("board", key, index),
-                    )
-                for edge in graph.walk_edges.get(stop_id, []):
-                    # The multiplier only weighs this edge in the search
-                    # comparison; the action still records the real
-                    # edge.walk_seconds for _build_plan's timing.
-                    self._relax(
-                        best, prev, queue, counter, state,
-                        ("at", edge.to_stop_id),
-                        cost + edge.walk_seconds * params.walk_cost_multiplier,
-                        ("walk", stop_id, edge.to_stop_id, edge.distance_m,
-                         edge.walk_seconds),
-                    )
-            else:
-                _, key, index = cast(tuple[str, PatternKey, int], state)
+    def _expand(
+        self,
+        graph: NetworkGraph,
+        state: _State,
+        cost: float,
+        params: PlannerParameters,
+        best: dict[_State, float],
+        prev: dict[_State, tuple[_State, _Action]],
+        queue: list[tuple[float, int, _State]],
+        counter: "itertools.count[int]",
+    ) -> None:
+        """Relax every edge out of one settled Dijkstra state."""
+        if state[0] == "at":
+            stop_id = cast(str, state[1])
+            for key, index in graph.patterns_at.get(stop_id, []):
                 pattern = graph.patterns[key]
-                here = pattern.stops[index]
+                if index >= len(pattern.stops) - 1:
+                    continue  # boarding at the terminus is pointless
                 self._relax(
                     best, prev, queue, counter, state,
-                    ("at", here.stop_id), cost, ("alight", key, index),
+                    ("on", key, index),
+                    cost + params.board_penalty_seconds,
+                    ("board", key, index),
                 )
-                if index < len(pattern.stops) - 1:
-                    nxt = pattern.stops[index + 1]
-                    hop = max(
-                        nxt.arrival_seconds - here.departure_seconds,
-                        params.min_hop_seconds,
-                    )
-                    self._relax(
-                        best, prev, queue, counter, state,
-                        ("on", key, index + 1), cost + hop, ("ride", key, index + 1, hop),
-                    )
-        return None
+            for edge in graph.walk_edges.get(stop_id, []):
+                # The multiplier only weighs this edge in the search
+                # comparison; the action still records the real
+                # edge.walk_seconds for _build_plan's timing.
+                self._relax(
+                    best, prev, queue, counter, state,
+                    ("at", edge.to_stop_id),
+                    cost + edge.walk_seconds * params.walk_cost_multiplier,
+                    ("walk", stop_id, edge.to_stop_id, edge.distance_m,
+                     edge.walk_seconds),
+                )
+        else:
+            _, key, index = cast(tuple[str, PatternKey, int], state)
+            pattern = graph.patterns[key]
+            here = pattern.stops[index]
+            self._relax(
+                best, prev, queue, counter, state,
+                ("at", here.stop_id), cost, ("alight", key, index),
+            )
+            if index < len(pattern.stops) - 1:
+                nxt = pattern.stops[index + 1]
+                hop = max(
+                    nxt.arrival_seconds - here.departure_seconds,
+                    params.min_hop_seconds,
+                )
+                self._relax(
+                    best, prev, queue, counter, state,
+                    ("on", key, index + 1), cost + hop, ("ride", key, index + 1, hop),
+                )
 
     @staticmethod
     def _relax(

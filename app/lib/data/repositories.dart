@@ -95,6 +95,29 @@ class StationsRepository {
       return const [];
     }
   }
+
+  /// Step-free access summary for the curated station set: a flat
+  /// {stop_id: elevated} map where `true` means the platform is elevated (so
+  /// stairs/lift, not concourse-level), `false` means at/below grade, and
+  /// `null` means DMRC hasn't published it — kept as a nullable so callers
+  /// can be honest about "unknown" rather than guessing. Flattens the
+  /// backend's {stop_id: {elevated: x}} shape. Empty on 404 or offline.
+  Future<Map<String, bool?>> facilitiesSummary() async {
+    try {
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/api/v1/stations/facilities/summary',
+      );
+      final facilities =
+          response.data?['facilities'] as Map<String, dynamic>? ?? const {};
+      return {
+        for (final entry in facilities.entries)
+          entry.key:
+              (entry.value as Map<String, dynamic>?)?['elevated'] as bool?,
+      };
+    } on DioException {
+      return const {};
+    }
+  }
 }
 
 /// Live-train reads (the WS stream is primary; these back detail screens).
@@ -242,11 +265,143 @@ class JourneyRepository {
     }
   }
 
+  /// The latest departure from [origin] today that still catches every
+  /// leg's final feasible trip to [destination] — straight from the
+  /// published timetable, no live data. Typed-map passthrough of
+  /// GET /api/v1/journeys/latest-departure. Null on 404 (unknown stop or no
+  /// same-service-day path) or offline — callers simply don't show the row.
+  Future<Map<String, dynamic>?> latestDeparture(
+    String origin,
+    String destination,
+  ) async {
+    try {
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/api/v1/journeys/latest-departure',
+        queryParameters: {'origin': origin, 'destination': destination},
+      );
+      return response.data;
+    } on DioException {
+      return null;
+    }
+  }
+
+  /// Park-and-ride candidates: stations with DMRC-published parking
+  /// capacity (static capacity, never live availability), ranked by
+  /// straight-line distance from ([lat], [lon]) plus metro time to
+  /// [destination]. Typed-map passthrough of GET /api/v1/park-and-ride;
+  /// empty on 404 or offline.
+  Future<List<Map<String, dynamic>>> parkAndRide({
+    required String destination,
+    required double lat,
+    required double lon,
+  }) async {
+    try {
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/api/v1/park-and-ride',
+        queryParameters: {'destination': destination, 'lat': lat, 'lon': lon},
+      );
+      return (response.data?['candidates'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .toList(growable: false);
+    } on DioException {
+      return const [];
+    }
+  }
+
+  /// How far every station is from [origin], in whole minutes by the
+  /// published timetable (origin itself maps to 0) — the isochrone/reach
+  /// data. Typed passthrough of GET /api/v1/journeys/reach, flattened to a
+  /// {stop_id: minutes} map. Empty on 404 (unknown origin) or offline.
+  Future<Map<String, int>> reach(String origin, {DateTime? at}) async {
+    try {
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/api/v1/journeys/reach',
+        queryParameters: {
+          'origin': origin,
+          if (at != null) 'at': at.toUtc().toIso8601String(),
+        },
+      );
+      final reach = response.data?['reach'] as Map<String, dynamic>? ?? const {};
+      return {
+        for (final entry in reach.entries)
+          if (entry.value is num) entry.key: (entry.value as num).toInt(),
+      };
+    } on DioException {
+      return const {};
+    }
+  }
+
+  /// Fair meeting points for two people starting at stops [a] and [b]:
+  /// stations ranked fairness-first by the backend (smallest worst-case
+  /// travel time, then smallest combined time), top 10. Each candidate
+  /// carries stop_id, name, minutes_a, minutes_b, max_minutes and
+  /// total_minutes. Typed-map passthrough of GET /api/v1/journeys/meet;
+  /// empty on 404 (unknown stop) or offline.
+  Future<List<Map<String, dynamic>>> meet(String a, String b) async {
+    try {
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/api/v1/journeys/meet',
+        queryParameters: {'a': a, 'b': b},
+      );
+      return (response.data?['candidates'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .toList(growable: false);
+    } on DioException {
+      return const [];
+    }
+  }
+
   Future<void> end(int journeyId, {required bool completed}) async {
     final action = completed ? 'complete' : 'abandon';
     await _api.dio.post<Map<String, dynamic>>(
       '/api/v1/me/journeys/$journeyId/$action',
     );
+  }
+
+  /// SHARE-MY-LIVE-JOURNEY: creates (or returns) a public share for the
+  /// caller's OWN active journey. Returns {token, share_url, expires_at} on
+  /// success; null on 404 (the journey isn't the caller's or isn't active) or
+  /// offline — the UI then simply says it couldn't start sharing rather than
+  /// pretending a link exists. The token is the only secret: the public read
+  /// exposes journey facts, never the user's identity.
+  Future<Map<String, dynamic>?> shareJourney(int journeyId) async {
+    try {
+      final response = await _api.dio.post<Map<String, dynamic>>(
+        '/api/v1/me/journeys/$journeyId/share',
+      );
+      return response.data;
+    } on DioException {
+      return null;
+    }
+  }
+
+  /// Records the sharer's own latest device GPS position for an active share.
+  /// Best-effort by design: a 410 (share ended/expired) or a dropped
+  /// connection is swallowed like the other lifecycle calls — the caller's
+  /// polling loop stops on its own once sharing is torn down, so a lost tick
+  /// is never worth surfacing.
+  Future<void> postSharePosition(int journeyId, double lat, double lon) async {
+    try {
+      await _api.dio.post<Map<String, dynamic>>(
+        '/api/v1/me/journeys/$journeyId/position',
+        data: {'lat': lat, 'lon': lon},
+      );
+    } on DioException {
+      // best-effort; the next tick retries and Stop tears the loop down
+    }
+  }
+
+  /// Stops sharing immediately (the backend marks the public link expired).
+  /// Swallows transport errors like [end] — stopping is the safe direction, so
+  /// a failure here still tears the local sharing UI down.
+  Future<void> stopSharing(int journeyId) async {
+    try {
+      await _api.dio.delete<Map<String, dynamic>>(
+        '/api/v1/me/journeys/$journeyId/share',
+      );
+    } on DioException {
+      // best-effort
+    }
   }
 
   Future<Map<String, dynamic>?> bestExit(
@@ -281,6 +436,52 @@ class AlertsRepository {
     final response = await _api.dio.get<Map<String, dynamic>>('/api/v1/alerts');
     final rows = response.data?['alerts'] as List<dynamic>? ?? const [];
     return rows.whereType<Map<String, dynamic>>().toList(growable: false);
+  }
+
+  /// Recent RIDER-sourced disruption reports — community-sourced and
+  /// unverified, deliberately kept distinct from the authoritative operator
+  /// alerts in [active]. Newest first, deduped/counted by (stop_id, category)
+  /// within [sinceMinutes]. Each row: {id, stop_id, route_id, message,
+  /// category, reported_at, count}. Empty on error or offline (swallowed like
+  /// the other typed-map passthroughs), so the board just shows no commuter
+  /// reports rather than an error.
+  Future<List<Map<String, dynamic>>> riderReports({int sinceMinutes = 120}) async {
+    try {
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/api/v1/alerts/reports',
+        queryParameters: {'since_minutes': sinceMinutes},
+      );
+      final rows = response.data?['reports'] as List<dynamic>? ?? const [];
+      return rows.whereType<Map<String, dynamic>>().toList(growable: false);
+    } on DioException {
+      return const [];
+    }
+  }
+
+  /// Submits a rider-sourced report (the backend stamps source='rider',
+  /// unverified). Returns true when accepted (202), false on a validation
+  /// error or offline — so the UI can honestly tell the commuter it didn't go
+  /// through rather than silently dropping it.
+  Future<bool> postRiderReport({
+    String? stopId,
+    String? routeId,
+    required String message,
+    String? category,
+  }) async {
+    try {
+      await _api.dio.post<Map<String, dynamic>>(
+        '/api/v1/alerts/reports',
+        data: {
+          if (stopId != null) 'stop_id': stopId,
+          if (routeId != null) 'route_id': routeId,
+          'message': message,
+          if (category != null) 'category': category,
+        },
+      );
+      return true;
+    } on DioException {
+      return false;
+    }
   }
 }
 
@@ -511,6 +712,24 @@ class ReplayRepository {
   Future<MonthlyReplay> monthly() async {
     final response = await _api.dio.get<Map<String, dynamic>>('/api/v1/me/replay/monthly');
     return MonthlyReplay.fromJson(response.data!);
+  }
+
+  /// A rolling 30-day fare estimate: how many trips the user took, roughly
+  /// what they spent, and what a smart card (and off-peak riding) would have
+  /// saved — every figure a documented estimate, not a billing statement.
+  /// Typed-map passthrough of the authenticated GET /api/v1/me/fare-advisor
+  /// (the bearer token is attached by [ApiClient]). Null on 401 (not
+  /// registered) or offline; the backend returns zeros with a note when the
+  /// user has no trip history yet.
+  Future<Map<String, dynamic>?> fareAdvisor() async {
+    try {
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/api/v1/me/fare-advisor',
+      );
+      return response.data;
+    } on DioException {
+      return null;
+    }
   }
 }
 

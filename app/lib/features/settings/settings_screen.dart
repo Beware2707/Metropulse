@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/config.dart';
 import '../../core/design/app_colors.dart';
 import '../../core/design/app_spacing.dart';
+import '../../core/l10n_ext.dart';
 import '../../core/widgets/ambient_background.dart';
 import '../../core/widgets/app_bottom_sheet.dart';
 import '../../core/widgets/gradient_button.dart';
@@ -35,6 +36,7 @@ class SettingsScreen extends ConsumerWidget {
     final dynamicColorEnabled = ref.watch(dynamicColorEnabledProvider);
     final textScale = ref.watch(textScaleFactorProvider);
     final notificationsEnabled = ref.watch(notificationsEnabledProvider);
+    final locale = ref.watch(localeProvider);
 
     return Scaffold(
       body: AmbientBackground(
@@ -80,6 +82,13 @@ class SettingsScreen extends ConsumerWidget {
                   await ref.read(localStoreProvider).setDynamicColorEnabled(value);
                   ref.invalidate(dynamicColorEnabledProvider);
                 },
+              ),
+              ListTile(
+                leading: const IconBadge(icon: Icons.translate_rounded),
+                title: const Text('Language / भाषा'),
+                subtitle: Text(_localeLabel(context, locale)),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => _chooseLanguage(context, ref, locale),
               ),
               const SectionHeader(title: 'Accessibility'),
               SwitchListTile(
@@ -197,6 +206,33 @@ class SettingsScreen extends ConsumerWidget {
                 onTap: () => _openDmrcMap(context),
               ),
               ListTile(
+                leading: const IconBadge(icon: Icons.confirmation_number_outlined),
+                title: const Text('Tickets & recharge'),
+                subtitle: const Text(
+                  "Buy QR tickets or top up your card on DMRC's official channels",
+                ),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => context.push('/tickets'),
+              ),
+              ListTile(
+                leading: const IconBadge(icon: Icons.directions_car_rounded),
+                title: const Text('Drive to Metro (park & ride)'),
+                subtitle: const Text(
+                  'Find stations with DMRC parking on the way to your destination',
+                ),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => context.push('/park-and-ride'),
+              ),
+              ListTile(
+                leading: const IconBadge(icon: Icons.handshake_outlined),
+                title: const Text('Meet in the middle'),
+                subtitle: const Text(
+                  'Find a station that\'s fair for you and a friend to meet at',
+                ),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => context.push('/meet-up'),
+              ),
+              ListTile(
                 leading: IconBadge(
                   icon: Icons.delete_outline_rounded,
                   color: AppColors.danger.withValues(alpha: 0.16),
@@ -209,6 +245,15 @@ class SettingsScreen extends ConsumerWidget {
                 onTap: () => _confirmClearCache(context, ref),
               ),
               const SectionHeader(title: 'Support'),
+              ListTile(
+                leading: const IconBadge(icon: Icons.help_outline_rounded),
+                title: const Text('Help & lost property'),
+                subtitle: const Text(
+                  'DMRC helplines and how to recover a lost item',
+                ),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => context.push('/help'),
+              ),
               ListTile(
                 leading: const IconBadge(icon: Icons.feedback_outlined),
                 title: const Text('Send feedback'),
@@ -227,6 +272,70 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  /// Native-name label for the chosen locale, shown as the row's subtitle.
+  /// English and Hindi are always shown in their own script (never machine-
+  /// translated); only the follow-system case is localised.
+  String _localeLabel(BuildContext context, Locale? locale) {
+    switch (locale?.languageCode) {
+      case 'en':
+        return 'English';
+      case 'hi':
+        return 'हिन्दी';
+      default:
+        return context.t.languageSystemDefault;
+    }
+  }
+
+  /// Simple language chooser: System default / English / हिन्दी. Writes the
+  /// choice through [LocaleNotifier], which persists it in Hive and drives
+  /// MaterialApp's `locale:` — so the whole app re-labels immediately.
+  Future<void> _chooseLanguage(BuildContext context, WidgetRef ref, Locale? current) async {
+    // (locale-or-null, native display label)
+    const options = <(Locale?, String)>[
+      (null, 'System default'),
+      (Locale('en'), 'English'),
+      (Locale('hi'), 'हिन्दी'),
+    ];
+    await showAppBottomSheet<void>(
+      context,
+      builder: (sheetContext) => Padding(
+        padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, AppSpacing.xxl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+              child: Text('Language / भाषा', style: Theme.of(sheetContext).textTheme.titleLarge),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            RadioGroup<String>(
+              groupValue: current?.languageCode ?? 'system',
+              onChanged: (selected) {
+                if (selected == null) return;
+                final chosen = options
+                    .firstWhere((o) => (o.$1?.languageCode ?? 'system') == selected)
+                    .$1;
+                ref.read(localeProvider.notifier).setLocale(chosen);
+                Navigator.of(sheetContext).pop();
+              },
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final (optionLocale, label) in options)
+                    RadioListTile<String>(
+                      value: optionLocale?.languageCode ?? 'system',
+                      title: Text(label),
+                    ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

@@ -238,6 +238,63 @@ class Journey(Base):
     payload: Mapped[dict[str, Any] | None] = mapped_column(JsonB)
 
 
+class SharedJourney(Base):
+    """A public, token-addressed live view of a user's active journey.
+
+    Privacy model: the ``token`` (a ``secrets.token_urlsafe`` string) is the
+    *only* secret. The public read exposes journey facts (origin/destination
+    names, last position, nearest station) and never the sharer's user id,
+    device, or any other PII. A journey may be shared, stopped, and re-shared
+    over time, so ``journey_id`` is indexed but not unique; the live share is
+    the one whose ``expires_at`` is still in the future.
+    """
+
+    __tablename__ = "shared_journeys"
+    __table_args__ = (Index("ix_shared_journeys_journey", "journey_id"),)
+
+    id: Mapped[int] = mapped_column(BigIntPk, primary_key=True, autoincrement=True)
+    journey_id: Mapped[int] = mapped_column(
+        ForeignKey("journeys.id", ondelete="CASCADE")
+    )
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    last_lat: Mapped[float | None] = mapped_column(Float)
+    last_lon: Mapped[float | None] = mapped_column(Float)
+    position_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class RiderReport(Base):
+    """A community-sourced disruption report, deliberately distinct from the
+    authoritative operator :class:`ServiceAlert` table.
+
+    ``source`` is always 'rider' and ``verified`` is False -- these rows are
+    unverified crowd signals, surfaced separately from operator alerts so the
+    two are never conflated. ``user_id`` is retained for moderation/rate
+    limiting only and is NEVER exposed on the public read (which returns the
+    report facts deduped/counted by stop+category).
+    """
+
+    __tablename__ = "rider_reports"
+    __table_args__ = (
+        Index("ix_rider_reports_reported_at", "reported_at"),
+        Index("ix_rider_reports_stop_category", "stop_id", "category", "reported_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigIntPk, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    stop_id: Mapped[str | None] = mapped_column(String(64))
+    route_id: Mapped[str | None] = mapped_column(String(64))
+    message: Mapped[str] = mapped_column(String(280))
+    category: Mapped[str] = mapped_column(String(16))  # delay|crowding|closure|other
+    source: Mapped[str] = mapped_column(String(16))  # always 'rider'
+    verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    reported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    payload: Mapped[dict[str, Any] | None] = mapped_column(JsonB)
+
+
 class JourneyEvent(Base):
     """Append-only journey lifecycle events (also ML training data)."""
 

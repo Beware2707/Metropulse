@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'design/app_spacing.dart';
+import 'l10n_ext.dart';
 import 'widgets/floating_nav_bar.dart';
 import 'widgets/gradient_button.dart';
 import 'widgets/settle_fade_in.dart';
@@ -31,13 +32,28 @@ class RootShell extends ConsumerStatefulWidget {
   final ValueChanged<int> onTap;
   final int currentIndex;
 
-  static const destinations = [
-    NavDestinationSpec(icon: Icons.home_outlined, activeIcon: Icons.home_rounded, label: 'Home'),
-    NavDestinationSpec(
-        icon: Icons.directions_subway_outlined, activeIcon: Icons.directions_subway_filled_rounded, label: 'Journey'),
-    NavDestinationSpec(icon: Icons.explore_outlined, activeIcon: Icons.explore_rounded, label: 'Explore'),
-    NavDestinationSpec(icon: Icons.person_outline_rounded, activeIcon: Icons.person_rounded, label: 'You'),
+  /// The tab icons, in shell order. Labels are localised per-build from
+  /// [BuildContext.t] (see [_localizedDestinations]) so switching language
+  /// re-labels the nav bar without any icon duplication here.
+  static const _iconSpecs = [
+    (Icons.home_outlined, Icons.home_rounded),
+    (Icons.directions_subway_outlined, Icons.directions_subway_filled_rounded),
+    (Icons.explore_outlined, Icons.explore_rounded),
+    (Icons.person_outline_rounded, Icons.person_rounded),
   ];
+
+  static List<NavDestinationSpec> _localizedDestinations(BuildContext context) {
+    final t = context.t;
+    final labels = [t.navHome, t.navJourney, t.navExplore, t.navYou];
+    return [
+      for (var i = 0; i < _iconSpecs.length; i++)
+        NavDestinationSpec(
+          icon: _iconSpecs[i].$1,
+          activeIcon: _iconSpecs[i].$2,
+          label: labels[i],
+        ),
+    ];
+  }
 
   @override
   ConsumerState<RootShell> createState() => _RootShellState();
@@ -85,7 +101,7 @@ class _RootShellState extends ConsumerState<RootShell> {
         ],
       ),
       bottomNavigationBar: FloatingNavBar(
-        destinations: RootShell.destinations,
+        destinations: RootShell._localizedDestinations(context),
         currentIndex: widget.currentIndex,
         onTap: widget.onTap,
       ),

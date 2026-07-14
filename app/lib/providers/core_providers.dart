@@ -131,3 +131,23 @@ class ThemeModeNotifier extends Notifier<ThemeMode> {
     await ref.read(localStoreProvider).saveThemeMode(mode.name);
   }
 }
+
+/// The chosen UI locale, persisted in Hive. `null` means "follow the system
+/// locale" — MaterialApp then resolves against `supportedLocales`.
+final localeProvider = NotifierProvider<LocaleNotifier, Locale?>(
+  LocaleNotifier.new,
+);
+
+class LocaleNotifier extends Notifier<Locale?> {
+  @override
+  Locale? build() {
+    final tag = ref.watch(localStoreProvider).localeTag;
+    return tag == null ? null : Locale(tag);
+  }
+
+  /// Sets the chosen locale; pass `null` to follow the system locale.
+  Future<void> setLocale(Locale? locale) async {
+    state = locale;
+    await ref.read(localStoreProvider).saveLocaleTag(locale?.languageCode);
+  }
+}

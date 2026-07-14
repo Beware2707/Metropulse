@@ -62,4 +62,5 @@ flutter:
   assets:
     - assets/icon/
     - assets/google_fonts/
+    - assets/network_schematic.json
 

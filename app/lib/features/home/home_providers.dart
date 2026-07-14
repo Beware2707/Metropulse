@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/config.dart';
+import '../../data/air_quality_service.dart';
 import '../../data/location_service.dart';
 import '../../data/repositories.dart';
 import '../../data/weather_service.dart';
@@ -136,6 +137,51 @@ final weatherProvider = FutureProvider<Weather?>((ref) async {
     _ => (AppConfig.initialLat, AppConfig.initialLon),
   };
   return ref.watch(weatherServiceProvider).current(lat: lat, lon: lon);
+});
+
+final airQualityServiceProvider =
+    Provider<AirQualityService>((ref) => AirQualityService());
+
+/// Current air quality for the home air card — same location rule as
+/// [weatherProvider] (device fix when available, else the network's home
+/// city). Null (never an error) when offline or blocked; like weather, air
+/// quality is ambient context, not something worth interrupting for. When it
+/// is null the card renders nothing at all.
+final airQualityProvider = FutureProvider<AirQuality?>((ref) async {
+  final locationResult = await ref.watch(locationServiceProvider).currentPosition();
+  final (lat, lon) = switch (locationResult) {
+    LocationFix(:final lat, :final lon) => (lat, lon),
+    _ => (AppConfig.initialLat, AppConfig.initialLon),
+  };
+  return ref.watch(airQualityServiceProvider).current(lat: lat, lon: lon);
+});
+
+/// Step-free / elevation summary for the curated station set, as a flat
+/// {stop_id: elevated?} map (see [StationsRepository.facilitiesSummary]).
+/// Empty offline or when DMRC hasn't published it. Static curated data, so it
+/// stays out of Home's 30-second refresh loop.
+final facilitiesSummaryProvider = FutureProvider<Map<String, bool?>>(
+  (ref) => ref.watch(stationsRepositoryProvider).facilitiesSummary(),
+);
+
+/// The whole-percent share of the user's usual commute route that runs
+/// underground, derived from the planned route's stations crossed with the
+/// facilities elevation summary. Null when there's no commute route to
+/// measure, or no station along it has a known elevation — so the air card
+/// only ever quotes a figure it can actually back with data.
+final commuteUndergroundShareProvider = FutureProvider<int?>((ref) async {
+  final plan = await ref.watch(homeSuggestedPlanProvider.future);
+  if (plan == null) return null;
+  final facilities = await ref.watch(facilitiesSummaryProvider.future);
+  if (facilities.isEmpty) return null;
+  final stopIds = <String>[];
+  for (final leg in plan.legs) {
+    if (!leg.isRide) continue;
+    for (final stop in leg.stations ?? [leg.board, leg.alight]) {
+      stopIds.add(stop.stopId);
+    }
+  }
+  return undergroundSharePercent(stopIds, facilities);
 });
 
 sealed class NearbyState {

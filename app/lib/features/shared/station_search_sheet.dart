@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/design/app_motion.dart';
 import '../../core/design/app_spacing.dart';
+import '../../core/l10n_ext.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/station_row.dart';
 import '../../domain/models/station.dart';
@@ -89,15 +90,15 @@ class _StationSearchSheetState extends ConsumerState<StationSearchSheet> {
               child: AnimatedSwitcher(
                 duration: reduceMotion ? Duration.zero : AppMotion.fast,
                 child: bundleAsync.isLoading && stations.isEmpty
-                    ? const KeyedSubtree(
-                        key: ValueKey('loading'),
+                    ? KeyedSubtree(
+                        key: const ValueKey('loading'),
                         child: Center(
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              CircularProgressIndicator(),
-                              SizedBox(height: AppSpacing.md),
-                              Text('Loading stations…'),
+                              const CircularProgressIndicator(),
+                              const SizedBox(height: AppSpacing.md),
+                              Text(context.t.searchLoadingStations),
                             ],
                           ),
                         ),
@@ -114,14 +115,14 @@ class _StationSearchSheetState extends ConsumerState<StationSearchSheet> {
                             ),
                           )
                         : hits.isEmpty
-                            ? const KeyedSubtree(
-                                key: ValueKey('no-results'),
+                            ? KeyedSubtree(
+                                key: const ValueKey('no-results'),
                                 child: Center(
                                   child: Padding(
-                                    padding: EdgeInsets.all(AppSpacing.xxl),
+                                    padding: const EdgeInsets.all(AppSpacing.xxl),
                                     child: EmptyState(
                                       icon: Icons.search_off_rounded,
-                                      message: "We couldn't find that one — try a different name or landmark.",
+                                      message: context.t.searchNoResults,
                                       compact: true,
                                     ),
                                   ),
@@ -219,10 +220,10 @@ class _QuickPicks extends ConsumerWidget {
     }
 
     if (usual == null && favourites.isEmpty && recents.isEmpty) {
-      return const Center(
+      return Center(
         child: Padding(
-          padding: EdgeInsets.all(AppSpacing.xxl),
-          child: EmptyState(icon: Icons.search_rounded, message: "Start typing and we'll find it.", compact: true),
+          padding: const EdgeInsets.all(AppSpacing.xxl),
+          child: EmptyState(icon: Icons.search_rounded, message: context.t.searchStartTyping, compact: true),
         ),
       );
     }
@@ -230,7 +231,7 @@ class _QuickPicks extends ConsumerWidget {
       padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, AppSpacing.xxl),
       children: [
         if (usual != null) ...[
-          const SearchSectionLabel('Your usual'),
+          SearchSectionLabel(context.t.searchYourUsual),
           StationRow(
             station: usual,
             icon: Icons.insights_rounded,
@@ -239,11 +240,11 @@ class _QuickPicks extends ConsumerWidget {
           ),
         ],
         if (favourites.isNotEmpty) ...[
-          const SearchSectionLabel('Favourites'),
+          SearchSectionLabel(context.t.homeFavourites),
           for (final station in favourites) StationRow(station: station, icon: Icons.star_rounded, onTap: onPick),
         ],
         if (recents.isNotEmpty) ...[
-          const SearchSectionLabel('Recent'),
+          SearchSectionLabel(context.t.searchRecent),
           for (final station in recents) StationRow(station: station, icon: Icons.history_rounded, onTap: onPick),
         ],
       ],

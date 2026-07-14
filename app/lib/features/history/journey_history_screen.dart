@@ -16,6 +16,7 @@ import '../../core/widgets/shimmer_skeleton.dart';
 import '../../domain/models/journey.dart';
 import '../../domain/models/station.dart';
 import '../../providers/core_providers.dart';
+import '../replay/fare_advisor_card.dart';
 
 final _dateGroupFormat = DateFormat('EEEE, d MMMM');
 
@@ -77,6 +78,7 @@ class JourneyHistoryScreen extends ConsumerWidget {
           child: Column(
             children: [
               const _MonthlyReplayHeader(),
+              const FareAdvisorCard(),
               Expanded(
                 child: RefreshIndicator(
                   onRefresh: () async {

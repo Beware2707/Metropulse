@@ -16,8 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from metropulse.application.commuter.alerts import (
     DestinationAlertService,
+    RiderReportService,
     ServiceAlertService,
 )
+from metropulse.application.commuter.journey_share import JourneyShareService
 from metropulse.application.commuter.analytics import AnalyticsService
 from metropulse.application.commuter.coach import (
     CoachRecommendationService,
@@ -86,6 +88,8 @@ class CommuterServices:
     smart_recommendations: RecommendationEngine
     place_roles: PlaceRoleInferenceService
     commute_impact: CommuteImpactService
+    journey_share: JourneyShareService
+    rider_reports: RiderReportService
 
 
 @dataclass
@@ -189,6 +193,8 @@ def build_commuter_services(
         smart_recommendations=SmartRecommendationService(planner, coach, exits, delay_predictor),
         place_roles=PlaceRoleInferenceService(lookback_days=settings.commute_prediction_lookback_days),
         commute_impact=CommuteImpactService(monthly_window_days=settings.commute_replay_window_days),
+        journey_share=JourneyShareService(),
+        rider_reports=RiderReportService(),
     )
 
 

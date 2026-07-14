@@ -3,19 +3,24 @@ import 'package:go_router/go_router.dart';
 
 import '../features/favourites/favourites_screen.dart';
 import '../features/history/journey_history_screen.dart';
+import '../features/help/help_screen.dart';
 import '../features/home/home_screen.dart';
 import '../features/journey_mode/journey_mode_screen.dart';
 import '../features/legal/legal_content.dart';
 import '../features/legal/legal_doc_screen.dart';
 import '../features/map/live_map_screen.dart';
+import '../features/meet/meet_screen.dart';
+import '../features/disruptions/disruptions_screen.dart';
 import '../features/network_map/network_map_screen.dart';
 import '../features/notifications/notifications_screen.dart';
 import '../features/onboarding/onboarding_screen.dart';
+import '../features/park_and_ride/park_and_ride_screen.dart';
 import '../features/planner/journey_planner_screen.dart';
 import '../features/search/search_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/splash/splash_screen.dart';
 import '../features/station/station_detail_screen.dart';
+import '../features/tickets/tickets_screen.dart';
 import '../features/train/train_detail_screen.dart';
 import '../features/voice/voice_assistant_screen.dart';
 import '../features/you/you_screen.dart';
@@ -66,6 +71,13 @@ final routerProvider = Provider<GoRouter>((ref) {
         ),
       ),
       GoRoute(
+        path: '/park-and-ride',
+        builder: (_, state) => ParkAndRideScreen(
+          initialDestinationId: state.uri.queryParameters['destination'],
+        ),
+      ),
+      GoRoute(path: '/meet-up', builder: (_, __) => const MeetScreen()),
+      GoRoute(
         path: '/network-map',
         builder: (_, state) => NetworkMapScreen(
           initialOriginId: state.uri.queryParameters['origin'],
@@ -79,6 +91,8 @@ final routerProvider = Provider<GoRouter>((ref) {
         ),
       ),
       GoRoute(path: '/favourites', builder: (_, __) => const FavouritesScreen()),
+      GoRoute(path: '/tickets', builder: (_, __) => const TicketsScreen()),
+      GoRoute(path: '/help', builder: (_, __) => const HelpScreen()),
       GoRoute(path: '/settings', builder: (_, __) => const SettingsScreen()),
       GoRoute(
         path: '/privacy-policy',
@@ -90,6 +104,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: '/journeys/history', builder: (_, __) => const JourneyHistoryScreen()),
       GoRoute(path: '/notifications', builder: (_, __) => const NotificationsScreen()),
+      GoRoute(path: '/disruptions', builder: (_, __) => const DisruptionsScreen()),
       GoRoute(path: '/assistant', builder: (_, __) => const VoiceAssistantScreen()),
     ],
   );

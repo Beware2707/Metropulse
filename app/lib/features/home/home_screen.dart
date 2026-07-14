@@ -10,6 +10,7 @@ import '../../core/design/app_colors.dart';
 import '../../core/design/app_radius.dart';
 import '../../core/design/app_spacing.dart';
 import '../../core/formatters.dart';
+import '../../data/air_quality_service.dart';
 import '../../core/l10n_ext.dart';
 import '../../core/widgets/ambient_background.dart';
 import '../../core/widgets/app_bottom_sheet.dart';
@@ -79,7 +80,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ..invalidate(favouriteStationsProvider)
       ..invalidate(homeLastTrainProvider)
       ..invalidate(nearbyStationsProvider)
-      ..invalidate(weatherProvider);
+      ..invalidate(weatherProvider)
+      ..invalidate(airQualityProvider);
   }
 
   @override
@@ -198,7 +200,7 @@ class _HomeContent extends ConsumerWidget {
       if (isOffline) ...[const _OfflineBanner(), const SizedBox(height: AppSpacing.lg)],
       const _Header(),
       const SizedBox(height: AppSpacing.xxxl),
-      SearchEntryPill(hint: 'Where to?', onTap: () => context.push('/search')),
+      SearchEntryPill(hint: context.t.homeWhereTo, onTap: () => context.push('/search')),
       const SizedBox(height: AppSpacing.xxxl),
       if (journey != null) ...[const _ActiveJourneyBanner(), const SizedBox(height: AppSpacing.xl)],
       const _MomentsFlow(),
@@ -231,7 +233,7 @@ class _OfflineBanner extends StatelessWidget {
           const SizedBox(width: AppSpacing.md),
           Expanded(
             child: Text(
-              "You're offline — showing what we've saved.",
+              context.t.homeOfflineBanner,
               style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
             ),
           ),
@@ -346,11 +348,16 @@ class _MomentsFlow extends ConsumerWidget {
       rows.add(
         MomentRow(
           leading: const IconBadge(icon: Icons.star_rounded),
-          title: Text('Favourites', style: Theme.of(context).textTheme.titleMedium),
+          title: Text(context.t.homeFavourites, style: Theme.of(context).textTheme.titleMedium),
           subtitle: Text(names.join(' · '), style: Theme.of(context).textTheme.bodyMedium),
           onTap: () => context.push('/favourites'),
         ),
       );
+    }
+
+    final airQuality = ref.watch(airQualityProvider).valueOrNull;
+    if (airQuality != null) {
+      rows.add(_AirQualityRow(air: airQuality));
     }
 
     final lastTrain = ref.watch(homeLastTrainProvider).valueOrNull;
@@ -494,13 +501,22 @@ class _CommuteRow extends ConsumerWidget {
                 MomentList(
                   children: [
                     _DetailRow(label: context.t.crowding, value: card.crowding),
-                    if (card.platformHint != null) _DetailRow(label: context.t.platform, value: card.platformHint!),
-                    if (fare != null) _DetailRow(label: 'Fare (est.)', value: '₹${fare.rupees}'),
+                    // The headsign ("Towards Noida Electronic City") is long
+                    // free-form text: as a trailing widget it would squeeze
+                    // the label into a sliver, so it takes the full-width
+                    // subtitle slot instead.
+                    if (card.platformHint != null)
+                      MomentRow(
+                        dense: true,
+                        title: Text(context.t.platform, style: theme.textTheme.bodyMedium),
+                        subtitle: Text(card.platformHint!, style: theme.textTheme.titleSmall),
+                      ),
+                    if (fare != null) _DetailRow(label: context.t.fareEstimate, value: '₹${fare.rupees}'),
                   ],
                 ),
                 const SizedBox(height: AppSpacing.lg),
                 PrimaryButton(
-                  label: 'Plan this route',
+                  label: context.t.homePlanThisRoute,
                   icon: Icons.alt_route_rounded,
                   expand: true,
                   onPressed: () {
@@ -746,6 +762,56 @@ class _PinnedJourneyRow extends StatelessWidget {
   }
 }
 
+// --- Air quality ----------------------------------------------------------------
+
+/// Current US AQI + PM2.5 with a severity colour and a one-line honest read,
+/// plus — only when there's a usual commute route and published station
+/// elevation data — how much of that route runs underground (where platform
+/// air is a separate thing from the street AQI above). Degrades gracefully:
+/// this row is only built when AQI is available, and the underground line
+/// simply doesn't appear when there's no route or no data to back it.
+class _AirQualityRow extends ConsumerWidget {
+  const _AirQualityRow({required this.air});
+
+  final AirQuality air;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final severity = aqiSeverity(air.usAqi);
+    final undergroundShare = ref.watch(commuteUndergroundShareProvider).valueOrNull;
+
+    return MomentRow(
+      leading: IconBadge(
+        icon: Icons.air_rounded,
+        color: severity.color.withValues(alpha: 0.16),
+        foreground: severity.color,
+      ),
+      title: Text('Air quality · US AQI ${air.usAqi}', style: theme.textTheme.titleMedium),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '${severity.label} · PM2.5 ${air.pm25.round()}',
+            style: theme.textTheme.bodyMedium?.copyWith(color: severity.color),
+          ),
+          if (undergroundShare != null)
+            Text(
+              'About $undergroundShare% of your usual route runs underground.',
+              style: theme.textTheme.bodyMedium,
+            ),
+          const SizedBox(height: 2),
+          Text(
+            'Air quality: Open-Meteo · route mix from station data',
+            style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.outline),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // --- Last train -----------------------------------------------------------------
 
 class _LastTrainRow extends ConsumerWidget {
@@ -764,7 +830,7 @@ class _LastTrainRow extends ConsumerWidget {
       title: Text('$stationName · ${clockTime(departure)}', style: theme.textTheme.titleMedium),
       subtitle: Text('${info['headsign'] ?? info['route_id']}', style: theme.textTheme.bodyMedium),
       trailing: GhostButton(
-        label: 'Remind me',
+        label: context.t.homeRemindMe,
         onPressed: () async {
           final messenger = ScaffoldMessenger.of(context);
           try {

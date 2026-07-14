@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from metropulse.api.deps import (
@@ -14,6 +14,10 @@ from metropulse.api.deps import (
 from metropulse.api.schemas_commuter import (
     DestinationAlertIn,
     DestinationAlertOut,
+    RiderReportCreatedOut,
+    RiderReportIn,
+    RiderReportListOut,
+    RiderReportOut,
     ServiceAlertIn,
     ServiceAlertListOut,
     ServiceAlertOut,
@@ -38,6 +42,63 @@ async def list_service_alerts(
     )
     return ServiceAlertListOut(
         count=len(alerts), alerts=[ServiceAlertOut.model_validate(a) for a in alerts]
+    )
+
+
+@router.post(
+    "/alerts/reports",
+    response_model=RiderReportCreatedOut,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def create_rider_report(
+    body: RiderReportIn,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+    services: CommuterServices = Depends(get_commuter),
+) -> RiderReportCreatedOut:
+    """Submit a community-sourced (unverified) disruption report.
+
+    Distinct from operator :func:`list_service_alerts` -- these are rider
+    signals, source='rider'.
+    """
+    try:
+        report = await services.rider_reports.create(
+            session,
+            user.id,
+            message=body.message,
+            stop_id=body.stop_id,
+            route_id=body.route_id,
+            category=body.category,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+    await session.commit()
+    return RiderReportCreatedOut(report_id=report.id)
+
+
+@router.get("/alerts/reports", response_model=RiderReportListOut)
+async def list_rider_reports(
+    since_minutes: int = Query(default=120, ge=1, le=1440),
+    session: AsyncSession = Depends(get_session),
+    services: CommuterServices = Depends(get_commuter),
+) -> RiderReportListOut:
+    """Recent rider reports, deduped/counted by (stop_id, category), newest first."""
+    rows = await services.rider_reports.recent(session, since_minutes)
+    return RiderReportListOut(
+        reports=[
+            RiderReportOut(
+                id=report.id,
+                stop_id=report.stop_id,
+                route_id=report.route_id,
+                message=report.message,
+                category=report.category,
+                reported_at=report.reported_at,
+                count=count,
+            )
+            for report, count in rows
+        ]
     )
 
 

@@ -114,6 +114,81 @@ void main() {
     });
   });
 
+  group('lineKeyForRoute', () {
+    test('is the uppercased, trimmed prefix before the first underscore', () {
+      expect(lineKeyForRoute('1', 'RED_Rithala to Dilshad Garden'), 'RED');
+      // The reversed direction of the same physical line — same key.
+      expect(lineKeyForRoute('2', 'RED_Dilshad Garden  to Rithala'), 'RED');
+      expect(lineKeyForRoute('3', 'magenta_Botanical Garden to Janakpuri'), 'MAGENTA');
+      expect(lineKeyForRoute('4', '  YELLOW_Samaypur Badli to Millennium City '), 'YELLOW');
+    });
+
+    test('a name without an underscore becomes the whole uppercased name', () {
+      expect(lineKeyForRoute('5', 'Airport Express'), 'AIRPORT EXPRESS');
+    });
+
+    test('an underscore with an empty prefix falls back to the full name', () {
+      expect(lineKeyForRoute('6', '_odd'), '_ODD');
+    });
+
+    test('a null or blank long name falls back to the route id', () {
+      expect(lineKeyForRoute('R9', null), 'R9');
+      expect(lineKeyForRoute('R9', ''), 'R9');
+      expect(lineKeyForRoute('R9', '   '), 'R9');
+    });
+  });
+
+  group('direction-as-separate-route feeds (the real DMRC shape)', () {
+    // The real feed models each travel direction as its own route_id:
+    // 'R1'/'R1R' are one physical RED line, 'Y1' is a YELLOW line crossing
+    // it at 'X'. Every route_color is empty, so the long-name prefix is the
+    // only line identity.
+    const routeStations = {
+      'R1': {
+        '0': ['A', 'B', 'X', 'C'],
+      },
+      'R1R': {
+        '0': ['C', 'X', 'B', 'A'],
+      },
+      'Y1': {
+        '0': ['P', 'X', 'Q'],
+      },
+    };
+
+    final lineKeyByRoute = {
+      'R1': lineKeyForRoute('R1', 'RED_A to B'),
+      'R1R': lineKeyForRoute('R1R', 'RED_B to A'),
+      'Y1': lineKeyForRoute('Y1', 'YELLOW_C to D'),
+    };
+
+    test('without lineKeyByRoute every shared stop wrongly looks like an interchange', () {
+      // The historical failure mode: both directions of one line count as two
+      // routes, so all of the line's stops get flagged.
+      final interchanges = detectInterchanges(routeStations);
+      expect(interchanges, containsAll(['A', 'B', 'C', 'X']));
+    });
+
+    test('with lineKeyByRoute only the true RED x YELLOW crossing is an interchange', () {
+      final interchanges = detectInterchanges(
+        routeStations,
+        lineKeyByRoute: lineKeyByRoute,
+      );
+      expect(interchanges, {'X'});
+    });
+
+    test('routeCountByStop counts lines, not directional route rows', () {
+      final counts = routeCountByStop(
+        routeStations,
+        lineKeyByRoute: lineKeyByRoute,
+      );
+      expect(counts['X'], 2); // RED + YELLOW
+      expect(counts['A'], 1); // RED only, despite two route_ids
+      expect(counts['B'], 1);
+      expect(counts['C'], 1);
+      expect(counts['P'], 1);
+    });
+  });
+
   group('routeDrawSequence', () {
     test('prefers direction 0', () {
       expect(routeDrawSequence(_routeStations['A']!), ['NW', 'NE', 'MID']);

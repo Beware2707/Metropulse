@@ -232,6 +232,77 @@ class JourneyListOut(BaseModel):
     journeys: list[JourneyOut]
 
 
+# --- Share live journey --------------------------------------------------------
+
+
+class ShareCreatedOut(BaseModel):
+    """Result of creating (or reusing) a journey share."""
+
+    token: str
+    share_url: str
+    expires_at: datetime
+
+
+class SharePositionIn(BaseModel):
+    """The sharer's latest position."""
+
+    lat: float = Field(ge=-90.0, le=90.0)
+    lon: float = Field(ge=-180.0, le=180.0)
+
+
+class SharedJourneyPublicOut(BaseModel):
+    """The public, PII-free view of a shared journey.
+
+    Contains journey facts only -- never the sharer's user id, device, or any
+    other identifying information.
+    """
+
+    status: Literal["active", "ended", "expired"]
+    origin_name: str | None
+    destination_name: str | None
+    last_lat: float | None
+    last_lon: float | None
+    updated_at: datetime | None
+    nearest_station: str | None
+    eta: datetime | None
+
+
+# --- Rider disruption reports --------------------------------------------------
+
+
+class RiderReportIn(BaseModel):
+    """A community-sourced disruption report."""
+
+    stop_id: str | None = Field(default=None, max_length=64)
+    route_id: str | None = Field(default=None, max_length=64)
+    message: str = Field(min_length=1, max_length=280)
+    category: Literal["delay", "crowding", "closure", "other"] = "other"
+
+
+class RiderReportCreatedOut(BaseModel):
+    """Acknowledgement of a submitted rider report."""
+
+    report_id: int
+
+
+class RiderReportOut(BaseModel):
+    """One deduped/counted rider report in the public feed."""
+
+    id: int
+    stop_id: str | None
+    route_id: str | None
+    message: str
+    category: str
+    reported_at: datetime
+    count: int
+
+
+class RiderReportListOut(BaseModel):
+    """Envelope for recent rider reports."""
+
+    reports: list[RiderReportOut]
+
+
 # --- Journey planning ----------------------------------------------------------
 
 

@@ -27,6 +27,7 @@ import '../../domain/models/replay.dart';
 import '../../providers/core_providers.dart';
 import '../home/home_providers.dart';
 import 'journey_mode_providers.dart';
+import 'journey_share.dart';
 
 /// The best exit at the destination for this line/direction (fetched once
 /// per key; works even without a live vehicle, since exits are keyed by
@@ -144,7 +145,7 @@ class _JourneyLoadError extends StatelessWidget {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: AppSpacing.xl),
-            PrimaryButton(label: 'Try again', icon: Icons.refresh_rounded, onPressed: onRetry),
+            PrimaryButton(label: context.t.retry, icon: Icons.refresh_rounded, onPressed: onRetry),
           ],
         ),
       ),
@@ -245,13 +246,14 @@ class _JourneyView extends ConsumerWidget {
               // -- Current -> Next: the two-line "where am I" moment, Apple
               // Maps turn-by-turn style. Big, bold, nothing competing for
               // attention.
-              Text('NOW AT', style: theme.textTheme.labelMedium),
+              Text(context.t.journeyNowAt, style: theme.textTheme.labelMedium),
               Text(currentName, style: theme.textTheme.headlineLarge),
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
                 child: Icon(Icons.arrow_downward_rounded, color: lineColor, size: 22),
               ),
-              Text(snapshot?.arrived == true ? 'ARRIVED' : 'NEXT STATION', style: theme.textTheme.labelMedium),
+              Text(snapshot?.arrived == true ? context.t.journeyArrivedLabel : context.t.journeyNextStation,
+                  style: theme.textTheme.labelMedium),
               Text(nextName, style: theme.textTheme.headlineLarge?.copyWith(color: lineColor)),
 
               const SizedBox(height: AppSpacing.xxl),
@@ -371,6 +373,12 @@ class _JourneyView extends ConsumerWidget {
                 ),
               ],
             ),
+
+            // Share-my-live-journey: only while a journey is active (this
+            // whole view only renders then). The user's OWN GPS is broadcast
+            // to link-holders — honest microcopy lives inside the control.
+            const SizedBox(height: AppSpacing.md),
+            JourneyShareButton(journeyId: journey.id),
           ],
         ),
       ),
@@ -390,15 +398,15 @@ class _JourneyView extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('End this journey?', style: Theme.of(sheetContext).textTheme.titleLarge),
+            Text(context.t.journeyEndConfirmTitle, style: Theme.of(sheetContext).textTheme.titleLarge),
             const SizedBox(height: AppSpacing.sm),
-            Text('You can restart it from the planner.', style: Theme.of(sheetContext).textTheme.bodyMedium),
+            Text(context.t.journeyEndConfirmBody, style: Theme.of(sheetContext).textTheme.bodyMedium),
             const SizedBox(height: AppSpacing.xl),
             Row(
               children: [
                 Expanded(
                   child: GhostButton(
-                    label: 'Cancel',
+                    label: context.t.actionCancel,
                     expand: true,
                     onPressed: () => Navigator.of(sheetContext).pop(false),
                   ),
@@ -406,7 +414,7 @@ class _JourneyView extends ConsumerWidget {
                 const SizedBox(width: AppSpacing.md),
                 Expanded(
                   child: PrimaryButton(
-                    label: 'End journey',
+                    label: context.t.journeyAbandon,
                     expand: true,
                     onPressed: () => Navigator.of(sheetContext).pop(true),
                   ),
@@ -573,10 +581,14 @@ class _EnteringStationView extends StatelessWidget {
           trailing: CoachChip(coach: journeyContext!.recommendedCoach! + 1, dense: true),
         ),
       if (journeyContext?.platformHint != null)
+        // The headsign ("Towards Noida Electronic City") is long free-form
+        // text, so it lives in the full-width subtitle slot — as a trailing
+        // widget it would squeeze the title down to a sliver and wrap it
+        // character-by-character.
         MomentRow(
           leading: const IconBadge(icon: Icons.signpost_rounded),
           title: Text(context.t.platform, style: theme.textTheme.bodyLarge),
-          trailing: Text(journeyContext!.platformHint!, style: theme.textTheme.titleMedium),
+          subtitle: Text(journeyContext!.platformHint!, style: theme.textTheme.titleMedium),
         ),
       if (crowding != null && crowding != 'unknown')
         MomentRow(

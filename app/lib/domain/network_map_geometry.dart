@@ -94,42 +94,95 @@ class SchematicProjection {
   Offset projectStation(Station station) => project(station.lat, station.lon);
 }
 
+/// The physical-line identity key for a GTFS route.
+///
+/// The real DMRC feed models each travel *direction* as a separate route row:
+/// route_long_name 'RED_Rithala to Dilshad Garden' and
+/// 'RED_Dilshad Garden  to Rithala' are two distinct route_ids that are the
+/// same physical Red line, just reversed. And every `route_color` in that
+/// feed is empty, so the long-name prefix before the first underscore ('RED',
+/// 'PINK', 'MAGENTA', 'VIOLET', 'YELLOW', 'GREEN', 'AQUA', 'GRAY', 'RAPID')
+/// is the *only* carrier of line identity — the same prefix `routeColor()`
+/// in theme.dart already keys line colours from.
+///
+/// Note the short_name prefix would be the WRONG thing to parse: 'R_SP_R' is
+/// the RAPID line and 'R_RD' is the RED line — both start with 'R_'. Always
+/// feed this function the long name.
+///
+/// Returns, in order of preference:
+/// - the uppercased, trimmed prefix of [longName] before the first
+///   underscore, when [longName] has an underscore with a non-empty prefix;
+/// - the whole uppercased, trimmed [longName] when it is non-empty but has no
+///   usable underscore prefix;
+/// - [routeId] itself when [longName] is null or blank (each route then
+///   stays its own "line", the pre-existing behaviour).
+String lineKeyForRoute(String routeId, String? longName) {
+  final name = longName?.trim() ?? '';
+  if (name.isEmpty) return routeId;
+  final underscore = name.indexOf('_');
+  if (underscore > 0) {
+    return name.substring(0, underscore).trim().toUpperCase();
+  }
+  return name.toUpperCase();
+}
+
 /// The set of stop ids that are interchanges — a stop served by two or more
-/// distinct routes in [routeStations]. This is derived purely from the ordered
-/// per-line sequences (route_id -> direction -> ordered stop ids), never
-/// hard-coded, so it stays correct as the feed changes.
+/// distinct *lines*. Derived purely from the ordered per-route sequences
+/// (route_id -> direction -> ordered stop ids), never hard-coded, so it stays
+/// correct as the feed changes.
+///
+/// Without [lineKeyByRoute] a "line" is a raw route_id. That is only correct
+/// for feeds where one physical line is one route row. The real DMRC feed
+/// models each travel direction as its own route (36 route rows, in
+/// reversed pairs like 'RED_Rithala to Dilshad Garden' /
+/// 'RED_Dilshad Garden  to Rithala'), so counting route_ids flags every
+/// single stop as an interchange — its two directions look like two routes.
+/// Pass [lineKeyByRoute] (route_id -> line key, built with [lineKeyForRoute])
+/// to count distinct physical lines instead: route_ids that map to the same
+/// line key count as ONE line.
 Set<String> detectInterchanges(
-  Map<String, Map<String, List<String>>> routeStations,
-) {
-  final routesByStop = <String, Set<String>>{};
-  routeStations.forEach((routeId, byDirection) {
-    for (final sequence in byDirection.values) {
-      for (final stopId in sequence) {
-        (routesByStop[stopId] ??= <String>{}).add(routeId);
-      }
-    }
-  });
+  Map<String, Map<String, List<String>>> routeStations, {
+  Map<String, String>? lineKeyByRoute,
+}) {
+  final linesByStop = _lineKeysByStop(routeStations, lineKeyByRoute);
   return {
-    for (final entry in routesByStop.entries)
+    for (final entry in linesByStop.entries)
       if (entry.value.length >= 2) entry.key,
   };
 }
 
-/// The number of distinct routes serving each stop id — the underlying count
+/// The number of distinct lines serving each stop id — the underlying count
 /// [detectInterchanges] thresholds on, exposed for callers that want the raw
 /// figure (e.g. sizing a marker by how many lines meet).
+///
+/// [lineKeyByRoute] has the same meaning as in [detectInterchanges]: without
+/// it each route_id counts separately (wrong for the direction-as-route DMRC
+/// feed, where every stop is then served by >= 2 route_ids); with it,
+/// route_ids sharing a line key count as one line.
 Map<String, int> routeCountByStop(
+  Map<String, Map<String, List<String>>> routeStations, {
+  Map<String, String>? lineKeyByRoute,
+}) {
+  final linesByStop = _lineKeysByStop(routeStations, lineKeyByRoute);
+  return {for (final entry in linesByStop.entries) entry.key: entry.value.length};
+}
+
+/// Shared accumulator: the set of line keys (or raw route_ids when
+/// [lineKeyByRoute] is absent) serving each stop.
+Map<String, Set<String>> _lineKeysByStop(
   Map<String, Map<String, List<String>>> routeStations,
+  Map<String, String>? lineKeyByRoute,
 ) {
-  final routesByStop = <String, Set<String>>{};
+  final linesByStop = <String, Set<String>>{};
   routeStations.forEach((routeId, byDirection) {
+    final lineKey = lineKeyByRoute?[routeId] ?? routeId;
     for (final sequence in byDirection.values) {
       for (final stopId in sequence) {
-        (routesByStop[stopId] ??= <String>{}).add(routeId);
+        (linesByStop[stopId] ??= <String>{}).add(lineKey);
       }
     }
   });
-  return {for (final entry in routesByStop.entries) entry.key: entry.value.length};
+  return linesByStop;
 }
 
 /// The representative ordered stop-id sequence to draw a route's polyline

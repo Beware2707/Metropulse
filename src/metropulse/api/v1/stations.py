@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from metropulse.api.deps import get_session
@@ -34,6 +35,28 @@ async def list_stations(
     return StationListOut(
         count=len(stops),
         stations=[StationOut.from_orm_stop(s) for s in stops],
+    )
+
+
+class StationFacilitySummaryOut(BaseModel):
+    """Compact per-station facility flags for whole-network consumers."""
+
+    facilities: dict[str, dict[str, bool | None]]
+
+
+@router.get("/stations/facilities/summary", response_model=StationFacilitySummaryOut)
+async def facilities_summary(
+    session: AsyncSession = Depends(get_session),
+) -> StationFacilitySummaryOut:
+    """Elevated/underground flag for every curated station, in one call.
+
+    Powers whole-route computations (e.g. 'what share of your ride is
+    underground') without a request per station. ``elevated`` is null where
+    the source data didn't specify it.
+    """
+    rows = await StationFacilityRepository(session).all_rows()
+    return StationFacilitySummaryOut(
+        facilities={row.stop_id: {"elevated": row.elevated} for row in rows}
     )
 
 

@@ -48,6 +48,18 @@ class LocalStore {
   String get themeMode => _box.get('theme_mode') ?? 'system';
   Future<void> saveThemeMode(String value) => _box.put('theme_mode', value);
 
+  /// The chosen UI language as a BCP-47 tag (e.g. 'en', 'hi'), or null when
+  /// the user follows the system locale. Stored as the literal string 'system'
+  /// (or absent) for the follow-system case so it round-trips cleanly.
+  String? get localeTag {
+    final raw = _box.get('locale');
+    if (raw == null || raw == 'system') return null;
+    return raw;
+  }
+
+  Future<void> saveLocaleTag(String? tag) =>
+      _box.put('locale', tag ?? 'system');
+
   /// A user-chosen multiplier layered on top of the OS text-scale setting,
   /// for commuters who want the app larger than their system default.
   double get textScaleFactor => double.tryParse(_box.get('text_scale') ?? '') ?? 1.0;
