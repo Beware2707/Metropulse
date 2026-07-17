@@ -114,7 +114,11 @@ class _GhostButtonState extends State<GhostButton> {
     final content = Container(
       height: 58,
       padding: const EdgeInsets.symmetric(horizontal: 24),
-      alignment: Alignment.center,
+      // Only centre when we're deliberately filling the width. A Container
+      // with `alignment` set and no width constraint EXPANDS to fill loose
+      // constraints — which silently stretched every expand:false GhostButton
+      // to full width (e.g. onboarding's "Skip" read as the primary action).
+      alignment: widget.expand ? Alignment.center : null,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [

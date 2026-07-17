@@ -7,10 +7,20 @@ import '../design/app_colors.dart';
 import '../design/app_motion.dart';
 import '../design/app_radius.dart';
 
-/// A pulsing dot + label reflecting the WebSocket connection state, inside a
-/// soft pill rather than bare text.
+/// A pulsing dot + label reflecting the data's freshness, inside a soft pill.
+///
+/// IMPORTANT — this pill must never claim "LIVE" over schedule-interpolated
+/// data. The WebSocket status only tells us the *socket* is connected, not
+/// that the positions behind it are real GPS; when the backend has no licensed
+/// realtime feed it serves `source="schedule_estimate"` and a green LIVE badge
+/// would be a lie. Pass [dataEstimated] (from `Train.isEstimated`) so the pill
+/// downgrades to "SCHEDULE" instead. Screens with no train data behind them
+/// should not show this pill at all.
 class LiveIndicator extends ConsumerStatefulWidget {
-  const LiveIndicator({super.key});
+  const LiveIndicator({super.key, this.dataEstimated = false});
+
+  /// True when the data on this screen is schedule-interpolated, not live GPS.
+  final bool dataEstimated;
 
   @override
   ConsumerState<LiveIndicator> createState() => _LiveIndicatorState();
@@ -31,6 +41,8 @@ class _LiveIndicatorState extends ConsumerState<LiveIndicator>
   Widget build(BuildContext context) {
     final status = ref.watch(wsStatusProvider).valueOrNull ?? WsStatus.connecting;
     final (color, label) = switch (status) {
+      // Connected, but the data is schedule-interpolated: say so.
+      WsStatus.live when widget.dataEstimated => (AppColors.warning, 'SCHEDULE'),
       WsStatus.live => (AppColors.live, 'LIVE'),
       WsStatus.connecting => (AppColors.warning, 'CONNECTING'),
       WsStatus.reconnecting => (AppColors.danger, 'RECONNECTING'),

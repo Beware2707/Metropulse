@@ -79,7 +79,7 @@ void main() {
 
     test('weekend afternoon with nothing learned falls back to the explore prompt', () {
       final message = resolveHomeContextMessage(now: DateTime(2026, 1, 10, 14, 30)); // a Saturday
-      expect(message, 'Planning a trip? Search a station or explore nearby places.');
+      expect(message, 'Planning a trip? Search a station to get started.');
     });
 
     test('a commute departure wins over a simultaneously-imminent last train', () {

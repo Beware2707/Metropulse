@@ -34,14 +34,29 @@ class Vehicle with _$Vehicle {
     double? speedMps,
     // "realtime_gps" (an actual feed) or "schedule_estimate" (interpolated
     // from the timetable when no licensed realtime feed is configured) --
-    // see backend domain.entities.VehiclePosition. Defaults to the honest
-    // assumption for any payload that predates this field.
-    @Default('realtime_gps') String source,
+    // see backend domain.entities.VehiclePosition.
+    //
+    // Defaults to schedule_estimate so the honesty check FAILS CLOSED. The
+    // backend declares `source` required, so a payload without it means
+    // something is wrong (an old cache, a schema drift, an explicit null) --
+    // exactly when we least deserve the benefit of the doubt. Defaulting to
+    // realtime_gps made `isEstimated` false and painted a green LIVE badge
+    // over interpolated data, which is the one lie this app must never tell.
+    // Understating (SCHEDULE over real GPS) is recoverable; overclaiming is
+    // not. And today it is simply true: there is no DMRC realtime feed.
+    @Default('schedule_estimate') String source,
   }) = _Vehicle;
 
   factory Vehicle.fromJson(Map<String, dynamic> json) => _$VehicleFromJson(json);
 
-  bool get isEstimated => source == 'schedule_estimate';
+  /// Whether this position is interpolated rather than real GPS.
+  ///
+  /// Deliberately phrased as "anything that isn't explicitly realtime_gps",
+  /// not "== schedule_estimate". Only an affirmative realtime_gps earns a
+  /// green LIVE badge; an unknown or future source value must not. Written
+  /// the other way round, a new backend tag (or a typo) would silently be
+  /// treated as live — the same fail-open trap as the old default.
+  bool get isEstimated => source != 'realtime_gps';
 }
 
 /// A fully resolved live train, exactly as broadcast by the backend.

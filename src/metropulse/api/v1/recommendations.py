@@ -104,9 +104,9 @@ async def list_station_exits(
     session: AsyncSession = Depends(get_session),
     services: CommuterServices = Depends(get_commuter),
 ) -> list[StationExitOut]:
-    """All curated exits of a station."""
+    """All curated exits of a station, with nearby landmarks."""
     exits = await services.exits.list_exits(session, stop_id)
-    return [StationExitOut.model_validate(e) for e in exits]
+    return [StationExitOut.from_exit(e) for e in exits]
 
 
 @router.post(

@@ -582,6 +582,28 @@ class SharedJourneyRepository:
         )
         return result.scalars().first()
 
+    async def forget_positions_expired_before(self, cutoff: datetime) -> int:
+        """Erase the stored GPS trace of shares that expired before ``cutoff``.
+
+        Expiry only ever gated *readability*: ``stop_share`` and the public view
+        stop serving a share, but the row kept ``last_lat``/``last_lon`` — the
+        sharer's real position — forever. This is the most sensitive data the
+        backend holds and it was the one category with no retention at all.
+
+        The row itself is kept: it is the audit trail that a share existed, and
+        it carries no position once nulled. Returns rows affected.
+        """
+        result = await self._session.execute(
+            update(SharedJourney)
+            .where(
+                SharedJourney.expires_at < cutoff,
+                SharedJourney.last_lat.is_not(None),
+            )
+            .values(last_lat=None, last_lon=None, position_updated_at=None)
+        )
+        # DML always yields a CursorResult at runtime; see delete_older_than.
+        return int(cast(CursorResult[Any], result).rowcount or 0)
+
 
 class RiderReportRepository:
     """Community-sourced disruption reports (source='rider', unverified)."""
@@ -688,6 +710,16 @@ class StationExitRepository:
             select(StationExit).order_by(StationExit.stop_id, StationExit.name)
         )
         return result.scalars().all()
+
+    async def replace_all(self, rows: Sequence[StationExit]) -> None:
+        """Delete every existing exit and stage the replacement set.
+
+        Wholesale replace for a re-run of the exit loader (OSM-sourced gates),
+        mirroring the facility/last-mile convention. Caller owns the
+        transaction and commits. Coach-exit hints are left untouched.
+        """
+        await self._session.execute(delete(StationExit))
+        self._session.add_all(rows)
 
     async def hints_for(
         self, stop_id: str, route_id: str | None = None, direction_id: int | None = None

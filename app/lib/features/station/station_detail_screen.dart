@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/design/app_colors.dart';
 import '../../core/design/app_motion.dart';
+import '../../core/design/app_radius.dart';
 import '../../core/design/app_spacing.dart';
 import '../../core/formatters.dart';
 import '../../core/widgets/ambient_background.dart';
@@ -60,6 +61,12 @@ class StationDetailScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final station = ref.watch(stationIndexProvider)[stopId];
     final arrivals = ref.watch(arrivalsForStationProvider(stopId));
+    // Mirror the Live Map's honesty: when the trains feeding this board are
+    // schedule-interpolated (or stale), the concrete ETAs below are NOT live
+    // GPS, so add the same data-source caveat the map uses. The green
+    // LiveIndicator only reflects WS connectivity, not data provenance.
+    final arrivalsEstimated = ref.watch(arrivalsEstimatedProvider(stopId));
+    final arrivalsStale = arrivals.any((t) => t.isStale);
     final lastTrain = ref.watch(_lastTrainProvider(stopId));
     final exits = ref.watch(_exitsProvider(stopId));
     final facilities = ref.watch(_facilitiesProvider(stopId));
@@ -78,8 +85,13 @@ class StationDetailScreen extends ConsumerWidget {
         data: (data) => Text(
           data == null
               ? "We don't have tonight's service info yet"
-              : '${data['headsign'] ?? data['route_id']} at '
-                  '${clockTime(DateTime.tryParse('${data['departure_at']}'))}',
+              // Never fall back to route_id — it's an internal database key
+              // ("2 at 12:42 AM" tells a commuter nothing). Show the headsign
+              // when the feed has one, else just the time.
+              : _lastTrainLabel(
+                  data['headsign'] as String?,
+                  DateTime.tryParse('${data['departure_at']}'),
+                ),
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         loading: () => const Text('…'),
@@ -113,9 +125,44 @@ class StationDetailScreen extends ConsumerWidget {
                           ?.copyWith(fontWeight: FontWeight.w800),
                     ),
                   ),
-                  const LiveIndicator(),
+                  LiveIndicator(dataEstimated: arrivalsEstimated),
                 ],
               ),
+              if (arrivalsEstimated) ...[
+                const SizedBox(height: AppSpacing.sm),
+                GlassSurface(
+                  blur: true,
+                  borderRadius: AppRadius.pillR,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.schedule_rounded, size: 14, color: AppColors.warning),
+                      const SizedBox(width: AppSpacing.xs),
+                      Flexible(
+                        child: Text(
+                          'Arrival times are estimated from the schedule, not live GPS.',
+                          style: Theme.of(context)
+                              .textTheme
+                              .labelSmall
+                              ?.copyWith(color: AppColors.warning),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              if (arrivalsStale) ...[
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  'Positions may be a few minutes old.',
+                  style: Theme.of(context)
+                      .textTheme
+                      .labelSmall
+                      ?.copyWith(color: AppColors.danger),
+                ),
+              ],
               const SizedBox(height: AppSpacing.md),
               PrimaryButton(
                 label: 'Plan a trip here',
@@ -164,20 +211,31 @@ class StationDetailScreen extends ConsumerWidget {
                   ),
                 ),
               ],
-              const SectionHeader(title: 'Exits'),
+              const SectionHeader(title: 'Exits & nearby places'),
               exits.when(
                 data: (data) => data.isEmpty
                     ? const EmptyState(icon: Icons.exit_to_app_rounded, message: "We don't have exit info for this station yet.")
-                    : MomentList(
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          for (final exit in data)
-                            MomentRow(
-                              leading: const IconBadge(icon: Icons.exit_to_app_rounded),
-                              title: Text('${exit['name']}', style: Theme.of(context).textTheme.titleMedium),
-                              subtitle: exit['landmarks'] is List && (exit['landmarks'] as List).isNotEmpty
-                                  ? Text((exit['landmarks'] as List).join(', '),
-                                      style: Theme.of(context).textTheme.bodySmall)
-                                  : null,
+                          MomentList(
+                            children: [
+                              for (final exit in data)
+                                MomentRow(
+                                  leading: const IconBadge(icon: Icons.exit_to_app_rounded),
+                                  title: Text('${exit['name']}', style: Theme.of(context).textTheme.titleMedium),
+                                  subtitle: _ExitLandmarks(exit: exit),
+                                ),
+                            ],
+                          ),
+                          if (data.any((e) => e['source'] == 'osm'))
+                            Padding(
+                              padding: const EdgeInsets.only(top: AppSpacing.xs, left: AppSpacing.sm),
+                              child: Text(
+                                'Gates & nearby places · © OpenStreetMap contributors',
+                                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: Theme.of(context).colorScheme.onSurfaceVariant),
+                              ),
                             ),
                         ],
                       ),
@@ -310,6 +368,12 @@ class _LastMileSubtitle extends StatelessWidget {
     final startTime = route['start_time'] as String?;
     final endTime = route['end_time'] as String?;
     final headwaySecs = route['headway_secs'] as int?;
+    // Flexible / demand-based e-rickshaw routes don't run a fixed timetable,
+    // so soften "every N min" (which reads as a guaranteed cadence) to
+    // "roughly every N min" for them. Match on the route name, case-insensitive.
+    final routeName =
+        '${route['route_long_name'] ?? route['route_short_name'] ?? ''}';
+    final isFlexible = routeName.toLowerCase().contains('flexible');
     final hoursParts = <String>[
       if (startTime != null && endTime != null)
         'Runs ${startTime.substring(0, 5)}-${endTime.substring(0, 5)}'
@@ -317,7 +381,10 @@ class _LastMileSubtitle extends StatelessWidget {
         'From ${startTime.substring(0, 5)}'
       else if (endTime != null)
         'Until ${endTime.substring(0, 5)}',
-      if (headwaySecs != null) 'every ${headwaySecs ~/ 60} min',
+      if (headwaySecs != null)
+        isFlexible
+            ? 'roughly every ${headwaySecs ~/ 60} min'
+            : 'every ${headwaySecs ~/ 60} min',
     ];
 
     final stops = (route['stops'] as List<dynamic>? ?? const [])
@@ -338,6 +405,66 @@ class _LastMileSubtitle extends StatelessWidget {
 
     if (lines.isEmpty) return const SizedBox.shrink();
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: lines);
+  }
+}
+
+/// The landmarks near one exit gate. Prefers the structured `landmarks_detail`
+/// (so tourist attractions can be flagged with an icon), falling back to the
+/// flat `landmarks` string list for older/manually-curated exits.
+class _ExitLandmarks extends StatelessWidget {
+  const _ExitLandmarks({required this.exit});
+
+  final Map<String, dynamic> exit;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+
+    final detail = (exit['landmarks_detail'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .toList();
+
+    if (detail.isEmpty) {
+      // Fallback: flat landmarks string (no tourist flags available).
+      final flat = exit['landmarks'];
+      if (flat is List && flat.isNotEmpty) {
+        return Text(flat.join(', '), style: textTheme.bodySmall);
+      }
+      return const SizedBox.shrink();
+    }
+
+    // Tourist places first (already sorted server-side, but be safe), capped.
+    detail.sort((a, b) =>
+        (b['tourist'] == true ? 1 : 0).compareTo(a['tourist'] == true ? 1 : 0));
+    final shown = detail.take(6).toList();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Wrap(
+        spacing: AppSpacing.sm,
+        runSpacing: 4,
+        children: [
+          for (final l in shown)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (l['tourist'] == true) ...[
+                  Icon(Icons.attractions_rounded, size: 13, color: scheme.primary),
+                  const SizedBox(width: 3),
+                ],
+                Text(
+                  '${l['name']}',
+                  style: textTheme.bodySmall?.copyWith(
+                    color: l['tourist'] == true ? scheme.primary : null,
+                    fontWeight: l['tourist'] == true ? FontWeight.w600 : null,
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
   }
 }
 
@@ -541,3 +668,22 @@ class _FavouriteToggleState extends ConsumerState<_FavouriteToggle> {
     );
   }
 }
+
+/// Builds the exit-landmarks subtitle for one exit map, for widget tests
+/// (the widget itself is private to this screen).
+@visibleForTesting
+Widget exitLandmarksForTest(Map<String, dynamic> exit) => _ExitLandmarks(exit: exit);
+
+/// The last-train line for a station. Uses the trip headsign when the feed has
+/// one ("Towards Rithala at 11:42 PM"); otherwise just the time — never the
+/// raw route_id, which is an internal key and meaningless to a commuter.
+String _lastTrainLabel(String? headsign, DateTime? departureAt) {
+  final time = clockTime(departureAt);
+  final towards = (headsign != null && headsign.trim().isNotEmpty)
+      ? _towardsPrefixed(headsign.trim())
+      : null;
+  return towards == null ? 'Last train at $time' : '$towards at $time';
+}
+
+String _towardsPrefixed(String headsign) =>
+    headsign.toLowerCase().startsWith('towards') ? headsign : 'Towards $headsign';

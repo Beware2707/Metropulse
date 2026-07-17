@@ -549,7 +549,7 @@ class StationExitIn(BaseModel):
 
 
 class StationExitOut(BaseModel):
-    """A station exit."""
+    """A station exit gate with its nearby landmarks."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -558,6 +558,25 @@ class StationExitOut(BaseModel):
     name: str
     description: str | None
     landmarks: list[str] | None
+    #: Structured landmarks [{name, category, tourist}] from payload, letting
+    #: the UI flag tourist attractions distinctly. Null on older/manual exits.
+    landmarks_detail: list[dict[str, Any]] | None = None
+    #: Provenance for attribution, e.g. "osm" (OpenStreetMap, ODbL).
+    source: str | None = None
+
+    @classmethod
+    def from_exit(cls, exit_row: Any) -> "StationExitOut":
+        """Build from the ORM row, lifting landmarks_detail/source out of payload."""
+        payload = getattr(exit_row, "payload", None) or {}
+        return cls(
+            id=exit_row.id,
+            stop_id=exit_row.stop_id,
+            name=exit_row.name,
+            description=exit_row.description,
+            landmarks=exit_row.landmarks,
+            landmarks_detail=payload.get("landmarks_detail"),
+            source=payload.get("source"),
+        )
 
 
 class CoachExitHintIn(BaseModel):

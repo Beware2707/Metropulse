@@ -123,10 +123,7 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
     });
     final wsStatus = ref.watch(wsStatusProvider).valueOrNull;
     final isReconnecting = wsStatus == WsStatus.reconnecting;
-    // All trains share one backend source per deployment (see
-    // VehiclePosition.source) -- checking one is as good as checking all,
-    // but .any reads honestly even if that ever changes.
-    final isEstimated = ref.watch(liveTrainsProvider).values.any((t) => t.isEstimated);
+    final isEstimated = ref.watch(dataEstimatedProvider);
 
     // The map is the hero: full-bleed behind everything, with a couple of
     // small floating pills for status/controls rather than a solid app bar.
@@ -166,7 +163,7 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
                             const SizedBox(width: AppSpacing.sm),
                             Text('Live map', style: Theme.of(context).textTheme.titleSmall),
                             const SizedBox(width: AppSpacing.sm),
-                            const LiveIndicator(),
+                            LiveIndicator(dataEstimated: isEstimated),
                           ],
                         ),
                       ),
@@ -318,9 +315,14 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
       _trainsSource,
       'mp-train-clusters',
       const CircleLayerProperties(
-        circleRadius: 16,
+        // Was radius 16 / opacity .85: at city zoom these rendered as large
+        // opaque blobs that swallowed the lines and stations. Smaller, with a
+        // ring, so a cluster reads as "several trains here" not a splodge.
+        circleRadius: 11,
         circleColor: '#1F6FEB',
-        circleOpacity: 0.85,
+        circleOpacity: 0.75,
+        circleStrokeWidth: 1.5,
+        circleStrokeColor: '#ffffff',
       ),
       filter: ['has', 'point_count'],
     );
@@ -329,8 +331,12 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
       'mp-train-cluster-count',
       const SymbolLayerProperties(
         textField: ['get', 'point_count_abbreviated'],
-        textSize: 12,
+        // Without an explicit font from the style's glyph set the count label
+        // silently fails to draw, leaving an unlabelled blue circle.
+        textFont: ['Noto Sans Regular'],
+        textSize: 11,
         textColor: '#ffffff',
+        textAllowOverlap: true,
       ),
       filter: ['has', 'point_count'],
     );
@@ -338,7 +344,7 @@ class _LiveMapScreenState extends ConsumerState<LiveMapScreen>
       _trainsSource,
       'mp-trains-layer',
       const CircleLayerProperties(
-        circleRadius: 8,
+        circleRadius: 6,
         circleColor: ['get', 'color'],
         circleStrokeWidth: 2,
         circleStrokeColor: '#ffffff',

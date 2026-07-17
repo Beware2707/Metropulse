@@ -8,7 +8,6 @@
 // `homeLeaveIn(String)` method is invoked, which this test exercises.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:metropulse_app/core/l10n_ext.dart';
 import 'package:metropulse_app/l10n/gen/app_localizations.dart';
 import 'package:metropulse_app/l10n/gen/app_localizations_hi.dart';

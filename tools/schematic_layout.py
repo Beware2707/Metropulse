@@ -161,7 +161,6 @@ class Layout:
 
         # --- initial equirectangular projection, fit to canvas w/ padding
         lats = [stops[s]["lat"] for s in self.ids]
-        lons = [stops[s]["lon"] for s in self.ids]
         mean_lat = sum(lats) / n
         klon = math.cos(math.radians(mean_lat))
         xs = [(stops[s]["lon"]) * klon for s in self.ids]

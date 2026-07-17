@@ -65,5 +65,8 @@ String resolveHomeContextMessage({
     return 'Last train on your route departs in $minutes minute${minutes == 1 ? '' : 's'}.';
   }
 
-  return 'Planning a trip? Search a station or explore nearby places.';
+  // Kept short: the home greeting is capped at 2 lines, and the longer
+  // phrasing truncated mid-word ("...explore nearby pl…") on a Pixel-class
+  // screen.
+  return 'Planning a trip? Search a station to get started.';
 }

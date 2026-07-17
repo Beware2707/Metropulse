@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/design/app_colors.dart';
 import '../../core/design/app_motion.dart';
 import '../../core/design/app_radius.dart';
 import '../../core/design/app_spacing.dart';
@@ -40,7 +41,12 @@ class TrainDetailScreen extends ConsumerWidget {
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: Text(train?.lineLabel ?? 'Train'),
-        actions: const [Padding(padding: EdgeInsets.only(right: 16), child: Center(child: LiveIndicator()))],
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: Center(child: LiveIndicator(dataEstimated: train?.isEstimated ?? false)),
+          ),
+        ],
       ),
       body: AmbientBackground(
         intensity: 0.5,
@@ -81,7 +87,12 @@ class TrainDetailScreen extends ConsumerWidget {
                               ),
                               if (train.destination != null && train.destination!.name != train.headsign)
                                 StatPill(icon: Icons.flag_rounded, label: 'Destination', value: train.destination!.name),
-                              if (eta?.delaySeconds != null)
+                              // Gate the on-time/late pill on a real position:
+                              // a schedule-interpolated train is tautologically
+                              // "on time" against its own schedule, so showing
+                              // it would imply a live verdict the data can't
+                              // support. The caveat below explains the source.
+                              if (!train.isEstimated && eta?.delaySeconds != null)
                                 _AnimatedStatPill(
                                   icon: Icons.schedule_rounded,
                                   label: 'Schedule',
@@ -95,6 +106,43 @@ class TrainDetailScreen extends ConsumerWidget {
                                 ),
                             ],
                           ),
+                          // Mirror the Live Map bottom sheet for the SAME
+                          // train: an estimated/stale position is not live GPS,
+                          // so say so plainly here too (the LiveIndicator only
+                          // reflects WS connectivity, not data provenance).
+                          if (train.isEstimated) ...[
+                            const SizedBox(height: AppSpacing.md),
+                            Row(
+                              children: [
+                                const Icon(Icons.schedule_rounded, size: 14, color: AppColors.warning),
+                                const SizedBox(width: AppSpacing.xs),
+                                Flexible(
+                                  child: Text(
+                                    'Estimated from the schedule, not live GPS.',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelSmall
+                                        ?.copyWith(color: AppColors.warning),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                          if (train.isStale) ...[
+                            const SizedBox(height: AppSpacing.xs),
+                            Row(
+                              children: [
+                                const Icon(Icons.signal_wifi_off_rounded, size: 14),
+                                const SizedBox(width: AppSpacing.xs),
+                                Flexible(
+                                  child: Text(
+                                    'Position may be a few minutes old.',
+                                    style: Theme.of(context).textTheme.labelSmall,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
                         ],
                       ),
                     ),

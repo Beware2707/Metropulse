@@ -67,6 +67,35 @@ class LiveTrainsNotifier extends Notifier<Map<String, Train>> {
   }
 }
 
+/// Whether the data behind a screen is schedule-interpolated rather than real
+/// GPS — the single source of truth for [LiveIndicator]'s `dataEstimated`.
+///
+/// This exists as a provider, rather than as `trains.any((t) => t.isEstimated)`
+/// at each call site, because that expression is quietly wrong and was wrong at
+/// three call sites at once: **`Iterable.any` returns false on an empty
+/// collection**. The train table is empty on first build and again whenever the
+/// feed drains it (after service hours, or a station with nothing inbound), and
+/// `WsStatus.live` is not gated on train data — it fires on any frame, and
+/// heartbeats keep it alive. So "socket up, table empty" is a stable state in
+/// which `.any(...)` said "not estimated" and the pill went green LIVE over
+/// nothing at all, with every honesty caveat suppressed at the same time.
+///
+/// Empty therefore means estimated. Absence of evidence must resolve to the
+/// caveat, never to the claim: understating is recoverable, overclaiming is the
+/// one lie this app must not tell.
+bool _estimated(Iterable<Train> trains) =>
+    trains.isEmpty || trains.any((t) => t.isEstimated);
+
+/// Data-provenance for the whole live table (Home, Live Map).
+final dataEstimatedProvider = Provider<bool>(
+  (ref) => _estimated(ref.watch(liveTrainsProvider).values),
+);
+
+/// Data-provenance for one station's arrivals board.
+final arrivalsEstimatedProvider = Provider.family<bool, String>(
+  (ref, stopId) => _estimated(ref.watch(arrivalsForStationProvider(stopId))),
+);
+
 /// One live train by id (rebuilds only when that train changes).
 final liveTrainProvider = Provider.family<Train?, String>(
   (ref, vehicleId) => ref.watch(

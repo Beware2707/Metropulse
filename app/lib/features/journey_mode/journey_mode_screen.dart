@@ -17,7 +17,6 @@ import '../../core/widgets/gradient_button.dart';
 import '../../core/widgets/icon_badge.dart';
 import '../../core/widgets/journey_progress_track.dart';
 import '../../core/widgets/line_chip.dart';
-import '../../core/widgets/live_indicator.dart';
 import '../../core/widgets/moment_row.dart';
 import '../../data/api_client.dart';
 import '../../domain/companion_messages.dart';
@@ -58,11 +57,17 @@ class JourneyModeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final journeyAsync = ref.watch(activeJourneyProvider);
+    // The title must follow the actual state: "You're on your way" over an
+    // empty "not on a journey" body contradicted itself. And no LiveIndicator
+    // here — the body already carries the honest LIVE TRACKING / SCHEDULED
+    // ESTIMATE source pill, so a second connectivity-only "LIVE" badge in the
+    // app bar was both redundant and misleading (it reflects the socket, not
+    // the data).
+    final hasJourney = journeyAsync.valueOrNull != null;
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: const Text("You're on your way"),
-        actions: const [Padding(padding: EdgeInsets.only(right: 16), child: Center(child: LiveIndicator()))],
+        title: Text(hasJourney ? context.t.journeyInProgress : 'Journey'),
       ),
       body: AmbientBackground(
         intensity: 1.1,

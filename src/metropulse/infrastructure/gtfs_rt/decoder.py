@@ -72,6 +72,7 @@ def decode_vehicle_positions(
                     else None
                 ),
                 current_stop_id=vehicle.stop_id or None,
+                source="realtime_gps",
             )
         )
     return positions

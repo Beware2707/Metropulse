@@ -176,7 +176,12 @@ class _Header extends ConsumerWidget {
             ],
           ),
         ),
-        const LiveIndicator(),
+        // Honest: the pill downgrades to SCHEDULE when the trains behind it
+        // are schedule-interpolated rather than real GPS.
+        LiveIndicator(
+          dataEstimated:
+              ref.watch(dataEstimatedProvider),
+        ),
         const SizedBox(width: AppSpacing.sm),
         IconPillButton(
           icon: Icons.notifications_none_rounded,

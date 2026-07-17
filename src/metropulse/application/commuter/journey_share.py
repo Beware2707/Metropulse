@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from metropulse.application.commuter.geo_matching import haversine_meters
 from metropulse.domain.entities import utcnow
+from metropulse.infrastructure.db.base import SessionFactory
 from metropulse.infrastructure.db.commuter_models import SharedJourney, User
 from metropulse.infrastructure.db.commuter_repositories import (
     JourneyRepository,
@@ -180,6 +181,27 @@ class JourneyShareService:
             # arbitrary lat/lon here, so we return None rather than invent one.
             eta=None,
         )
+
+
+async def forget_expired_share_positions(
+    session_factory: SessionFactory, grace_hours: float
+) -> int:
+    """Erase stored GPS traces of long-expired shares (periodic worker job).
+
+    ``SHARE_TTL`` only ever stopped a share being *read*; the coordinates stayed
+    in the row indefinitely. Every other category the backend stores has a
+    retention window (vehicle history 72 h, analytics 90 days) -- the sharer's
+    own position, the most sensitive thing here, had none. This closes that.
+
+    ``grace_hours`` is measured past ``expires_at``, so a share that is merely
+    over is left alone briefly; only traces well past their life are erased.
+    """
+    cutoff = utcnow() - timedelta(hours=grace_hours)
+    async with session_factory() as session:
+        async with session.begin():
+            return await SharedJourneyRepository(session).forget_positions_expired_before(
+                cutoff
+            )
 
 
 async def _nearest_station_name(

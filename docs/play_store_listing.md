@@ -15,9 +15,9 @@ MetroPulse: Delhi Metro
 ## Short description (80 char limit)
 
 ```
-Live Delhi Metro tracking, journey planning, and smart coach recommendations.
+Delhi Metro journey planner, train times, and smart coach recommendations.
 ```
-(77 characters.)
+(73 characters.)
 
 ## Full description (4000 char limit)
 
@@ -29,12 +29,13 @@ even on the platform.
 It's an independent app, built by commuters, and is not operated by or
 officially affiliated with the Delhi Metro Rail Corporation (DMRC).
 
-LIVE TRAIN TRACKING, HONESTLY LABELLED
-See trains move on a live map of the network. When a live GPS feed is
-available for a line, you're watching the real thing; when it isn't,
-MetroPulse tells you plainly that you're seeing a schedule-based estimate
-instead of quietly guessing. You'll always know which one you're looking
-at.
+TRAIN POSITIONS, HONESTLY LABELLED
+See trains move across a map of the network. DMRC does not publish a live
+GPS feed for the metro, so these positions are estimated from its official
+published timetable -- and MetroPulse says so, on screen, every time. The
+badge reads SCHEDULE, never a green LIVE. If a real feed is ever published,
+the app will show you which one you're looking at rather than blurring the
+two.
 
 JOURNEY PLANNING
 Search any two stations and get a clear route — interchanges, line
@@ -42,15 +43,17 @@ colours, and timing — built from the same official timetable data DMRC
 publishes.
 
 JOURNEY MODE
-Once you're travelling, MetroPulse becomes a real-time companion: it
+Once you're travelling, MetroPulse becomes a journey companion: it
 tracks which phase of the trip you're in — heading to the station,
 boarding, riding, changing lines — so you always know what's next without
 having to check.
 
 COACH & EXIT RECOMMENDATIONS
-Get a coach suggestion based on real crowding data and whichever exit is
-closest to where you're headed at your destination. The women-reserved
-coach is never recommended — full stop.
+Get a coach suggestion based on real crowding data, and — at the 150 of 262
+stations where exit data exists today — which exit puts you closest to
+where you're actually headed, with nearby landmarks mapped to each gate
+(from OpenStreetMap). The women-reserved coach is never recommended — full
+stop.
 
 SMART COMMUTE ALERTS
 Save your regular places (like Home and Work) and MetroPulse learns your

@@ -31,7 +31,11 @@ import contextlib
 from typing import Any
 
 from metropulse.application.commuter.analytics import purge_analytics
+from metropulse.application.commuter.journey_share import (
+    forget_expired_share_positions,
+)
 from metropulse.application.commuter.last_mile_loader import load_last_mile_routes
+from metropulse.application.commuter.station_exit_loader import load_station_exits
 from metropulse.application.commuter.rule_engine import CommuterRuleEngine
 from metropulse.application.commuter.station_facility_loader import load_station_facilities
 from metropulse.application.consumers import EtaWarmer, FeedAnalyticsRecorder
@@ -205,6 +209,36 @@ async def load_last_mile_cmd(settings: Settings, zip_path: Path) -> int:
                     f"    route_id={row.get('route_id')!r} "
                     f"route_short_name={row.get('route_short_name')!r} "
                     f"hub_stop_name={row.get('hub_stop_name')!r}"
+                )
+        else:
+            print("  unmatched: 0")
+        return 0
+    finally:
+        await resources.close()
+
+
+async def load_station_exits_cmd(settings: Settings, json_path: Path) -> int:
+    """Load station exit gates + nearby landmarks from the OSM-derived artifact.
+
+    Prints how many gates were loaded, how many matched a stop by name vs.
+    nearest-coordinate fallback, and every unmatched gate's station name -- no
+    silent drops. Returns a process exit code.
+    """
+    resources = build_resources(settings)
+    try:
+        result = await load_station_exits(resources.session_factory, json_path)
+        stations = len({e.stop_id for e in result.exits})
+        landmarks = sum(len(e.landmarks or []) for e in result.exits)
+        print(f"loaded {len(result.exits)} exit gates across {stations} stations")
+        print(f"  matched by name: {result.name_matched}")
+        print(f"  matched by coordinate: {result.coordinate_matched}")
+        print(f"  landmarks attached: {landmarks}")
+        if result.unmatched:
+            print(f"  unmatched: {len(result.unmatched)} gate(s) need manual attention:")
+            for gate in result.unmatched:
+                print(
+                    f"    name={gate.get('name')!r} "
+                    f"station_name={gate.get('station_name')!r}"
                 )
         else:
             print("  unmatched: 0")
@@ -406,6 +440,16 @@ async def run_worker(settings: Settings) -> int:
             args=[resources.session_factory, settings.analytics_retention_days],
             id="analytics-retention",
         )
+        scheduler.add_job(
+            forget_expired_share_positions,
+            "interval",
+            hours=1,
+            args=[
+                resources.session_factory,
+                settings.share_position_retention_hours,
+            ],
+            id="share-position-retention",
+        )
         if gtfs_static_updater is not None:
             scheduler.add_job(
                 gtfs_static_updater.check_for_update_safe,
@@ -491,6 +535,15 @@ def build_parser() -> argparse.ArgumentParser:
         "zip_path", type=Path, help="path to the shared-mobility GTFS ZIP"
     )
 
+    load_exits = sub.add_parser(
+        "load-station-exits",
+        help="load station exit gates + nearby landmarks from the OSM artifact",
+    )
+    load_exits.add_argument(
+        "json_path", type=Path, nargs="?", default=Path("data/station_exits.json"),
+        help="path to station_exits.json (default: data/station_exits.json)",
+    )
+
     sub.add_parser("run-worker", help="run the realtime polling worker")
     return parser
 
@@ -513,6 +566,8 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(load_station_facilities_cmd(settings, args.xlsx_path))
     if args.command == "load-last-mile":
         return asyncio.run(load_last_mile_cmd(settings, args.zip_path))
+    if args.command == "load-station-exits":
+        return asyncio.run(load_station_exits_cmd(settings, args.json_path))
     if args.command == "run-worker":
         try:
             return asyncio.run(run_worker(settings))

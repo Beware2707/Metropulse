@@ -27,7 +27,6 @@ from metropulse.domain.intelligence import PlaceRole
 from metropulse.infrastructure.db.base import SessionFactory
 from metropulse.infrastructure.db.commuter_models import Journey
 from metropulse.infrastructure.db.commuter_repositories import NotificationRepository
-from metropulse.wiring import AppResources
 
 IST = ZoneInfo("Asia/Kolkata")
 

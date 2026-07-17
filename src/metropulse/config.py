@@ -97,6 +97,10 @@ class Settings(BaseSettings):
     journey_max_age_hours: float = Field(default=6.0, gt=0)
     journey_delay_notify_seconds: float = Field(default=300.0, gt=0)
     analytics_retention_days: float = Field(default=90.0, gt=0)
+    #: Hours past a share's expiry after which its stored GPS trace is erased.
+    #: Short on purpose: this is the sharer's own position, the most sensitive
+    #: data we hold, and it has no use once the share stops being readable.
+    share_position_retention_hours: float = Field(default=24.0, gt=0)
     analytics_max_batch: int = Field(default=500, ge=1)
     default_coach_count: int = Field(default=8, ge=1)
     crowd_lookback_days: int = Field(default=28, ge=1)

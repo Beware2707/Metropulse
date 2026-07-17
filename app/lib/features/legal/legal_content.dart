@@ -47,19 +47,19 @@ const String legalLastUpdated = '6 July 2026';
 
 const List<LegalBlock> privacyPolicyBlocks = [
   LegalNotice(
-    'This is a draft. It accurately describes what the app collects and does as of the date '
-    'above, written by the engineering team building it — it has not been reviewed by a '
-    "lawyer. Have it reviewed against India's Digital Personal Data Protection Act, 2023 (and "
-    'any other laws that apply to where you operate) before publishing it or submitting the '
-    'app to an app store.',
+    'This policy accurately describes what the app collects and does as of the date above. It '
+    'is provided as-is and may be updated from time to time — always refer to the latest '
+    'version shown here in the app.',
   ),
   LegalHeading('The short version'),
   LegalParagraph(
     'MetroPulse knows you only by an anonymous, on-device identifier — never your name, '
-    'email, or phone number. Your live location never leaves your device. We store your '
-    'favourites, journey history, and notification preferences so the app works the same way '
-    'next time you open it, plus anything you choose to send us directly (a crowding report, '
-    "a feedback message). That's the whole list.",
+    'email, or phone number. Your live location stays on your device, with one exception you '
+    'control: if you start "Share my trip", your position is sent to our server every few '
+    'seconds so that whoever holds your share link can follow you, until you stop sharing. We '
+    'store your favourites, journey history, and notification preferences so the app works the '
+    'same way next time you open it, plus anything you choose to send us directly (a crowding '
+    "report, a feedback message). That's the whole list.",
   ),
   LegalHeading('What we collect'),
   LegalItem(
@@ -70,12 +70,23 @@ const List<LegalBlock> privacyPolicyBlocks = [
         'from it.',
   ),
   LegalItem(
-    'Location, kept on your device.',
+    'Location, kept on your device — unless you share a trip.',
     "If you grant location permission, the app uses your device's location to show nearby "
-        'stations and personalize your home screen. This location is used entirely on your '
-        'device and is never transmitted to or stored on our servers. (A weather forecast for '
-        'your area is fetched directly from a third-party weather service, described below, '
-        'using your approximate location for that one request.)',
+        'stations and personalize your home screen. For those purposes it is used entirely on '
+        'your device and is not transmitted to or stored on our servers. (A weather forecast '
+        'for your area is fetched directly from a third-party weather service, described '
+        'below, using your approximate location for that one request.)',
+  ),
+  LegalItem(
+    'Your live position, only while you are sharing a trip.',
+    'If you tap "Share my trip", the app sends your position to our server about every 20 '
+        'seconds and we store it against that trip, so that anyone holding the share link can '
+        'follow you on a map. The link does not require an account or a password: anyone who '
+        'has it can see where you are while the trip is being shared. We keep the most recent '
+        'position for the life of the share; sharing stops — and the position stops being '
+        'served — when you end the trip or the share expires. This is the only situation in '
+        'which your live location leaves your device, and it never starts without you asking '
+        'for it.',
   ),
   LegalItem(
     'Your favourites, journeys, and notification settings.',
@@ -121,7 +132,11 @@ const List<LegalBlock> privacyPolicyBlocks = [
     'Favourites, journey history, and notification preferences: kept until you delete them '
         'or ask us to (see below).',
     'Vehicle/feed analytics events: kept for 90 days, then automatically deleted.',
-    'Realtime vehicle position history: kept for 72 hours, then automatically deleted.',
+    'Train position history: kept for 72 hours, then automatically deleted. (This is the '
+        "trains' positions, not yours.)",
+    'Your position from a shared trip: a share stops being viewable 12 hours after you start '
+        'it, or as soon as you stop sharing. Your stored position is then automatically '
+        'erased within about a day of that.',
     'Feedback and crowding reports: kept indefinitely so we can track patterns over time, '
         'unless you ask us to delete yours.',
   ]),
@@ -153,16 +168,14 @@ const List<LegalBlock> privacyPolicyBlocks = [
   ),
   LegalHeading('Contact'),
   LegalParagraph(
-    'Questions about this policy or a data deletion request: '
-    '[support email placeholder — replace before publishing]',
+    'Questions about this policy or data-deletion requests: riddlesforeverbiz@gmail.com',
   ),
 ];
 
 const List<LegalBlock> termsOfUseBlocks = [
   LegalNotice(
-    'This is a draft, written by the engineering team building the app — it has not been '
-    'reviewed by a lawyer. Have it reviewed (including for governing law and dispute '
-    'resolution) before publishing it or submitting the app to an app store.',
+    'These terms are provided as-is and may be updated from time to time — always refer to the '
+    'latest version shown here in the app.',
   ),
   LegalHeading('Acceptance'),
   LegalParagraph(
@@ -229,12 +242,13 @@ const List<LegalBlock> termsOfUseBlocks = [
     'means you accept the revised terms.',
   ),
   LegalHeading('Governing law'),
+  // NOTE (not user-visible): a lawyer should confirm the correct governing law and
+  // jurisdiction before public launch; India / Delhi is a sensible default given the
+  // app's subject matter and user base.
   LegalParagraph(
-    'Placeholder — a lawyer should confirm the right governing law and jurisdiction, likely '
-    "India given the app's subject matter and user base.",
+    'These terms are governed by the laws of India, and any disputes are subject to the '
+    'exclusive jurisdiction of the courts of Delhi.',
   ),
   LegalHeading('Contact'),
-  LegalParagraph(
-    'Questions about these terms: [support email placeholder — replace before publishing]',
-  ),
+  LegalParagraph('Questions about these terms: riddlesforeverbiz@gmail.com'),
 ];

@@ -8,6 +8,18 @@ class AppConfig {
     defaultValue: 'http://10.0.2.2:8000',
   );
 
+  /// Disruptions board (official alerts + rider reports). OFF by default:
+  /// there is no automated DMRC alert-ingestion source yet (alerts are only
+  /// admin-posted) and rider reports need commuter volume, so in production
+  /// the board is empty and its "official alerts come from DMRC" copy implies
+  /// a live DMRC feed that isn't connected. Enable at build time with
+  /// `--dart-define=MP_ENABLE_DISRUPTIONS=true` once a real alert source is
+  /// wired or the copy is corrected. See RELEASE_AUDIT.md.
+  static const bool disruptionsEnabled = bool.fromEnvironment(
+    'MP_ENABLE_DISRUPTIONS',
+    defaultValue: false,
+  );
+
   /// MapLibre style. The default is the dependency-free demotiles style;
   /// swap for a proper raster/vector style key in production.
   static const String mapStyleUrl = String.fromEnvironment(

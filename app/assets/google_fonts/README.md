@@ -18,3 +18,22 @@ These are the only four weights `app_typography.dart` actually requests —
 every other weight in the downloaded family can be discarded. No code
 changes are needed once the files are here; `pubspec.yaml` already declares
 this folder as an asset directory.
+
+## The trap
+
+That "only four weights" claim is only true because `app_typography.dart`
+builds every style *directly* with `GoogleFonts.plusJakartaSans(fontWeight:
+...)`. It is easy to undo by accident.
+
+It previously started from `GoogleFonts.plusJakartaSansTextTheme()` and
+`copyWith`'d the weights on afterwards. That reads as equivalent and isn't:
+the helper resolves Material's *default* text theme first, and those defaults
+are largely Regular (w400) — which we don't bundle. So the app fired an HTTP
+request to `fonts.gstatic.com` on every cold start, and offline it silently
+fell back to Roboto. Nothing failed loudly; it just quietly wasn't the font.
+
+So: don't reach for the `...TextTheme()` helpers, and only request a weight
+that has a file in this folder. `test/flutter_test_config.dart` sets
+`GoogleFonts.config.allowRuntimeFetching = false`, so if a stray weight
+creeps back in, the tests render it in the fallback font rather than papering
+over it with a download.

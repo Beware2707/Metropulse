@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'config.dart';
 import '../features/favourites/favourites_screen.dart';
 import '../features/history/journey_history_screen.dart';
 import '../features/help/help_screen.dart';
@@ -104,7 +105,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: '/journeys/history', builder: (_, __) => const JourneyHistoryScreen()),
       GoRoute(path: '/notifications', builder: (_, __) => const NotificationsScreen()),
-      GoRoute(path: '/disruptions', builder: (_, __) => const DisruptionsScreen()),
+      // Disruptions is gated behind AppConfig.disruptionsEnabled (default off):
+      // when disabled the route redirects home so a stray deep-link can't reach
+      // an empty/misleading board. See RELEASE_AUDIT.md.
+      GoRoute(
+        path: '/disruptions',
+        redirect: (_, __) => AppConfig.disruptionsEnabled ? null : '/',
+        builder: (_, __) => const DisruptionsScreen(),
+      ),
       GoRoute(path: '/assistant', builder: (_, __) => const VoiceAssistantScreen()),
     ],
   );

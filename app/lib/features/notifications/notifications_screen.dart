@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/config.dart';
 import '../../core/design/app_colors.dart';
 import '../../core/design/app_motion.dart';
 import '../../core/design/app_spacing.dart';
@@ -95,14 +96,15 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
           // Single entry point to the Disruption Board — official DMRC alerts
           // and unverified commuter reports — surfaced from the alerts inbox
           // rather than a competing home surface.
-          Padding(
-            padding: const EdgeInsets.only(right: AppSpacing.sm),
-            child: IconPillButton(
-              icon: Icons.campaign_rounded,
-              tooltip: 'Disruptions',
-              onPressed: () => context.push('/disruptions'),
+          if (AppConfig.disruptionsEnabled)
+            Padding(
+              padding: const EdgeInsets.only(right: AppSpacing.sm),
+              child: IconPillButton(
+                icon: Icons.campaign_rounded,
+                tooltip: 'Disruptions',
+                onPressed: () => context.push('/disruptions'),
+              ),
             ),
-          ),
           if (hasUnread)
             Padding(
               padding: const EdgeInsets.only(right: AppSpacing.sm),

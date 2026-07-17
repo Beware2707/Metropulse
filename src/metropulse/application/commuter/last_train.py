@@ -119,20 +119,40 @@ class LastTrainService:
     ) -> LastTrainInfo | None:
         """The first boardable departure from a stop at or after a moment.
 
-        Checks the service day containing ``after`` and, when that day has no
-        further departures (late night), the following service day.
+        Scans yesterday's, today's and tomorrow's service dates and returns the
+        earliest departure at or after ``after``.
+
+        Yesterday matters and is easy to miss. GTFS models a trip that runs past
+        midnight as belonging to the day it *started*, with an hours field that
+        keeps counting: the 00:45 train on the 18th is stored under service date
+        the 17th at ``24:45:00`` (88_500 s). The DMRC feed really does this --
+        1,410 stop_times depart at or after 24:00:00, the latest at 25:13. So a
+        commuter standing on a platform at 00:30 asking "when is my next train"
+        can only be answered correctly by looking at *yesterday's* service. This
+        used to scan (0, 1) only, told them the next train was tomorrow morning,
+        and hid a train that was 15 minutes away -- at the exact hour the answer
+        matters most.
+
+        Ordering is by real ``departure_at``, not by which service date we
+        happened to try first, since two service dates can both be in play
+        around midnight.
         """
+        candidates: list[LastTrainInfo] = []
         local = after.astimezone(self._tz)
-        for day_offset in (0, 1):
+        for day_offset in (-1, 0, 1):
             service_date = local.date() + timedelta(days=day_offset)
             midnight = datetime.combine(service_date, time(0), tzinfo=self._tz)
+            # For yesterday this exceeds 86_400, which is exactly how a
+            # ">= 24:00:00" departure gets selected.
             min_seconds = max(int((after - midnight).total_seconds()), 0)
             info = await self._first_departure_after(
                 session, stop_id, service_date, min_seconds, route_id, direction_id
             )
             if info is not None:
-                return info
-        return None
+                candidates.append(info)
+        if not candidates:
+            return None
+        return min(candidates, key=lambda i: i.departure_at)
 
     async def _first_departure_after(
         self,
