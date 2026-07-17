@@ -196,6 +196,10 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
                     child: _StepFreeInterchanges(plan: _plan!),
                   ),
                 ],
+                DelayedReveal(
+                  delay: const Duration(milliseconds: 110),
+                  child: _CrowdAdvisory(plan: _plan!),
+                ),
                 const SizedBox(height: AppSpacing.lg),
                 for (var i = 0; i < _plan!.legs.length; i++)
                   DelayedReveal(
@@ -464,6 +468,97 @@ final _onwardLastMileProvider = FutureProvider.autoDispose
     .family<List<Map<String, dynamic>>, String>((ref, stopId) {
   return ref.watch(stationsRepositoryProvider).lastMileRoutes(stopId);
 });
+
+/// Typical crowding along the planned route (origin + interchanges +
+/// destination), keyed by the joined stop ids so a new plan refetches.
+final _crowdForecastProvider = FutureProvider.autoDispose
+    .family<Map<String, dynamic>?, String>((ref, stopsCsv) {
+  return ref
+      .watch(journeyRepositoryProvider)
+      .crowdForecast(stopsCsv.split(','));
+});
+
+/// A one-line typical-crowding advisory for the planned route.
+///
+/// Wording discipline: everything here is an AVERAGE from a dated DMRC
+/// snapshot, so the copy says "typically"/"usually" and never "now". A
+/// quieter departure is only shown when the backend judged it meaningfully
+/// quieter — the widget never does its own arithmetic on the ratios. When
+/// no station on the route is busy, it renders nothing: quiet is the
+/// default state of the world and doesn't need an announcement.
+class _CrowdAdvisory extends ConsumerWidget {
+  const _CrowdAdvisory({required this.plan});
+
+  final JourneyPlan plan;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final stops = <String>{
+      plan.origin.stopId,
+      ...plan.interchangeStopIds,
+      plan.destination.stopId,
+    }.join(',');
+    final data = ref.watch(_crowdForecastProvider(stops)).valueOrNull;
+    if (data == null) return const SizedBox.shrink();
+
+    final busiest = data['busiest'] as Map<String, dynamic>?;
+    if (busiest == null) return const SizedBox.shrink();
+    final level = '${busiest['level']}';
+    if (level != 'busy' && level != 'peak') return const SizedBox.shrink();
+
+    final theme = Theme.of(context);
+    final stations = ref.watch(stationIndexProvider);
+    final busyName =
+        stations['${busiest['stop_id']}']?.name ?? '${busiest['stop_id']}';
+
+    final quieter = data['quieter'] as Map<String, dynamic>?;
+    String? quieterLine;
+    if (quieter != null) {
+      final at = DateTime.tryParse('${quieter['depart_at']}')?.toLocal();
+      final gain = ((quieter['gain'] as num?) ?? 0) * 100;
+      if (at != null && gain > 0) {
+        quieterLine =
+            'Typically ~${gain.round()}% quieter leaving around ${clockTime(at)}.';
+      }
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.sm),
+      child: GlassSurface(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.groups_rounded, size: 20, color: AppColors.warning),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    level == 'peak'
+                        ? '$busyName is usually at its busiest around now'
+                        : '$busyName is usually busy around now',
+                    style: theme.textTheme.titleSmall,
+                  ),
+                  if (quieterLine != null) ...[
+                    const SizedBox(height: 2),
+                    Text(quieterLine, style: theme.textTheme.bodySmall),
+                  ],
+                  const SizedBox(height: 2),
+                  Text(
+                    'Typical for this hour · DMRC ridership data',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 /// "Onward from {destination}": the door-to-door story — after the metro
 /// legs, the real e-rickshaw continuations from the destination station.

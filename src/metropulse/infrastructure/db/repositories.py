@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Iterable, Sequence, cast
 
-from sqlalchemy import delete, func, insert, select
+from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,6 +48,22 @@ class StopRepository:
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    async def set_stop_codes(self, code_by_stop_id: dict[str, str]) -> int:
+        """Backfill ``stop_code`` from DMRC's official station registry.
+
+        The DMRC GTFS ships stop_code empty, yet every other DMRC dataset
+        (ridership, OD flows) is keyed by these codes — this write is what
+        makes those datasets joinable. Returns rows updated. Caller owns the
+        transaction.
+        """
+        updated = 0
+        for stop_id, code in code_by_stop_id.items():
+            result = await self._session.execute(
+                update(Stop).where(Stop.stop_id == stop_id).values(stop_code=code)
+            )
+            updated += int(cast(CursorResult[Any], result).rowcount or 0)
+        return updated
 
     async def list_all(self, *, limit: int | None = None, offset: int = 0) -> Sequence[Stop]:
         """Stops ordered by name, with optional pagination."""

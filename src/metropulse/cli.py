@@ -35,6 +35,12 @@ from metropulse.application.commuter.journey_share import (
     forget_expired_share_positions,
 )
 from metropulse.application.commuter.last_mile_loader import load_last_mile_routes
+from metropulse.application.commuter.otd_loader import (
+    load_accessibility,
+    load_hourly,
+    load_official_registry,
+    load_top_destinations,
+)
 from metropulse.application.commuter.station_exit_loader import load_station_exits
 from metropulse.application.commuter.rule_engine import CommuterRuleEngine
 from metropulse.application.commuter.station_facility_loader import load_station_facilities
@@ -212,6 +218,47 @@ async def load_last_mile_cmd(settings: Settings, zip_path: Path) -> int:
                 )
         else:
             print("  unmatched: 0")
+        return 0
+    finally:
+        await resources.close()
+
+
+async def load_otd_cmd(settings: Settings, data_dir: Path) -> int:
+    """Load all four DMRC Open Transit Data artifacts, in dependency order.
+
+    The registry runs first: it backfills stops.stop_code, which is the join
+    key the ridership and OD datasets are keyed by. Every loader reports its
+    unmatched station codes -- no silent drops. Returns a process exit code.
+    """
+    registry = data_dir / "official_stations_gates.json"
+    if not registry.exists():
+        print(f"missing {registry} -- the registry is required (it is the join key)")
+        return 1
+    resources = build_resources(settings)
+    try:
+        reg = await load_official_registry(resources.session_factory, registry)
+        print(
+            f"registry: {reg.codes_resolved} codes resolved, "
+            f"{reg.stop_codes_set} stop_codes set, "
+            f"{reg.official_exits_added} official exits added "
+            f"({reg.gates_skipped_covered} gates skipped: OSM already covers them)"
+        )
+        if reg.codes_unmatched:
+            print(f"  unmatched codes: {reg.codes_unmatched}")
+
+        for label, filename, loader in (
+            ("accessibility", "pathways.json", load_accessibility),
+            ("busyness", "hourly_profile.json", load_hourly),
+            ("top-destinations", "od_top_destinations.json", load_top_destinations),
+        ):
+            path = data_dir / filename
+            if not path.exists():
+                print(f"{label}: SKIPPED ({path} not found)")
+                continue
+            result = await loader(resources.session_factory, path, registry)
+            print(f"{label}: {result.loaded} stations loaded")
+            if result.unmatched_codes:
+                print(f"  unmatched codes: {result.unmatched_codes}")
         return 0
     finally:
         await resources.close()
@@ -544,6 +591,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="path to station_exits.json (default: data/station_exits.json)",
     )
 
+    load_otd = sub.add_parser(
+        "load-otd",
+        help="load the DMRC Open Transit Data artifacts (registry, pathways, ridership, OD)",
+    )
+    load_otd.add_argument(
+        "data_dir", type=Path, nargs="?", default=Path("data/otd_normalized"),
+        help="directory of normalized OTD JSON artifacts",
+    )
+
     sub.add_parser("run-worker", help="run the realtime polling worker")
     return parser
 
@@ -566,6 +622,8 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(load_station_facilities_cmd(settings, args.xlsx_path))
     if args.command == "load-last-mile":
         return asyncio.run(load_last_mile_cmd(settings, args.zip_path))
+    if args.command == "load-otd":
+        return asyncio.run(load_otd_cmd(settings, args.data_dir))
     if args.command == "load-station-exits":
         return asyncio.run(load_station_exits_cmd(settings, args.json_path))
     if args.command == "run-worker":

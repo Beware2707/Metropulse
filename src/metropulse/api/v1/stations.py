@@ -7,17 +7,24 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from metropulse.api.deps import get_session
+from metropulse.application.commuter.accessibility_graph import step_free_gate_ids
 from metropulse.api.schemas import (
     LastMileRouteOut,
     RouteOut,
+    StationAccessibilityOut,
     StationDetailOut,
     StationFacilityOut,
+    StationHourlyLoadOut,
     StationListOut,
     StationOut,
+    StationTopDestinationsOut,
 )
 from metropulse.infrastructure.db.commuter_repositories import (
     LastMileRouteRepository,
+    StationAccessibilityRepository,
     StationFacilityRepository,
+    StationHourlyLoadRepository,
+    StationTopDestinationsRepository,
 )
 from metropulse.infrastructure.db.repositories import StopRepository
 
@@ -96,6 +103,65 @@ async def get_station_facilities(
             detail="no facility data curated for this station",
         )
     return StationFacilityOut.model_validate(facility)
+
+
+@router.get(
+    "/stations/{station_id}/accessibility", response_model=StationAccessibilityOut
+)
+async def get_station_accessibility(
+    station_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> StationAccessibilityOut:
+    """Step-free gate->lift->platform graph for one station.
+
+    404 means the DMRC pathways dataset does not cover this station — the
+    client must say "no accessibility data", not infer inaccessibility.
+    """
+    row = await StationAccessibilityRepository(session).get(station_id)
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="no accessibility data curated for this station",
+        )
+    out = StationAccessibilityOut.model_validate(row)
+    qualified = step_free_gate_ids(
+        row.gates or [], row.lifts or [], row.platforms or [], row.edges or []
+    )
+    out.step_free_gates = [g for g in (row.gates or []) if str(g.get("id")) in qualified]
+    return out
+
+
+@router.get("/stations/{station_id}/busyness", response_model=StationHourlyLoadOut)
+async def get_station_busyness(
+    station_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> StationHourlyLoadOut:
+    """Typical hourly entry/exit profile for one station (dated snapshot)."""
+    row = await StationHourlyLoadRepository(session).get(station_id)
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="no ridership profile curated for this station",
+        )
+    return StationHourlyLoadOut.model_validate(row)
+
+
+@router.get(
+    "/stations/{station_id}/top-destinations",
+    response_model=StationTopDestinationsOut,
+)
+async def get_station_top_destinations(
+    station_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> StationTopDestinationsOut:
+    """Where riders from this origin actually went (DMRC OD matrix month)."""
+    row = await StationTopDestinationsRepository(session).get(station_id)
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="no destination data curated for this station",
+        )
+    return StationTopDestinationsOut.model_validate(row)
 
 
 @router.get("/stations/{station_id}/last-mile", response_model=list[LastMileRouteOut])

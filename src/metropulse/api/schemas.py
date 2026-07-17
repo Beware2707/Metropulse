@@ -188,6 +188,59 @@ class StationFacilityOut(BaseModel):
     match_method: str
 
 
+class StationAccessibilityOut(BaseModel):
+    """Step-free path graph for a station (DMRC GTFS-Pathways dataset).
+
+    ``complete`` is True only when at least one full gate->lift->platform
+    chain exists; clients must present absent stations as "no data", never
+    as "not accessible".
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    stop_id: str
+    station_code: str | None
+    gates: list[dict[str, Any]] | None
+    lifts: list[dict[str, Any]] | None
+    platforms: list[dict[str, Any]] | None
+    edges: list[dict[str, Any]] | None
+    complete: bool
+    match_method: str
+    #: Gates whose mapped component reaches both a lift and a platform --
+    #: "step-free path mapped from this gate". Computed from the graph at
+    #: read time; empty when nothing qualifies, which the client must word
+    #: as "not mapped", never "not accessible".
+    step_free_gates: list[dict[str, Any]] = []
+
+
+class StationHourlyLoadOut(BaseModel):
+    """Typical hourly entries/exits (DMRC ridership dataset).
+
+    ``period`` is the data's vintage and must be shown with the numbers.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    stop_id: str
+    station_code: str | None
+    period: str
+    profiles: dict[str, Any]
+    match_method: str
+
+
+class StationTopDestinationsOut(BaseModel):
+    """Top destinations from an origin (DMRC monthly OD matrix)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    stop_id: str
+    station_code: str | None
+    period: str
+    total_out: int
+    top: list[dict[str, Any]]
+    match_method: str
+
+
 class LastMileRouteOut(BaseModel):
     """Curated shared-mobility (e-rickshaw) last-mile route."""
 

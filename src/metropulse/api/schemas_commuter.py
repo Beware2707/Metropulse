@@ -20,6 +20,7 @@ from metropulse.domain.intelligence import (
     RouteRecommendation,
     SmartRecommendation,
 )
+from metropulse.application.commuter.crowd_forecast import CrowdForecast
 from metropulse.domain.journey import JourneyPlan, RideLeg
 from metropulse.domain.replay import MonthlyReplay, TripReplay
 
@@ -311,6 +312,53 @@ class JourneyStopOut(BaseModel):
 
     stop_id: str
     name: str
+
+
+class StopCrowdOut(BaseModel):
+    """Typical crowding at one stop at the planned hour."""
+
+    stop_id: str
+    level: str  # quiet|moderate|busy|peak
+    ratio: float
+
+
+class QuieterDepartureOut(BaseModel):
+    """A nearby departure that is typically quieter."""
+
+    depart_at: datetime
+    busiest_ratio: float
+    gain: float
+
+
+class CrowdForecastOut(BaseModel):
+    """Typical crowding along a route -- averages from a dated DMRC
+    ridership snapshot (``period``), never a live reading. Clients must
+    word this as "typically"/"usually"."""
+
+    depart_at: datetime
+    period: str | None
+    stops: list[StopCrowdOut]
+    no_data_stop_ids: list[str]
+    busiest: StopCrowdOut | None
+    quieter: QuieterDepartureOut | None
+
+    @classmethod
+    def from_domain(cls, forecast: "CrowdForecast") -> "CrowdForecastOut":
+        return cls(
+            depart_at=forecast.depart_at,
+            period=forecast.period,
+            stops=[StopCrowdOut(stop_id=s.stop_id, level=s.level, ratio=s.ratio)
+                   for s in forecast.stops],
+            no_data_stop_ids=forecast.no_data_stop_ids,
+            busiest=(StopCrowdOut(stop_id=forecast.busiest.stop_id,
+                                  level=forecast.busiest.level,
+                                  ratio=forecast.busiest.ratio)
+                     if forecast.busiest else None),
+            quieter=(QuieterDepartureOut(depart_at=forecast.quieter.depart_at,
+                                         busiest_ratio=forecast.quieter.busiest_ratio,
+                                         gain=forecast.quieter.gain)
+                     if forecast.quieter else None),
+        )
 
 
 class JourneyLegOut(BaseModel):

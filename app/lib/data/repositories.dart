@@ -96,6 +96,47 @@ class StationsRepository {
     }
   }
 
+  /// Step-free path graph (gates, lifts, platforms, edges) from DMRC's
+  /// GTFS-Pathways dataset. Null means the dataset doesn't cover this
+  /// station — which the UI must present as "no data", never as
+  /// "not accessible".
+  Future<Map<String, dynamic>?> accessibility(String stopId) async {
+    try {
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/api/v1/stations/$stopId/accessibility',
+      );
+      return response.data;
+    } on DioException {
+      return null;
+    }
+  }
+
+  /// Typical hourly entries/exits from DMRC's ridership dataset. The
+  /// response's `period` is the data's vintage and must be shown with it.
+  Future<Map<String, dynamic>?> busyness(String stopId) async {
+    try {
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/api/v1/stations/$stopId/busyness',
+      );
+      return response.data;
+    } on DioException {
+      return null;
+    }
+  }
+
+  /// Where riders from this origin actually went (one month of DMRC's OD
+  /// matrix, named in `period`). Real measured ridership, not estimates.
+  Future<Map<String, dynamic>?> topDestinations(String stopId) async {
+    try {
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/api/v1/stations/$stopId/top-destinations',
+      );
+      return response.data;
+    } on DioException {
+      return null;
+    }
+  }
+
   /// Step-free access summary for the curated station set: a flat
   /// {stop_id: elevated} map where `true` means the platform is elevated (so
   /// stairs/lift, not concourse-level), `false` means at/below grade, and
@@ -187,6 +228,22 @@ class JourneyRepository {
       },
     );
     return JourneyPlan.fromJson(response.data!);
+  }
+
+  /// Typical crowding along a route from DMRC's measured hourly ridership.
+  /// Averages over the `period` in the response, never a live reading — UI
+  /// must phrase it "typically"/"usually". Null on error/offline.
+  Future<Map<String, dynamic>?> crowdForecast(List<String> stops) async {
+    if (stops.isEmpty) return null;
+    try {
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/api/v1/journey/crowd-forecast',
+        queryParameters: {'stops': stops.join(',')},
+      );
+      return response.data;
+    } on DioException {
+      return null;
+    }
   }
 
   Future<Journey> start({

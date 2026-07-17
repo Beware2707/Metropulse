@@ -463,6 +463,75 @@ class DatasetVersion(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class StationAccessibility(Base):
+    """The step-free path graph inside a station: gates, lifts, platforms and
+    the walk/elevator edges between them, from DMRC's GTFS-Pathways dataset
+    (Open Transit Data portal).
+
+    Coverage is partial by source: the dataset spans the Red, Yellow and Pink
+    lines and marks some stations incomplete. ``complete`` is True only when
+    the station has at least one full gate->lift->platform chain — the app must
+    say "no accessibility data" for absent stations, never guess. Curated
+    reference data: the loader replaces the table wholesale.
+    """
+
+    __tablename__ = "station_accessibility"
+
+    id: Mapped[int] = mapped_column(BigIntPk, primary_key=True, autoincrement=True)
+    stop_id: Mapped[str] = mapped_column(String(64), index=True, unique=True)
+    station_code: Mapped[str | None] = mapped_column(String(16))
+    gates: Mapped[list[dict[str, Any]] | None] = mapped_column(JsonB)
+    lifts: Mapped[list[dict[str, Any]] | None] = mapped_column(JsonB)
+    platforms: Mapped[list[dict[str, Any]] | None] = mapped_column(JsonB)
+    edges: Mapped[list[dict[str, Any]] | None] = mapped_column(JsonB)
+    complete: Mapped[bool] = mapped_column(Boolean, default=False)
+    match_method: Mapped[str] = mapped_column(String(16))
+
+
+class StationHourlyLoad(Base):
+    """Typical hourly entries/exits for a station, averaged from DMRC's
+    station-wise ridership dataset (Open Transit Data portal).
+
+    ``period`` records the data's vintage (e.g. 'september_2024') and MUST be
+    surfaced wherever this is shown — "typically busy" from a dated snapshot
+    is honest only with the date attached. ``profiles`` maps day_kind
+    (weekday|saturday|sunday) to 24-element entry/exit arrays whose index 0 is
+    04:00 of the service day (DMRC's HR4..HR27 convention, wrapping past
+    midnight). Curated reference data: wholesale replace on load.
+    """
+
+    __tablename__ = "station_hourly_load"
+
+    id: Mapped[int] = mapped_column(BigIntPk, primary_key=True, autoincrement=True)
+    stop_id: Mapped[str] = mapped_column(String(64), index=True, unique=True)
+    station_code: Mapped[str | None] = mapped_column(String(16))
+    period: Mapped[str] = mapped_column(String(32))
+    profiles: Mapped[dict[str, Any]] = mapped_column(JsonB)
+    match_method: Mapped[str] = mapped_column(String(16))
+
+
+class StationTopDestinations(Base):
+    """Where riders from this origin actually go, from DMRC's monthly
+    origin-destination flow matrix (Open Transit Data portal).
+
+    ``top`` is a ranked list of {dest_stop_id, dest_name, count} for the month
+    named in ``period``; ``total_out`` is the origin's total outbound riders
+    that month. Counts are real measured ridership, not estimates — attribute
+    them as "DMRC OD data, <period>". Curated reference data: wholesale
+    replace on load.
+    """
+
+    __tablename__ = "station_top_destinations"
+
+    id: Mapped[int] = mapped_column(BigIntPk, primary_key=True, autoincrement=True)
+    stop_id: Mapped[str] = mapped_column(String(64), index=True, unique=True)
+    station_code: Mapped[str | None] = mapped_column(String(16))
+    period: Mapped[str] = mapped_column(String(32))
+    total_out: Mapped[int] = mapped_column(Integer)
+    top: Mapped[list[dict[str, Any]]] = mapped_column(JsonB)
+    match_method: Mapped[str] = mapped_column(String(16))
+
+
 class Feedback(Base):
     """A user-submitted feedback message (Sprint 4: beta launch)."""
 

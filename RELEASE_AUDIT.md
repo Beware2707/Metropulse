@@ -489,3 +489,113 @@ tourist flags).
 
 **Status: unchanged GO for sideload/internal testing; still NO-GO for Play**
 until the signing key and TLS are resolved by the owner.
+
+---
+
+## 12. DMRC Open Transit Data integration (8 new files in Downloads)
+
+Eight files arrived from the OTD portal. Verdicts, from a 5-agent parse +
+cross-check pass over every row:
+
+| File | Verdict |
+|---|---|
+| `pathways.zip` (GTFS-Pathways) | **Integrated** — 220 stations / 9 lines of gate-lift-platform graphs (its own README wrongly claims 3 lines) |
+| `dmrc_station_and_gate_locations.xlsx` | **Integrated** — official registry; 258/264 codes resolved; backfills `stops.stop_code`, +531 official gate exits |
+| `stationwise_hourly_entry_exit_february_2024.xlsx` | **Integrated** — filename lies: actually Sep 2024–Feb 2025, 181 service days, 741 profiles |
+| `od_flow_jan_2021_jan_2025.xlsx` | **Integrated** (Jan 2025 month) — 98.9M journeys, top destinations per origin |
+| `dmrc_static_gtfs_v1.zip` | **Skipped** — identical timetable but `calendar.txt` expired 2025-12-31; loading it would kill every departure |
+| Shop/Subway `.xlsb` | **Skipped** — third-party crowdsourced points, no station linkage |
+
+### What shipped
+
+Three new curated tables (`station_accessibility`, `station_hourly_load`,
+`station_top_destinations`; migration 0012), a 4-stage `load-otd` CLI, three
+API endpoints (`/accessibility`, `/busyness`, `/top-destinations`), and three
+station-detail sections — every one carrying its source and data vintage
+("DMRC ridership data, Sep 2024 – Feb 2025"), because a dated snapshot without
+its date is an overclaim. Incomplete pathway coverage reads "partly mapped",
+never "not accessible" — a dataset gap is not a missing lift.
+
+### Two integration bugs the adversarial cross-check caught before they shipped
+
+1. **Interchange stations have one code per line** (Kashmere Gate = KGM + KGR
+   + KG-6, all one stop). The hourly loader overwrote instead of summing; the
+   OD loader would have violated the unique index outright. Both now merge
+   onto the resolved stop. Regression tests confirmed failing on the old code.
+2. **Placeholder coordinates in the official registry** — clusters of gates
+   pinned to single points, including one in Bharatpur, Rajasthan, 127 km
+   away. Gates >2 km from their own station keep their name/description but
+   lose their coords rather than draw an exit in another state.
+
+### Data quality worth remembering
+
+The parsers reported (not cleaned away): 44 pathway edges whose endpoints are
+mangled free-text ("no lift at this gate"), 30 stops with no coordinates, one
+station 74.9 km off, gates mostly at station-level precision, 45 unparseable
+gate rows, and blank duplicate OD rows per the workbook's own legend. Only
+62/220 stations have a strictly connected step-free chain — which is why the
+UI's `complete` wording is conservative.
+
+### Verified
+
+- 452 backend tests (9 new loader tests incl. revert-verified regressions),
+  236 Flutter tests (6 new section tests); mypy strict, ruff, analyzer clean.
+- Real load on local Postgres: 258 codes, 213 accessibility graphs, 228
+  busyness profiles, 228 destination sets; unmatched codes (6 stations newer
+  than the GTFS network) reported, not guessed.
+- Live API spot-check: Rajiv Chowk peaks at 9,095 entries/hr on weekdays and
+  sent 2.65M riders in Jan 2025, top destination Chandni Chowk; uncovered
+  stations 404. Numbers pass the Delhi smell test.
+- APK rebuilt (87.5 MB); new endpoints + attribution strings verified inside
+  `libapp.so`; installed on emulator.
+
+**EC2 push: DONE** (after the owner widened the security group to
+103.62.92.0/22 — the recurring SSH lockout is the ISP hopping within that
+block). Deployed via docker compose rebuild; migration 0012 applied (exit 0);
+`load-otd` run with the artifacts mounted: 258 codes, 213 accessibility
+graphs, 228 busyness profiles, 228 destination sets, and **151 official
+exits added with 380 skipped where OSM already covers** — the OSM-priority
+logic doing exactly its job in production. Station exit coverage is now
+**223/262** (was 150). Live-verified: all three endpoints answer with real
+data, and the emulator (APK pointed at EC2) renders all three sections —
+histogram peak "around 7 PM" at Chandni Chowk, top destination New Delhi
+95.9k riders, every section attributed and dated. This deploy also shipped
+the earlier post-midnight last-train fix and the share-position retention
+job, which predated the previous 32-hour-old containers.
+
+---
+
+## 13. Crowd-aware journeys + step-free gate guidance
+
+The two features that turn the OTD datasets from display into decisions.
+
+**Crowd-aware journey planning.** `CrowdForecastService` scores every station
+on a planned route against ITS OWN weekly peak (a small station's rush reads
+busy for that station) and suggests a nearby quieter departure only when the
+route is actually busy AND the shift saves >= 15 points. The planner shows a
+one-line advisory ("Rajiv Chowk is usually at its busiest around now —
+typically ~51% quieter leaving around 9 PM"), worded "typically", vintage
+attributed, hidden entirely on quiet routes.
+
+*Bug caught by probing production, not by tests:* the first deploy suggested
+leaving at **1:13 AM** from a quiet 10 PM route — "quieter" because the metro
+is CLOSED then; near-zero closed-hours entries read as an improvement. Fixed
+by gating suggestions on the busy threshold (which also keeps the search
+window inside service hours); the regression test reproduces the exact
+production case. Live re-probe: quiet 10 PM -> no suggestion; peak 6 PM ->
+"21:00, 51% quieter".
+
+**Step-free gate guidance.** Connected-component reachability over the stored
+pathways graph: a gate qualifies when its component contains a lift AND a
+platform (concourse nodes participate — most real chains route through them;
+self-loops and the feed's mangled free-text endpoints are handled). Exposed as
+`step_free_gates` on the accessibility endpoint; the station's Step-free
+section names the qualifying gates, and exits get an accessible badge on an
+EXACT gate-number match only — fuzzy matching would badge the wrong gate,
+the one mistake that costs a wheelchair user a staircase. Live: **58 stations
+expose 122 step-free gates.** Verified on-device at Chandni Chowk: Gate No. 2
+badged, Gates 1 and 3 correctly not.
+
+**Verified:** 460 backend + 240 Flutter tests (all new logic revert-verified
+or reproducing a live failure); mypy/ruff/analyzer clean; deployed to EC2 and
+probed live; APK rebuilt (87.5 MB) and exercised on the emulator.

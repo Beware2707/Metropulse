@@ -44,6 +44,21 @@ final _lastMileProvider = FutureProvider.autoDispose
   return ref.watch(stationsRepositoryProvider).lastMileRoutes(stopId);
 });
 
+final _accessibilityProvider = FutureProvider.autoDispose
+    .family<Map<String, dynamic>?, String>((ref, stopId) async {
+  return ref.watch(stationsRepositoryProvider).accessibility(stopId);
+});
+
+final _busynessProvider = FutureProvider.autoDispose
+    .family<Map<String, dynamic>?, String>((ref, stopId) async {
+  return ref.watch(stationsRepositoryProvider).busyness(stopId);
+});
+
+final _topDestinationsProvider = FutureProvider.autoDispose
+    .family<Map<String, dynamic>?, String>((ref, stopId) async {
+  return ref.watch(stationsRepositoryProvider).topDestinations(stopId);
+});
+
 /// Per-train ETA for an arrivals-board row, keyed by vehicle id — the same
 /// call `train_detail_screen.dart` and `live_map_screen.dart` make.
 final _arrivalEtaProvider = FutureProvider.autoDispose.family<VehicleEta?, String>((ref, vehicleId) async {
@@ -71,6 +86,9 @@ class StationDetailScreen extends ConsumerWidget {
     final exits = ref.watch(_exitsProvider(stopId));
     final facilities = ref.watch(_facilitiesProvider(stopId));
     final lastMile = ref.watch(_lastMileProvider(stopId));
+    final accessibility = ref.watch(_accessibilityProvider(stopId));
+    final busyness = ref.watch(_busynessProvider(stopId));
+    final topDestinations = ref.watch(_topDestinationsProvider(stopId));
 
     // The last-train fact only feels urgent late at night; outside that
     // window it's demoted to a single low-key row near the bottom instead of
@@ -223,7 +241,26 @@ class StationDetailScreen extends ConsumerWidget {
                               for (final exit in data)
                                 MomentRow(
                                   leading: const IconBadge(icon: Icons.exit_to_app_rounded),
-                                  title: Text('${exit['name']}', style: Theme.of(context).textTheme.titleMedium),
+                                  title: Row(
+                                    children: [
+                                      Flexible(
+                                        child: Text('${exit['name']}',
+                                            style: Theme.of(context).textTheme.titleMedium,
+                                            overflow: TextOverflow.ellipsis),
+                                      ),
+                                      // Badge only on an exact gate-number match
+                                      // against DMRC's mapped step-free gates —
+                                      // a wrong badge here sends a wheelchair
+                                      // user to a gate with stairs.
+                                      if (isStepFreeExitName(
+                                          '${exit['name']}',
+                                          accessibility.valueOrNull)) ...[
+                                        const SizedBox(width: AppSpacing.xs),
+                                        const Icon(Icons.accessible_rounded,
+                                            size: 16, color: AppColors.live),
+                                      ],
+                                    ],
+                                  ),
                                   subtitle: _ExitLandmarks(exit: exit),
                                 ),
                             ],
@@ -250,6 +287,50 @@ class StationDetailScreen extends ConsumerWidget {
                     children: [
                       const SectionHeader(title: 'Facilities'),
                       GlassSurface(child: _FacilitiesContent(data: data)),
+                    ],
+                  );
+                },
+                loading: () => const SizedBox.shrink(),
+                error: (_, __) => const SizedBox.shrink(),
+              ),
+              accessibility.when(
+                data: (data) {
+                  if (data == null) return const SizedBox.shrink();
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SectionHeader(title: 'Step-free access'),
+                      GlassSurface(child: _AccessibilitySummary(data: data)),
+                    ],
+                  );
+                },
+                loading: () => const SizedBox.shrink(),
+                error: (_, __) => const SizedBox.shrink(),
+              ),
+              busyness.when(
+                data: (data) {
+                  if (data == null) return const SizedBox.shrink();
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SectionHeader(title: 'Typically busy'),
+                      GlassSurface(child: _BusynessChart(data: data)),
+                    ],
+                  );
+                },
+                loading: () => const SizedBox.shrink(),
+                error: (_, __) => const SizedBox.shrink(),
+              ),
+              topDestinations.when(
+                data: (data) {
+                  if (data == null || (data['top'] as List?)?.isEmpty != false) {
+                    return const SizedBox.shrink();
+                  }
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SectionHeader(title: 'Where riders go from here'),
+                      GlassSurface(child: _TopDestinations(data: data)),
                     ],
                   );
                 },
@@ -673,6 +754,322 @@ class _FavouriteToggleState extends ConsumerState<_FavouriteToggle> {
 /// (the widget itself is private to this screen).
 @visibleForTesting
 Widget exitLandmarksForTest(Map<String, dynamic> exit) => _ExitLandmarks(exit: exit);
+
+@visibleForTesting
+Widget accessibilitySummaryForTest(Map<String, dynamic> data) =>
+    _AccessibilitySummary(data: data);
+
+@visibleForTesting
+Widget busynessChartForTest(Map<String, dynamic> data, {int? hourOverride}) =>
+    _BusynessChart(data: data, hourOverride: hourOverride);
+
+@visibleForTesting
+Widget topDestinationsForTest(Map<String, dynamic> data) =>
+    _TopDestinations(data: data);
+
+/// Renders a data-vintage attribution line, e.g. "DMRC ridership data ·
+/// Sep 2024–Feb 2025". Dated snapshots shown without their date would be an
+/// overclaim, so every OTD section ends with one of these.
+class _SourceLine extends StatelessWidget {
+  const _SourceLine({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.sm),
+      child: Text(
+        text,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant),
+      ),
+    );
+  }
+}
+
+/// Whether an exit (OSM/official name like "Chandni Chowk Metro Gate No. 3")
+/// matches one of DMRC's mapped step-free gates (pathways names like
+/// "Gate No. 3") — by exact gate NUMBER, or nothing.
+///
+/// Deliberately strict: the two datasets name gates differently, and fuzzy
+/// matching here would put an accessibility badge on the wrong gate — the
+/// one wrong answer that costs a wheelchair user a trip back up a staircase.
+/// No number on either side means no badge.
+@visibleForTesting
+bool isStepFreeExitName(String exitName, Map<String, dynamic>? accessibility) {
+  if (accessibility == null) return false;
+  final number = _gateNumber(exitName);
+  if (number == null) return false;
+  for (final g in (accessibility['step_free_gates'] as List? ?? const [])) {
+    if (g is Map && _gateNumber('${g['name']}') == number) return true;
+  }
+  return false;
+}
+
+int? _gateNumber(String name) {
+  final m = RegExp(r'gate\s*(?:no\.?|number|-)?\s*(\d+)', caseSensitive: false)
+      .firstMatch(name);
+  return m == null ? null : int.tryParse(m.group(1)!);
+}
+
+/// Formats the backend's period strings for display: '2024-09-01..2025-02-28'
+/// -> 'Sep 2024 – Feb 2025'; '2025-01' -> 'Jan 2025'. Unknown shapes pass
+/// through untouched — never invent a date.
+String formatOtdPeriod(String period) {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  String monthYear(String isoish) {
+    final parts = isoish.split('-');
+    if (parts.length < 2) return isoish;
+    final y = int.tryParse(parts[0]);
+    final m = int.tryParse(parts[1]);
+    if (y == null || m == null || m < 1 || m > 12) return isoish;
+    return '${months[m - 1]} $y';
+  }
+
+  if (period.contains('..')) {
+    final ends = period.split('..');
+    return '${monthYear(ends.first)} – ${monthYear(ends.last)}';
+  }
+  return monthYear(period);
+}
+
+/// The 'Step-free access' section body: whether a full gate → lift → platform
+/// path is mapped, and the station's lift/gate counts.
+///
+/// Wording discipline: this data covers what DMRC has MAPPED, not what
+/// physically exists. `complete == false` therefore reads as "not fully
+/// mapped", never "not accessible" — telling a wheelchair user a station is
+/// inaccessible because a dataset is incomplete would be the worst kind of
+/// honest-sounding lie.
+class _AccessibilitySummary extends StatelessWidget {
+  const _AccessibilitySummary({required this.data});
+
+  final Map<String, dynamic> data;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    final complete = data['complete'] == true;
+    final lifts = (data['lifts'] as List?)?.length ?? 0;
+    final gates = (data['gates'] as List?)?.length ?? 0;
+    final platforms = (data['platforms'] as List?)?.length ?? 0;
+
+    final headline = complete
+        ? 'Step-free path mapped: gate → lift → platform'
+        : 'Partly mapped — a full step-free path isn\'t in the data yet';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(
+              complete ? Icons.accessible_rounded : Icons.info_outline_rounded,
+              size: 18,
+              color: complete ? AppColors.live : scheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(child: Text(headline, style: textTheme.titleSmall)),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          '$gates gates · $lifts lifts · $platforms platforms in DMRC\'s map'
+          '${complete ? '' : ' — call 155370 to confirm lift service'}',
+          style: textTheme.bodySmall,
+        ),
+        if (stepFreeGateNames.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            'Step-free path mapped from: ${stepFreeGateNames.join(', ')}',
+            style: textTheme.bodySmall?.copyWith(color: AppColors.live),
+          ),
+        ],
+        const _SourceLine(text: 'DMRC station pathways data'),
+      ],
+    );
+  }
+
+  /// Names of gates whose mapped component reaches a lift AND a platform —
+  /// the per-gate answer to "where should I enter?". Empty means "not
+  /// mapped", never "not accessible".
+  List<String> get stepFreeGateNames => [
+        for (final g in (data['step_free_gates'] as List? ?? const []))
+          if (g is Map && g['name'] != null) '${g['name']}',
+      ];
+}
+
+/// The 'Typically busy' section body: a 24-bar histogram of average hourly
+/// entries for today's kind of day, with the current hour highlighted.
+///
+/// Hour convention: index 0 is 04:00 of the service day (DMRC's HR4..HR27),
+/// wrapping past midnight. The bars are typical values from a dated snapshot
+/// — the _SourceLine names that period, and nothing here is labelled "now".
+class _BusynessChart extends StatelessWidget {
+  const _BusynessChart({required this.data, this.hourOverride});
+
+  final Map<String, dynamic> data;
+
+  /// Test hook: pins "the current hour" so goldens/widget tests are
+  /// deterministic. Production leaves it null (wall clock).
+  final int? hourOverride;
+
+  static const _labels = ['4 AM', '8 AM', '12 PM', '4 PM', '8 PM', '12 AM'];
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+
+    final now = DateTime.now();
+    final hour = hourOverride ?? now.hour;
+    final dayKind = switch (now.weekday) {
+      DateTime.saturday => 'saturday',
+      DateTime.sunday => 'sunday',
+      _ => 'weekday',
+    };
+    final profiles = data['profiles'] as Map<String, dynamic>? ?? const {};
+    final profile = (profiles[dayKind] ?? profiles['weekday'])
+        as Map<String, dynamic>?;
+    final entries = (profile?['entries'] as List?)
+            ?.map((e) => (e as num?)?.toDouble() ?? 0.0)
+            .toList() ??
+        const <double>[];
+    if (entries.isEmpty) return const SizedBox.shrink();
+
+    final peak = entries.reduce((a, b) => a > b ? a : b);
+    if (peak <= 0) return const SizedBox.shrink();
+    final nowIndex = (hour - 4 + 24) % 24;
+    final peakIndex = entries.indexOf(peak);
+    final peakClock = _clockLabel((peakIndex + 4) % 24);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          height: 56,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              for (var i = 0; i < entries.length; i++) ...[
+                Expanded(
+                  child: Container(
+                    height: 6 + 50 * (entries[i] / peak),
+                    decoration: BoxDecoration(
+                      color: i == nowIndex
+                          ? scheme.primary
+                          : scheme.primary.withValues(alpha: 0.25),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                if (i < entries.length - 1) const SizedBox(width: 2),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            for (final label in _labels)
+              Text(label, style: textTheme.labelSmall),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          'Usually busiest around $peakClock on a '
+          '${dayKind == 'weekday' ? 'weekday' : dayKind.substring(0, 1).toUpperCase() + dayKind.substring(1)}',
+          style: textTheme.bodySmall,
+        ),
+        _SourceLine(
+          text: 'Typical entries · DMRC ridership data, '
+              '${formatOtdPeriod('${data['period']}')}',
+        ),
+      ],
+    );
+  }
+
+  static String _clockLabel(int hour24) {
+    final h = hour24 % 12 == 0 ? 12 : hour24 % 12;
+    return '$h ${hour24 < 12 ? 'AM' : 'PM'}';
+  }
+}
+
+/// The 'Where riders go from here' section body: the top measured
+/// destinations for this origin, with rider counts for the period.
+class _TopDestinations extends StatelessWidget {
+  const _TopDestinations({required this.data});
+
+  final Map<String, dynamic> data;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    final top = (data['top'] as List? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .take(5)
+        .toList();
+    final counts = top
+        .map((t) => (t['count'] as num?)?.toDouble() ?? 0.0)
+        .toList();
+    final maxCount = counts.isEmpty
+        ? 0.0
+        : counts.reduce((a, b) => a > b ? a : b);
+    if (maxCount <= 0) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var i = 0; i < top.length; i++) ...[
+          if (i > 0) const SizedBox(height: AppSpacing.sm),
+          Row(
+            children: [
+              Expanded(
+                flex: 3,
+                child: Text(
+                  '${top[i]['dest_name']}',
+                  style: textTheme.bodyMedium,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Expanded(
+                flex: 4,
+                child: FractionallySizedBox(
+                  alignment: Alignment.centerLeft,
+                  widthFactor: (counts[i] / maxCount).clamp(0.05, 1.0),
+                  child: Container(
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: scheme.primary.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Text(_compact(counts[i]), style: textTheme.labelMedium),
+            ],
+          ),
+        ],
+        _SourceLine(
+          text: 'Riders in ${formatOtdPeriod('${data['period']}')} · '
+              'DMRC origin–destination data',
+        ),
+      ],
+    );
+  }
+
+  static String _compact(double n) {
+    if (n >= 100000) return '${(n / 1000).round()}k';
+    if (n >= 1000) return '${(n / 1000).toStringAsFixed(1)}k';
+    return n.round().toString();
+  }
+}
 
 /// The last-train line for a station. Uses the trip headsign when the feed has
 /// one ("Towards Rithala at 11:42 PM"); otherwise just the time — never the

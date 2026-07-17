@@ -29,6 +29,7 @@ from metropulse.application.commuter.commute_card import CommuteCardService
 from metropulse.application.commuter.exits import ExitService
 from metropulse.application.commuter.favourites import FavouritesService
 from metropulse.application.commuter.journeys import JourneyService
+from metropulse.application.commuter.crowd_forecast import CrowdForecastService
 from metropulse.application.commuter.last_train import LastTrainService
 from metropulse.application.commuter.notifications import (
     LoggingNotificationChannel,
@@ -90,6 +91,7 @@ class CommuterServices:
     commute_impact: CommuteImpactService
     journey_share: JourneyShareService
     rider_reports: RiderReportService
+    crowd_forecast: CrowdForecastService
 
 
 @dataclass
@@ -195,6 +197,7 @@ def build_commuter_services(
         commute_impact=CommuteImpactService(monthly_window_days=settings.commute_replay_window_days),
         journey_share=JourneyShareService(),
         rider_reports=RiderReportService(),
+        crowd_forecast=CrowdForecastService(),
     )
 
 

@@ -14,6 +14,9 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from metropulse.infrastructure.db.commuter_models import (
+    StationAccessibility,
+    StationHourlyLoad,
+    StationTopDestinations,
     AnalyticsEvent,
     CoachExitHint,
     CrowdObservation,
@@ -691,6 +694,40 @@ class StationExitRepository:
         """Stage an exit or hint for insert."""
         self._session.add(row)
 
+    def add_rows(self, rows: Sequence[StationExit]) -> None:
+        """Stage a batch of exits for insert (caller owns the transaction)."""
+        self._session.add_all(rows)
+
+    async def covered_stop_ids(self, *, exclude_source: str | None = None) -> set[str]:
+        """Stop ids that already have at least one exit curated.
+
+        ``exclude_source`` ignores exits from that payload source when judging
+        coverage. The registry loader passes its own source here — otherwise a
+        re-run would see its previous rows as "coverage", skip every gate, then
+        delete those rows: not idempotent, actively destructive. (Caught by
+        test_registry_rerun_is_idempotent.)
+        """
+        stmt = select(StationExit.stop_id).distinct()
+        if exclude_source is not None:
+            stmt = stmt.where(
+                StationExit.payload["source"].as_string() != exclude_source
+            )
+        result = await self._session.execute(stmt)
+        return {row[0] for row in result.all()}
+
+    async def delete_by_source(self, source: str) -> int:
+        """Delete exits whose payload.source matches (e.g. 'dmrc_official').
+
+        Lets the official-registry loader re-run idempotently without touching
+        the OSM-sourced rows the exits loader owns. Returns rows deleted.
+        """
+        result = await self._session.execute(
+            delete(StationExit).where(
+                StationExit.payload["source"].as_string() == source
+            )
+        )
+        return int(cast(CursorResult[Any], result).rowcount or 0)
+
     async def get_exit(self, exit_id: int) -> StationExit | None:
         """Exit by primary key."""
         return await self._session.get(StationExit, exit_id)
@@ -773,6 +810,66 @@ class StationFacilityRepository:
         """Every curated facility row (bulk consumers: summaries, park & ride)."""
         result = await self._session.execute(select(StationFacility))
         return result.scalars().all()
+
+
+class StationAccessibilityRepository:
+    """Curated step-free path graphs (DMRC GTFS-Pathways).
+
+    Same wholesale-replace convention as the other curated reference tables.
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def replace_all(self, rows: Sequence[StationAccessibility]) -> None:
+        """Delete every existing row and stage the replacement set."""
+        await self._session.execute(delete(StationAccessibility))
+        self._session.add_all(rows)
+
+    async def get(self, stop_id: str) -> StationAccessibility | None:
+        """Accessibility graph for a station, or None when not covered."""
+        result = await self._session.execute(
+            select(StationAccessibility).where(StationAccessibility.stop_id == stop_id)
+        )
+        return result.scalar_one_or_none()
+
+
+class StationHourlyLoadRepository:
+    """Typical hourly entry/exit profiles (DMRC ridership dataset)."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def replace_all(self, rows: Sequence[StationHourlyLoad]) -> None:
+        """Delete every existing row and stage the replacement set."""
+        await self._session.execute(delete(StationHourlyLoad))
+        self._session.add_all(rows)
+
+    async def get(self, stop_id: str) -> StationHourlyLoad | None:
+        """Hourly profile for a station, or None when not covered."""
+        result = await self._session.execute(
+            select(StationHourlyLoad).where(StationHourlyLoad.stop_id == stop_id)
+        )
+        return result.scalar_one_or_none()
+
+
+class StationTopDestinationsRepository:
+    """Top destinations per origin (DMRC monthly OD matrix)."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def replace_all(self, rows: Sequence[StationTopDestinations]) -> None:
+        """Delete every existing row and stage the replacement set."""
+        await self._session.execute(delete(StationTopDestinations))
+        self._session.add_all(rows)
+
+    async def get(self, stop_id: str) -> StationTopDestinations | None:
+        """Top-destination row for an origin, or None when not covered."""
+        result = await self._session.execute(
+            select(StationTopDestinations).where(StationTopDestinations.stop_id == stop_id)
+        )
+        return result.scalar_one_or_none()
 
 
 class LastMileRouteRepository:
