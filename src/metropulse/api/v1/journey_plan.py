@@ -10,7 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from metropulse.api.deps import get_commuter
 from metropulse.api.deps import get_session
-from metropulse.api.schemas_commuter import CrowdForecastOut, JourneyPlanOut
+from metropulse.api.schemas_commuter import (
+    CrowdForecastOut,
+    JourneyPlanOut,
+    MultimodalPlanOut,
+)
 from metropulse.domain.exceptions import NoRouteError, UnknownEntityError
 from metropulse.wiring import CommuterServices
 
@@ -66,3 +70,25 @@ async def crowd_forecast(
     when = departure_at or datetime.now(tz=None).astimezone()
     forecast = await services.crowd_forecast.forecast(session, stop_ids, when)
     return CrowdForecastOut.from_domain(forecast)
+
+
+@router.get("/journey/multimodal", response_model=MultimodalPlanOut)
+async def multimodal_plan(
+    src_lat: float,
+    src_lon: float,
+    dst_lat: float,
+    dst_lon: float,
+    time: str | None = Query(default=None, pattern=r"^\d{2}:\d{2}:\d{2}$"),
+    services: CommuterServices = Depends(get_commuter),
+) -> MultimodalPlanOut:
+    """Door-to-door bus+metro options via the licensed Delhi Transport Stack
+    Journey Planner. 503 when no DTS key is configured; upstream failures
+    return an explicit error rather than a guessed route. Clients must show
+    the attribution string."""
+    if not services.multimodal.configured:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="multimodal planning is not configured on this server",
+        )
+    result = await services.multimodal.plan(src_lat, src_lon, dst_lat, dst_lon, time)
+    return MultimodalPlanOut.from_domain(result)

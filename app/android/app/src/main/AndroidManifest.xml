@@ -43,5 +43,18 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- Android 11+ package visibility. Without these, url_launcher cannot
+             resolve a browser, so every plain web link silently fails to open
+             and only sites with verified App Links (wa.me -> WhatsApp) work.
+             That was exactly the shipped bug: of the five Tickets & recharge
+             channels, only WhatsApp opened. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="http"/>
+        </intent>
     </queries>
 </manifest>

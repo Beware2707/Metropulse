@@ -46,7 +46,22 @@ class FavouritesScreen extends ConsumerWidget {
                 data: (rows) => ListView(
                   padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, 180),
                   children: [
-                    Text('Saved', style: Theme.of(context).textTheme.displaySmall),
+                    // Favourites is a PUSHED route, not one of the four tabs,
+                    // so nothing else on screen offers a way back — and with
+                    // a custom header instead of an AppBar there was no
+                    // automatic one either. Gesture-back still worked, which
+                    // is exactly why this stayed invisible for so long.
+                    Row(
+                      children: [
+                        IconPillButton(
+                          icon: Icons.arrow_back_rounded,
+                          tooltip: 'Back',
+                          onPressed: () => context.pop(),
+                        ),
+                        const SizedBox(width: AppSpacing.md),
+                        Text('Saved', style: Theme.of(context).textTheme.displaySmall),
+                      ],
+                    ),
                     for (final suggestion in placeSuggestions(rows, inferredPlaces))
                       Padding(
                         padding: const EdgeInsets.only(top: AppSpacing.md),

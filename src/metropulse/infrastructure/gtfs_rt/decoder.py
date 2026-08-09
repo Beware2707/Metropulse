@@ -20,6 +20,26 @@ _STATUS_BY_NUMBER = {
 }
 
 
+def _has_fix(latitude: float, longitude: float) -> bool:
+    """Whether a coordinate pair is a real fix rather than a null sentinel.
+
+    GTFS-RT declares latitude/longitude ``required``, so a producer with no
+    GPS fix cannot omit them — it has to send *something*, and the something
+    is almost always 0,0. That point is open ocean in the Gulf of Guinea; no
+    transit vehicle is ever there, so treating it as a fix is never right.
+
+    It is also not a harmless glitch downstream: RouteResolver.locate projects
+    any position onto the trip shape, so 0,0 does not render as an obvious
+    error out at sea — it snaps to whichever end of the line is nearest and
+    shows a rider a confident, wrong train.
+    """
+    if latitude != latitude or longitude != longitude:  # NaN
+        return False
+    if latitude == 0.0 and longitude == 0.0:
+        return False
+    return -90.0 <= latitude <= 90.0 and -180.0 <= longitude <= 180.0
+
+
 def decode_vehicle_positions(
     payload: bytes, fallback_timestamp: datetime | None = None
 ) -> list[VehiclePosition]:
@@ -43,6 +63,7 @@ def decode_vehicle_positions(
     default_ts = header_ts or fallback_timestamp or datetime.now(UTC)
 
     positions: list[VehiclePosition] = []
+    seen_ids: dict[str, str] = {}  # vehicle_id -> the entity.id that claimed it
     for entity in feed.entity:
         if not entity.HasField("vehicle") or not entity.vehicle.HasField("position"):
             logger.warning("skipping feed entity %s without vehicle position", entity.id)
@@ -52,6 +73,28 @@ def decode_vehicle_positions(
         if not vehicle_id:
             logger.warning("skipping feed entity with no vehicle id")
             continue
+        if vehicle_id in seen_ids:
+            # GTFS-RT guarantees entity.id is unique; it guarantees nothing
+            # about vehicle.id. The engine keys its snapshot by vehicle_id, so
+            # a collision would silently overwrite one train with another and
+            # report the loser as "removed" — a train disappearing off the map
+            # with no error anywhere. Keeping the first is arbitrary but
+            # deterministic; the point is that this is now LOUD instead of
+            # invisible. ERROR, not warning: the feed is malformed and a
+            # rider is being shown fewer trains than are running.
+            logger.error(
+                "duplicate vehicle id %r in feed (entities %s and %s); keeping the "
+                "first — the second train will not be shown",
+                vehicle_id, seen_ids[vehicle_id], entity.id,
+            )
+            continue
+        if not _has_fix(vehicle.position.latitude, vehicle.position.longitude):
+            logger.warning(
+                "skipping vehicle %r: no usable position fix (%s, %s)",
+                vehicle_id, vehicle.position.latitude, vehicle.position.longitude,
+            )
+            continue
+        seen_ids[vehicle_id] = entity.id
         timestamp = (
             datetime.fromtimestamp(vehicle.timestamp, UTC) if vehicle.timestamp else default_ts
         )

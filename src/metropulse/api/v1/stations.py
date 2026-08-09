@@ -11,6 +11,7 @@ from metropulse.application.commuter.accessibility_graph import step_free_gate_i
 from metropulse.api.schemas import (
     LastMileRouteOut,
     RouteOut,
+    RegionalRailConnectionOut,
     StationAccessibilityOut,
     StationDetailOut,
     StationFacilityOut,
@@ -21,6 +22,7 @@ from metropulse.api.schemas import (
 )
 from metropulse.infrastructure.db.commuter_repositories import (
     LastMileRouteRepository,
+    RegionalRailConnectionRepository,
     StationAccessibilityRepository,
     StationFacilityRepository,
     StationHourlyLoadRepository,
@@ -174,3 +176,21 @@ async def get_station_last_mile(
     response when no last-mile options are curated for this station."""
     routes = await LastMileRouteRepository(session).for_station(station_id)
     return [LastMileRouteOut.model_validate(route) for route in routes]
+
+
+@router.get(
+    "/stations/{station_id}/regional-rail",
+    response_model=list[RegionalRailConnectionOut],
+)
+async def get_station_regional_rail(
+    station_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> list[RegionalRailConnectionOut]:
+    """Walkable Namo Bharat (RRTS) connections from this metro station.
+
+    An empty list is the normal answer for almost every station -- only
+    stations NCRTC actually runs trips near have one. RRTS is a different
+    operator with its own fares; this is a connection, not a metro route.
+    """
+    rows = await RegionalRailConnectionRepository(session).for_station(station_id)
+    return [RegionalRailConnectionOut.model_validate(r) for r in rows]

@@ -23,8 +23,11 @@ import '../../domain/companion_messages.dart';
 import '../../domain/journey_progress.dart';
 import '../../domain/models/journey.dart';
 import '../../domain/models/replay.dart';
+import '../../domain/station_guidance.dart';
+import '../settings/settings_providers.dart';
 import '../../providers/core_providers.dart';
 import '../home/home_providers.dart';
+import 'coach_exit_prompt.dart';
 import 'journey_mode_providers.dart';
 import 'journey_share.dart';
 
@@ -36,6 +39,20 @@ final _exitProvider = FutureProvider.autoDispose
   return ref
       .watch(journeyRepositoryProvider)
       .bestExit(key.$1, routeId: key.$2, directionId: key.$3);
+});
+
+/// A station's curated exits, for whichever station the rider is about to
+/// act on — origin, interchange or destination.
+final _stationExitsProvider = FutureProvider.autoDispose
+    .family<List<Map<String, dynamic>>, String>((ref, stopId) async {
+  return ref.watch(stationsRepositoryProvider).exits(stopId);
+});
+
+/// DMRC's pathway graph for a station, which is what makes a step-free claim
+/// evidence rather than optimism.
+final _stationAccessProvider = FutureProvider.autoDispose
+    .family<Map<String, dynamic>?, String>((ref, stopId) async {
+  return ref.watch(stationsRepositoryProvider).accessibility(stopId);
 });
 
 /// Journey Mode: the persistent live trip card — MetroPulse's flagship
@@ -197,6 +214,41 @@ class _JourneyView extends ConsumerWidget {
     // gate" this app has no real data source for.
     final isEnteringStation = (snapshot?.justBoarded ?? false) && snapshot?.arrived != true;
 
+    // Which station the rider is about to act on, and what a gate means to
+    // them there. Mid-ride there is nothing to act on, so nothing is fetched
+    // and nothing is shown.
+    final approachingInterchange = snapshot?.approachingInterchange ?? false;
+    final arrivingSoon = (snapshot?.arrivingSoon ?? false) || (snapshot?.arrived ?? false);
+    final (guidancePhase, guidanceStopId) = switch ((
+      isEnteringStation,
+      approachingInterchange,
+      arrivingSoon,
+    )) {
+      (true, _, _) => (JourneyPhase.enteringOrigin, journey.originStopId),
+      (_, true, _) => (
+          JourneyPhase.approachingInterchange,
+          snapshot?.interchangeStopId ?? journey.destinationStopId,
+        ),
+      (_, _, true) => (JourneyPhase.arriving, journey.destinationStopId),
+      _ => (JourneyPhase.riding, null),
+    };
+    final stepFreePreferred = ref.watch(stepFreePreferredProvider);
+    final guidanceExits = guidanceStopId == null
+        ? const <Map<String, dynamic>>[]
+        : (ref.watch(_stationExitsProvider(guidanceStopId)).valueOrNull ??
+            const <Map<String, dynamic>>[]);
+    final guidanceAccess = guidanceStopId == null
+        ? null
+        : ref.watch(_stationAccessProvider(guidanceStopId)).valueOrNull;
+    final guidance = buildStationGuidance(
+      phase: guidancePhase,
+      stepFreePreferred: stepFreePreferred,
+      exits: guidanceExits,
+      accessibility: guidanceAccess,
+      matchedExitName: guidancePhase == JourneyPhase.arriving ? exitName : null,
+      matchedLandmark: guidancePhase == JourneyPhase.arriving ? exitLandmark : null,
+    );
+
     final message = buildCompanionMessage(
       arrived: snapshot?.arrived ?? false,
       arrivingSoon: snapshot?.arrivingSoon ?? false,
@@ -245,8 +297,17 @@ class _JourneyView extends ConsumerWidget {
               const SizedBox(height: AppSpacing.lg),
             ],
 
+            if (guidance != null && !isEnteringStation) ...[
+              _StationGuidanceCard(guidance: guidance),
+              const SizedBox(height: AppSpacing.lg),
+            ],
+
             if (isEnteringStation)
-              _EnteringStationView(originName: currentName, journeyContext: journeyContext)
+              _EnteringStationView(
+                originName: currentName,
+                journeyContext: journeyContext,
+                guidance: guidance,
+              )
             else ...[
               // -- Current -> Next: the two-line "where am I" moment, Apple
               // Maps turn-by-turn style. Big, bold, nothing competing for
@@ -433,6 +494,44 @@ class _JourneyView extends ConsumerWidget {
     if (confirmed == true && context.mounted) await _end(context, ref, completed: false);
   }
 
+  /// Ask the one question a rider can answer better than any dataset we have:
+  /// which coach lined up with which exit.
+  ///
+  /// Every guard here is a reason NOT to ask. Consent, a known destination,
+  /// gates worth choosing between, and a coach we can offer. Silence is the
+  /// default; a prompt is the exception.
+  Future<void> _maybeAskAboutCoachAndExit(
+      BuildContext context, WidgetRef ref) async {
+    if (!ref.read(contributionConsentProvider)) return;
+
+    final destination = journey.destinationStopId;
+    final rawExits = await ref.read(stationsRepositoryProvider).exits(destination);
+    final exits = [
+      for (final exit in rawExits)
+        if (exit['id'] != null && '${exit['name']}'.trim().isNotEmpty)
+          ExitChoice(id: (exit['id'] as num).toInt(), name: '${exit['name']}'),
+    ];
+    if (exits.isEmpty || !context.mounted) return;
+
+    final firstRide = ref
+        .read(journeyContextProvider(journey.id))
+        ?.plan
+        ?.legs
+        .where((leg) => leg.isRide)
+        .firstOrNull;
+    await showCoachExitPrompt(
+      context,
+      ref: ref,
+      stopId: destination,
+      stationName:
+          ref.read(stationIndexProvider)[destination]?.name ?? 'this station',
+      exits: exits,
+      coachCount: 8,
+      routeId: firstRide?.routeId,
+      directionId: firstRide?.directionId,
+    );
+  }
+
   Future<void> _end(BuildContext context, WidgetRef ref, {required bool completed}) async {
     // The journey must be marked completed on the backend *before* fetching
     // its replay — otherwise Commute Replay would still find the previous
@@ -446,6 +545,24 @@ class _JourneyView extends ConsumerWidget {
         );
       }
       return;
+    }
+    // Journey completion rate is a headline beta metric, and it is the one
+    // outcome the server cannot infer: an abandoned journey and a crashed app
+    // look identical from the backend. Recorded only after the end call
+    // succeeded, so the number means "journeys that actually ended this way".
+    ref.read(analyticsServiceProvider).recordJourneyEnded(
+          completed: completed,
+          elapsed: DateTime.now().difference(
+            ref.read(journeyContextProvider(journey.id))?.startedAt ??
+                DateTime.now(),
+          ),
+        );
+    // The one moment a rider knows which coach lined up with which exit: they
+    // have just walked it. Only after ARRIVING (an abandoned trip proves
+    // nothing about the destination), only with explicit contribution consent,
+    // and never in a way that delays leaving this screen.
+    if (completed && context.mounted) {
+      await _maybeAskAboutCoachAndExit(context, ref);
     }
     await ref.read(localStoreProvider).clearJourneyContext();
     ref
@@ -558,10 +675,18 @@ class _JourneyView extends ConsumerWidget {
 /// distinguishing entry gates the way exits are distinguished, so this
 /// omits it rather than inventing one.
 class _EnteringStationView extends StatelessWidget {
-  const _EnteringStationView({required this.originName, required this.journeyContext});
+  const _EnteringStationView({
+    required this.originName,
+    required this.journeyContext,
+    this.guidance,
+  });
 
   final String originName;
   final JourneyContext? journeyContext;
+
+  /// Which gate to walk in by — the first thing you need before coach or
+  /// platform matter, since you have to get inside the station first.
+  final StationGuidance? guidance;
 
   @override
   Widget build(BuildContext context) {
@@ -575,6 +700,31 @@ class _EnteringStationView extends StatelessWidget {
       _ => null,
     };
     final rows = <Widget>[
+      if (guidance != null)
+        MomentRow(
+          leading: IconBadge(
+            icon: guidance!.stepFree
+                ? Icons.accessible_rounded
+                : Icons.door_front_door_rounded,
+            color: guidance!.stepFree ? AppColors.live : null,
+          ),
+          title: Text(guidance!.headline, style: theme.textTheme.bodyLarge),
+          subtitle: guidance!.detailLines.isEmpty
+              ? null
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (final line in guidance!.detailLines)
+                      Text(line,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: line == guidance!.liftNote &&
+                                    guidance!.stepFree
+                                ? AppColors.live
+                                : theme.colorScheme.onSurfaceVariant,
+                          )),
+                  ],
+                ),
+        ),
       if (journeyContext?.recommendedCoach != null)
         MomentRow(
           leading: const IconBadge(icon: Icons.event_seat_rounded),
@@ -621,6 +771,97 @@ class _EnteringStationView extends StatelessWidget {
     );
   }
 }
+
+/// The next physical thing to do at a station: which gate to use, and
+/// whether DMRC's map shows a lift path through it.
+///
+/// Deliberately one line of action plus one line of evidence. A rider reading
+/// this is walking, often carrying something, frequently underground — this
+/// is not the moment for a data panel.
+class _StationGuidanceCard extends StatelessWidget {
+  const _StationGuidanceCard({required this.guidance});
+
+  final StationGuidance guidance;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    // An unmapped step-free path is a caution, not a success or a failure:
+    // warning amber, never danger red, because the station may well be
+    // perfectly accessible and merely unmapped.
+    final color = guidance.stepFreeUnmapped
+        ? AppColors.warning
+        : (guidance.stepFree ? AppColors.live : theme.colorScheme.primary);
+    final icon = guidance.stepFreeUnmapped
+        ? Icons.info_outline_rounded
+        : (guidance.stepFree
+            ? Icons.accessible_rounded
+            : Icons.door_front_door_rounded);
+
+    return GlassSurface(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: color),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(guidance.headline, style: theme.textTheme.titleSmall),
+                // The lift line earns a tick only when DMRC's own graph
+                // backs it. The weaker "path not mapped" variant gets the
+                // same words but no tick and no green — the tick is the
+                // promise, and it is only made on evidence.
+                if (guidance.liftNote != null) ...[
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      Icon(
+                        guidance.stepFree
+                            ? Icons.check_circle_rounded
+                            : Icons.elevator_outlined,
+                        size: 14,
+                        color: guidance.stepFree
+                            ? AppColors.live
+                            : theme.colorScheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(guidance.liftNote!,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: guidance.stepFree
+                                  ? AppColors.live
+                                  : theme.colorScheme.onSurfaceVariant,
+                            )),
+                      ),
+                    ],
+                  ),
+                ],
+                if (guidance.landmarkNote != null) ...[
+                  const SizedBox(height: 2),
+                  Text(guidance.landmarkNote!,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant)),
+                ],
+                if (guidance.platformNote != null) ...[
+                  const SizedBox(height: 2),
+                  Text(guidance.platformNote!,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant)),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+@visibleForTesting
+Widget stationGuidanceCardForTest(StationGuidance g) =>
+    _StationGuidanceCard(guidance: g);
 
 class _CrowdPill extends StatelessWidget {
   const _CrowdPill({required this.crowding});

@@ -2,10 +2,28 @@
 class AppConfig {
   AppConfig._();
 
-  /// `10.0.2.2` reaches the host machine from the Android emulator.
+  /// Where the app talks to unless a build overrides it.
+  ///
+  /// This MUST be an address a real phone can reach. It used to default to
+  /// `http://10.0.2.2:8000` — the Android emulator's alias for the host
+  /// machine's own localhost — which is unroutable from any real device. Every
+  /// release APK built without `--dart-define=MP_API_BASE=...` therefore
+  /// shipped pointing at a developer's laptop: the WebSocket was refused on a
+  /// loop, the badge sat on CONNECTING then RECONNECTING forever, and the home
+  /// screen stayed empty. The Settings override that would have rescued it is
+  /// behind `kDebugMode`, so a user could not fix it either.
+  ///
+  /// The default is now production and the emulator address is the OVERRIDE,
+  /// which is the safe direction: a developer can deliberately point at their
+  /// own machine, but nobody ships a build aimed at one by accident.
+  ///
+  ///     flutter run --dart-define=MP_API_BASE=http://10.0.2.2:8000
+  ///
+  /// Still plain http against a bare IP — TLS and a domain remain an
+  /// outstanding owner action (see RELEASE_AUDIT.md).
   static const String defaultApiBase = String.fromEnvironment(
     'MP_API_BASE',
-    defaultValue: 'http://10.0.2.2:8000',
+    defaultValue: 'http://13.206.122.235:8000',
   );
 
   /// Disruptions board (official alerts + rider reports). OFF by default:
@@ -17,6 +35,23 @@ class AppConfig {
   /// wired or the copy is corrected. See RELEASE_AUDIT.md.
   static const bool disruptionsEnabled = bool.fromEnvironment(
     'MP_ENABLE_DISRUPTIONS',
+    defaultValue: false,
+  );
+
+  /// Namo Bharat (RRTS) connections. OFF by default until the service is
+  /// worth surfacing publicly: today NCRTC's feed yields exactly ONE genuine
+  /// metro interchange (Ghaziabad, 338 m from Shaheed Sthal), and its
+  /// timetable is a community reconstruction rather than an NCRTC
+  /// publication. The four RRTS stations Delhi riders would actually use —
+  /// Anand Vihar, Jangpura, New Ashok Nagar, Sarai Kale Khan — have no
+  /// scheduled service at all yet.
+  ///
+  /// Enable with `--dart-define=MP_ENABLE_RRTS=true` once the Delhi
+  /// extension is running in the feed (re-run `load-regional-rail` and the
+  /// connections appear on their own) or an authoritative timetable exists.
+  /// See RELEASE_AUDIT.md section 15.
+  static const bool rrtsEnabled = bool.fromEnvironment(
+    'MP_ENABLE_RRTS',
     defaultValue: false,
   );
 

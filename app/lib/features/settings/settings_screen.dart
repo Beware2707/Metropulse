@@ -36,6 +36,8 @@ class SettingsScreen extends ConsumerWidget {
     final dynamicColorEnabled = ref.watch(dynamicColorEnabledProvider);
     final textScale = ref.watch(textScaleFactorProvider);
     final notificationsEnabled = ref.watch(notificationsEnabledProvider);
+    final analyticsConsent = ref.watch(analyticsConsentProvider);
+    final contributionConsent = ref.watch(contributionConsentProvider);
     final locale = ref.watch(localeProvider);
 
     return Scaffold(
@@ -163,6 +165,55 @@ class SettingsScreen extends ConsumerWidget {
                 title: const Text('View all notifications'),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () => context.push('/notifications'),
+              ),
+              const SectionHeader(title: 'Privacy'),
+              SwitchListTile(
+                secondary: const IconBadge(icon: Icons.insights_rounded),
+                title: const Text('Share anonymous usage data'),
+                // States plainly what is and is not collected. A rider
+                // deciding this deserves the actual answer, not "to help us
+                // improve" — and the second sentence is the one that matters,
+                // because on a transit app the obvious fear is that we log
+                // where you go.
+                subtitle: const Text(
+                  'Sends which features you use and whether journeys finish. '
+                  'Never your searches, your voice, or where you travel.',
+                ),
+                value: analyticsConsent,
+                onChanged: (value) async {
+                  final store = ref.read(localStoreProvider);
+                  await store.setAnalyticsConsent(value);
+                  await store.setAnalyticsConsentAsked(true);
+                  // Turning it off must also drop anything already buffered
+                  // but not yet sent — otherwise "off" would still leak the
+                  // last few minutes.
+                  if (!value) ref.read(analyticsServiceProvider).discard();
+                  ref
+                    ..invalidate(analyticsConsentProvider)
+                    ..invalidate(analyticsConsentAskedProvider);
+                },
+              ),
+              SwitchListTile(
+                secondary: const IconBadge(icon: Icons.volunteer_activism_rounded),
+                title: const Text('Help improve station info'),
+                // Named for what it asks of them and what it costs. The second
+                // sentence is the honest part: this one IS about where you
+                // travelled, unlike the analytics toggle above, and a rider
+                // deciding deserves that stated rather than buried.
+                subtitle: const Text(
+                  'After a trip we may ask one question — which coach you rode, '
+                  'which exit you used — to map stations DMRC hasn\'t. Your '
+                  'answer includes that station. Always optional, always skippable.',
+                ),
+                value: contributionConsent,
+                onChanged: (value) async {
+                  final store = ref.read(localStoreProvider);
+                  await store.setContributionConsent(value);
+                  await store.setContributionConsentAsked(true);
+                  ref
+                    ..invalidate(contributionConsentProvider)
+                    ..invalidate(contributionConsentAskedProvider);
+                },
               ),
               if (kDebugMode) ...[
                 const SectionHeader(title: 'Backend'),

@@ -100,7 +100,11 @@ void main() {
     testWidgets('reconnecting', (tester) async {
       await _pumpGolden(
         tester,
-        const LiveIndicator(),
+        // Explicitly estimated — the honest value while no realtime feed
+        // exists. This previously leaned on a `dataEstimated = false` default,
+        // i.e. the honesty golden was itself asserting the un-honest default.
+        // RECONNECTING renders the same either way, so the golden is unchanged.
+        const LiveIndicator(dataEstimated: true),
         size: const Size(240, 80),
         overrides: [_ws(WsStatus.reconnecting)],
         pumpFor: _onePulse,

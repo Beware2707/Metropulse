@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -104,15 +105,45 @@ class TicketsScreen extends StatelessWidget {
     );
   }
 
-  /// The one launch path every row shares: external application (so WhatsApp,
-  /// the browser or the Play Store opens natively) with an honest SnackBar
-  /// when the device can't open it.
+  /// The one launch path every row shares.
+  ///
+  /// Tries a native app first (WhatsApp, the Play Store), then falls back to
+  /// the platform default so a plain web link still opens in a browser or a
+  /// custom tab. Both halves matter: `externalApplication` alone was the
+  /// shipped bug — on Android 11+ it resolves only apps the manifest can see,
+  /// so `wa.me` opened via WhatsApp's verified App Links while DMRC's portal,
+  /// the recharge site and Autope all silently did nothing.
+  ///
+  /// The failure message names the real cause. The old copy blamed the
+  /// connection, which sent people to check their wifi over a problem that
+  /// had nothing to do with it.
   Future<void> _openChannel(BuildContext context, String url) async {
-    final launch = launchExternal ?? (uri) => launchUrl(uri, mode: LaunchMode.externalApplication);
-    final ok = await launch(Uri.parse(url));
+    final uri = Uri.parse(url);
+    final launch = launchExternal ??
+        (u) async {
+          try {
+            if (await launchUrl(u, mode: LaunchMode.externalApplication)) {
+              return true;
+            }
+          } on PlatformException {
+            // No app claims this link; the platform default can still take it.
+          }
+          try {
+            return await launchUrl(u, mode: LaunchMode.platformDefault);
+          } on PlatformException {
+            return false;
+          }
+        };
+    final ok = await launch(uri);
     if (!ok && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Couldn't open that — check your connection and try again.")),
+        SnackBar(
+          content: const Text("Couldn't open that link on this device."),
+          action: SnackBarAction(
+            label: 'Copy link',
+            onPressed: () => Clipboard.setData(ClipboardData(text: url)),
+          ),
+        ),
       );
     }
   }

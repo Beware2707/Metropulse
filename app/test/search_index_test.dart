@@ -16,6 +16,8 @@ const _exits = {
 };
 
 void main() {
+  _realNameTests();
+
   test('empty query returns no hits', () {
     expect(searchStations(stations: _stations, exits: const {}, query: ''), isEmpty);
     expect(searchStations(stations: _stations, exits: const {}, query: '   '), isEmpty);
@@ -121,5 +123,98 @@ void main() {
     final boosted = rankWithBoosts(hits, favouriteStopIds: {'S4'});
     // S4 never matched 'hauz', so it must not appear regardless of favourite status.
     expect(boosted.any((h) => h.station.stopId == 'S4'), isFalse);
+  });
+}
+
+/// Station names exactly as DMRC publishes them in the GTFS feed — copied
+/// from the live `/api/v1/stations` response, not invented. The whole class
+/// of bug fixed here came from assuming names looked tidier than they are.
+const _realNames = [
+  Station(stopId: 'R1', name: 'Mayur Vihar-I', lat: 28.60, lon: 77.29),
+  Station(stopId: 'R2', name: 'East Vinod Nagar - Mayur Vihar-II', lat: 28.61, lon: 77.30),
+  Station(stopId: 'R3', name: 'Mayur Vihar Pocket 1', lat: 28.62, lon: 77.31),
+  Station(stopId: 'R4', name: 'Mayur Vihar Ext', lat: 28.60, lon: 77.30),
+  Station(stopId: 'R5', name: 'Dwarka Sector - 10', lat: 28.58, lon: 77.05),
+  Station(stopId: 'R6', name: 'Dwarka Sector - 21', lat: 28.55, lon: 77.05),
+  Station(stopId: 'R7', name: 'Dwarka Mor', lat: 28.61, lon: 77.03),
+  Station(stopId: 'R8', name: 'Dwarka', lat: 28.61, lon: 77.04),
+  Station(stopId: 'R9', name: 'Mundka Industrial Area (M.I.A)', lat: 28.68, lon: 77.03),
+  Station(stopId: 'R10', name: 'Phase-I (Rapid Metro)', lat: 28.49, lon: 77.09),
+  Station(stopId: 'R11', name: 'Phase 2 (Rapid Metro)', lat: 28.50, lon: 77.09),
+  Station(stopId: 'R12', name: 'Dilli Haat - INA', lat: 28.57, lon: 77.21),
+  Station(stopId: 'R13', name: 'Terminal 1- IGI Airport', lat: 28.56, lon: 77.12),
+];
+
+List<SearchHit> _find(String query) =>
+    searchStations(stations: _realNames, exits: const {}, query: query);
+
+void _realNameTests() {
+  group('names people say vs names DMRC publishes', () {
+    test('"dwarka sector 10" finds "Dwarka Sector - 10"', () {
+      // Failed before: the published name has spaces around the hyphen, so a
+      // plain substring test could never match what anyone would actually type.
+      expect(_find('dwarka sector 10').first.station.stopId, 'R5');
+    });
+
+    test('"dwarka sector-10" and odd spacing find it too', () {
+      expect(_find('dwarka sector-10').first.station.stopId, 'R5');
+      expect(_find('Dwarka  Sector   10').first.station.stopId, 'R5');
+    });
+
+    test('"mayur vihar 1" finds "Mayur Vihar-I"', () {
+      expect(_find('mayur vihar 1').first.station.stopId, 'R1');
+    });
+
+    test('"mayur vihar phase 1" finds it as well — "phase" is the rider\'s word',
+        () {
+      expect(_find('mayur vihar phase 1').first.station.stopId, 'R1');
+    });
+
+    test('"mayur vihar 2" finds the -II station, not the -I one', () {
+      expect(_find('mayur vihar 2').first.station.stopId, 'R2');
+    });
+
+    test('"mayur vihar pocket 1" still finds the genuinely different station',
+        () {
+      expect(_find('mayur vihar pocket 1').first.station.stopId, 'R3');
+    });
+
+    test('word order does not matter', () {
+      expect(_find('sector 10 dwarka').first.station.stopId, 'R5');
+    });
+  });
+
+  group('the loosening does not break precise names', () {
+    test('"Phase 2 (Rapid Metro)" still wins its own title', () {
+      expect(_find('phase 2').first.station.stopId, 'R11');
+    });
+
+    test('an acronym is not mistaken for a Roman numeral', () {
+      // M.I.A tokenises to m/i/a. A blanket roman rule would rewrite it to
+      // "M 1 A" and start matching it against searches for "1".
+      expect(normalizeStationText('Mundka Industrial Area (M.I.A)'),
+          'mundka industrial area m i a');
+      expect(_find('mundka').first.station.stopId, 'R9');
+    });
+
+    test('a hyphen before a non-numeral word is left alone', () {
+      // "- INA" must not become "- 1 NA", and "- Vinod" must not become "- 5".
+      expect(normalizeStationText('Dilli Haat - INA'), 'dilli haat ina');
+      expect(normalizeStationText('East Vinod Nagar - Mayur Vihar-II'),
+          'east vinod nagar mayur vihar 2');
+      expect(normalizeStationText('Terminal 1- IGI Airport'),
+          'terminal 1 igi airport');
+    });
+
+    test('exact beats loose: "dwarka" is Dwarka, not Dwarka Sector - 21', () {
+      expect(_find('dwarka').first.station.stopId, 'R8');
+    });
+
+    test('a query of only filler words still searches literally', () {
+      // Stripping "metro" to nothing would turn this into a match-everything.
+      final hits = _find('metro');
+      expect(hits.every((h) => h.station.name.toLowerCase().contains('metro')),
+          isTrue);
+    });
   });
 }

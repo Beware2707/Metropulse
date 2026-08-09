@@ -29,6 +29,13 @@ class CrowdForecast:
     model_version: str | None
     sample_count: int
 
+    #: Which coach indices were actually backed by observations. A forecast is
+    #: routinely MIXED — a few coaches have reports, the rest fall back to the
+    #: prior — and ``source`` collapses that to one word, so on its own it
+    #: would let a prior-derived number inherit the word "observed" from a
+    #: different coach. Per-coach provenance is what an explanation needs.
+    observed_coaches: frozenset[int] = frozenset()
+
 
 @dataclass(frozen=True, slots=True)
 class CoachScore:

@@ -599,3 +599,789 @@ badged, Gates 1 and 3 correctly not.
 **Verified:** 460 backend + 240 Flutter tests (all new logic revert-verified
 or reproducing a live failure); mypy/ruff/analyzer clean; deployed to EC2 and
 probed live; APK rebuilt (87.5 MB) and exercised on the emulator.
+
+---
+
+## 14. Bus + multimodal via Delhi Transport Stack (licensed API)
+
+The deferred bus integration ("we will add after getting data") — a DTS
+Multimodal Journey Planner key was approved 2026-07-24 (expires 2027-07-24).
+
+**License read before writing code.** Transport Stack Schedule 1 permits
+modification, separation and compilation into a multi-source app; it requires
+**attribution**. Every response carries `attribution` and the UI renders
+"Journey options: Delhi Transport Stack" under the options. Perpetual term.
+
+**Key hygiene.** The key lives only in the EC2 `.env` (`DTS_API_KEY`,
+`SecretStr` like every other key), passed via an optional compose variable so
+an unset key simply turns the feature off (503, stated plainly). Verified
+absent from every tracked file, from the git folder, and from the APK binary.
+
+**What shipped.** `MultimodalPlanService` proxies DTS server-side and
+normalizes its `data[]/directions.routes[]` shape into ranked options;
+`GET /journey/multimodal`; a "Bus + metro, door to door" planner section
+showing the top 3 as "44 min · ₹10 · reach by 12:36 / walk 7 min → Yellow Line
+→ walk 4 min". Bus route ids are stripped of their `UP`/`DOWN` direction
+suffixes ("448DOWN" → "448") — the same rule that bans raw route_id.
+
+**Honesty.** DTS self-declares `response_type` per response; that label passes
+through verbatim and the UI appends "timetable-based" when every option is
+static. MetroPulse never upgrades DTS's own word for its data.
+
+### Three bugs found by probing production, not by tests
+
+1. **500 on every call**: `MultimodalLeg` is a `slots=True` dataclass, so
+   `vars()` in `from_domain` raised TypeError. Fixed with `asdict`; the schema
+   seam now has a test (it was the one seam without one).
+2. **Section never appeared on-device** despite the API returning 5 options
+   and the server logging 3 successful upstream calls. Cause: the DTS upstream
+   takes **~20 s**, longer than the client's 15 s default receive timeout —
+   and the `autoDispose` provider was cancelled and restarted every time the
+   section scrolled out of view, so it never finished for anyone who scrolled
+   while waiting. Fixed with a 40 s per-request timeout and `ref.keepAlive()`
+   (10-minute cache; a new origin/destination is a different key).
+3. **A silent 20-second gap** read as "there are no bus options" — the section
+   now shows "Checking bus routes…" while loading.
+
+**Verified:** 467 backend + 242 Flutter tests; mypy/ruff/analyzer clean;
+deployed; and confirmed on-device under the exact failure condition — nine
+aggressive scrolls during the load, section still populated with DTC 411 and
+DTC 423 options and the attribution line.
+
+---
+
+## 15. NCRTC (Namo Bharat / RRTS) + the Road layer
+
+Two datasets arrived. One shipped, one was refused — both on evidence.
+
+### `ncrtc_static_gtfs_v1.zip` — SHIPPED, narrowly
+
+A GTFS feed for the Delhi-Meerut RRTS corridor. Three findings decided the
+shape of the feature, each verified independently after a 4-agent assessment:
+
+**1. The interchange inversion — the reason a naive load would lie.** The feed
+lists 16 stations but schedules trips to only **7**. The nine unserved include
+the whole Delhi extension — and those are precisely the ones sitting on top of
+metro stations: **Jangpura 35 m, Anand Vihar 63 m, New Ashok Nagar 105 m,
+Sarai Kale Khan 475 m** from their metro namesakes. Every one has **zero
+scheduled trips**. Load all 16 and the app tells a rider at Anand Vihar there
+is a Namo Bharat train 63 metres away. There is not. Meanwhile the seven that
+*do* run are far outside Delhi, with exactly **one** genuine interchange:
+Ghaziabad RRTS, **338 m** from Shaheed Sthal (New Bus Adda) on the Red Line.
+Proximity to the metro is *inversely* correlated with being usable.
+
+**2. Loading it through `load-gtfs` would have destroyed the app.**
+`static_loader.load()` calls `delete_all_static()` (`repositories.py:173`),
+which DELETEs every static table. Pointing the normal GTFS command at this zip
+would wipe all 262 Delhi Metro stations and leave 16 RRTS stops. A separate
+`load-regional-rail` command reads the archive without touching the metro
+dataset, and its help text says so.
+
+**3. The timetable is synthesised, and NCRTC did not publish it.** Verified
+directly: dwell is **0 s at all 910 stop_times**, there are **2 distinct timing
+profiles across 130 trips** (one per direction, byte-identical), and **896
+gaps are exactly 900 s** — no peak/off-peak variation anywhere. Real timetables
+are never that clean. And `attributions.txt` declares the producer as
+**OpenStreetMap contributors**, with NCRTC named only as the operating agency.
+So the times are labelled *indicative*, the card credits the actual producer,
+and it points riders at ncrtc.in before they travel.
+
+A fourth issue caught in review: the first cut computed headway by merging both
+directions, giving "every 9 min" — but a Delhi-bound rider gains nothing from a
+Meerut-bound train, so that halved the apparent wait. Now per-direction: **15
+min**, which is what the feed actually says.
+
+Shipped as a *connection*, never a route: RRTS never enters the metro planner
+and never borrows the metro fare table (its fares are far higher). Live and
+verified on-device: Shaheed Sthal shows "Ghaziabad station · Interchange ·
+338m walk (about 5 min) · Roughly every 15 min each way, 06:04–22:25
+(indicative) · Operated by NCRTC · separate ticket". **Anand Vihar returns an
+empty list** — the guarantee that matters.
+
+Re-running the loader with a newer feed lights up the Delhi extension
+automatically, on evidence rather than optimism.
+
+### `Data Layer 04_Road.xlsb` — SKIPPED
+
+104,444 crowdsourced road points (paplilabs), same family as the previously
+skipped Shop and Subway layers. Evidence: the bounding box covers **central
+Delhi only** (28.55–28.68 N), so most of the 262-station network can never be
+covered — a sample found nearby points for just **57 stations**. `road_width_ft`
+clusters hard around 24.95–24.99 ft, consistent with a ~25 ft default rather
+than measurement. Timestamps are time-only (undateable), images live on a
+third-party host, and no license statement ships with the file.
+
+The deciding question was the commuter one: knowing the road outside a station
+is ~25 ft wide does not tell a rider anything about footpaths, crossings or
+safety. It makes nobody's journey better, so it does not ship.
+
+**Verified:** 472 backend + 245 Flutter tests; mypy/ruff/analyzer clean;
+migration 0013; deployed to EC2 and loaded there; APK rebuilt and exercised.
+
+---
+
+## 16. Journey Mode: context-aware station guidance, and the ticket-link bug
+
+### The ticket bug: only WhatsApp opened
+
+Root cause found in `AndroidManifest.xml`: the `<queries>` block declared only
+Flutter's default `PROCESS_TEXT`. Since **Android 11**, `url_launcher` cannot
+resolve a handler it can't see, so of the five Tickets & recharge channels only
+`wa.me` opened — WhatsApp claims that host through verified App Links, while
+DMRC's QR portal, the Momentum store link, the recharge site and Autope all
+silently did nothing.
+
+Fixed in three layers: `VIEW`+`https`/`http` queries in the manifest; a
+`platformDefault` fallback after `externalApplication` so a plain web link
+still reaches a browser; and honest failure copy. The old message —
+"check your connection" — sent people to inspect their wifi over a package
+visibility problem that had nothing to do with the network. It now says
+"Couldn't open that link on this device" and offers **Copy link**, so a dead
+end has a way out.
+
+Verified by dumping the built APK's binary manifest with `aapt2`: both the
+`https` and `http` VIEW intents are present. Widget tests cover all four
+previously-broken channels reaching the launcher, and assert the word
+"connection" no longer appears.
+
+### Escalators: the honest gap
+
+The brief asked for platform, gate, lift **and escalator** context. Platform,
+gate and lift shipped. Escalators did not, because **no approved dataset
+contains a single escalator**: the pathways graph holds 667 gates, 845 lifts,
+355 platforms and 566 concourse nodes, and the facilities sheet has only
+`elevated`/`toilet`/`parking` columns. A test asserts no phase or preference
+can ever emit the word.
+
+### Context-aware guidance
+
+New pure-Dart `domain/station_guidance.dart`: the same gate means different
+things by journey phase — an **entrance** at the origin, a **transfer** at an
+interchange, an **exit** on arrival. Journey Mode now derives its phase from
+the progress snapshot and fetches only the station the rider is about to act
+on; mid-ride it fetches nothing and says nothing.
+
+`JourneyProgressSnapshot` gained `interchangeStopId` — it already knew the
+interchange's *name*, but guidance needs the id to look up that station's
+gates, and resolving a name back to an id is a guess wherever two stations
+share one.
+
+### Accessibility routing
+
+The step-free preference was **local state on the planner screen**: it did not
+persist, and Journey Mode never learned it — so the guidance that matters
+most, at the moment a wheelchair user is actually standing in the station, was
+the one place it could not reach. It is now persisted in `LocalStore` and
+exposed as `stepFreePreferredProvider`, read by both screens.
+
+When set, a step-free need outranks landmark convenience: the rider is sent to
+the gate DMRC's graph connects to a lift-served platform, not the one with the
+best landmarks. Where no gate qualifies, the copy reads **"Step-free entrance
+not mapped here"** with the DMRC helpline — never "not accessible", because a
+gap in the map is not a verdict on the station.
+
+*Verified on-device end to end:* step-free toggled on in the planner, app
+force-stopped and relaunched, and Journey Mode's "ENTERING THE STATION —
+Chandni Chowk" leads with **"Enter at Gate No. 2 · Step-free to the platform
+in DMRC's map"** — matching exactly what the live API reports as that
+station's only step-free gate.
+
+### RRTS behind a flag
+
+`AppConfig.rrtsEnabled` (`MP_ENABLE_RRTS`, default **false**), matching the
+disruptions-flag pattern. The provider returns empty without a request when
+off, so a disabled feature costs nothing on the wire. Rationale in the flag's
+own doc comment: one genuine interchange, and a community-reconstructed
+timetable. Flip it when the Delhi extension runs in the feed.
+
+**Verified:** 472 backend + 264 Flutter tests; analyzer clean; APK rebuilt,
+installed, and driven through plan -> step-free -> journey.
+
+---
+
+## 17. Sprint 7: the escalator correction, richer guidance, adapter conformance
+
+### The escalator premise was wrong — stated before anything was built on it
+
+The Sprint 7 brief listed official data for "Platform information, Gates,
+Lifts, **Escalators**" and asked for an accessible mode that avoids broken
+escalators. An exhaustive search of every approved dataset found **zero**
+escalators: the pathways graph holds 667 gates, 845 lifts, 355 platforms and
+566 concourse nodes, and the facilities sheet carries only
+`elevated`/`toilet`/`parking`. The string "escalator" appears 0 times across
+all five normalized artifacts.
+
+So escalator features are not blocked on *operational* status data — the
+static inventory does not exist either. This belongs in the DMRC data ask
+alongside lift status. A test asserts no phase or preference can ever emit
+the word, so it cannot drift into the UI by accident.
+
+**Platforms, by contrast, were an unexploited win**: real numbers (Platform 1
+through 6, 355 nodes) that the app was not using. Now surfaced — with the
+limit that no dataset maps a platform to a *direction*, so the app names a
+station's platforms but never claims which one a given train departs from.
+A test enforces that too.
+
+### Priority 1 — guidance that earns its place
+
+`StationGuidance` now carries separate, independently-nullable facts rather
+than one blurred detail string, so each renders with its own weight:
+
+    Leave by Gate No. 2
+    ✓ Lift to the platform
+    Closest to Red Fort
+
+The lift line is **tiered to its evidence**, which is the part that matters
+to someone who cannot use stairs:
+
+| evidence | line | tick |
+|---|---|---|
+| gate is graph-connected to a lift-served platform | "Lift to the platform" | ✓ green |
+| station has lifts, this gate unconnected in the map | "2 lifts at this station — path from this gate not mapped" | none |
+| no lift data | *(silence)* | — |
+
+The tick is a promise, and it is only made on evidence.
+
+### Priority 2 — the "no UI rewrite" claim is now CI-enforced
+
+`tests/test_adapter_conformance.py` turns the DMRC-readiness promise into a
+contract every position source must satisfy:
+
+1. emits the one normalized model (`VehiclePosition`);
+2. declares `source` **explicitly** — the field defaults to `"unknown"` so an
+   adapter that forgets cannot pass as live GPS;
+3. timezone-aware UTC timestamps (a naive datetime silently breaks staleness,
+   which is what stops the app showing a ghost train);
+4. stable, unique, non-empty vehicle ids (the diff engine keys on identity —
+   unstable ids turn one train into phantom arrivals);
+5. survives an empty cycle (feeds go quiet; the app must not);
+6. round-trips through `VehicleOut` **unchanged** — that payload is exactly
+   what the Flutter client parses, and it is the half of "no UI rewrite" that
+   normally goes untested.
+
+Run against a **reference DMRC GTFS-RT adapter written only to the published
+contract** (proving the seam is sufficient) and against **today's real
+production source** (proving the contract is satisfiable by real code, not
+just a fixture). Four adversarial tests prove the suite REJECTS violations:
+a forgetful adapter, naive timestamps, duplicate ids, and the classic 0,0
+"no GPS fix" sentinel.
+
+The real-source test carries an explicit anti-vacuity guard: it pins the
+clock to 08:05 IST and asserts positions were actually emitted, because a
+contract loop over an empty list is a test that goes green while asserting
+nothing.
+
+**What this buys:** when DMRC's feed arrives, a new adapter either passes
+this suite or CI fails — before the feed reaches production, and long before
+a commuter sees a wrong train.
+
+## 18. Sprint 7 (cont.): what the explanations were actually resting on
+
+Two findings, both established by running the deployed system rather than by
+reading it.
+
+### 18.1 The coach recommendation was a constant
+
+Probing production (`13.206.122.235:8000`) with three unrelated journeys —
+AIIMS→Akshardham, Adarsh Nagar→AIIMS, Akshardham→Adarsh Nagar — returned the
+same answer every time: **coach 7, `crowd_source: "prior"`, reason "typically
+less crowded"**. Two causes, both confirmed:
+
+* `coach_exit_hints` is **empty**. `exit_alignment` came back `0.5` — the
+  neutral no-data constant — for every coach of every journey, and
+  `/recommendations/exit?station=88` reported 0 of 3 exits carrying a
+  `nearest_coach_index`. There is no loader for that table; rows only ever
+  arrive through the admin `add_hint` endpoint, which nothing has called.
+* There are no crowd observations, so every occupancy is `_triangular_prior`.
+
+With both signals absent the ranking has no journey-specific input left. The
+prior is symmetric (`[0.4, 0.5, 0.6, 0.7, 0.7, 0.6, 0.5, 0.4]`), coach 0 is
+excluded as women-reserved, so index 7 wins **always**.
+
+The ranking is not wrong — it is the honest consequence of having no data.
+The *explanation* was wrong. "Typically less crowded" reads as a claim about
+how this line actually runs, and a rider is entitled to read it that way.
+
+Fixed in `application/commuter/coach.py`:
+
+* `_crowd_reasons` now keys off evidence, not the number. Observed coaches
+  keep "typically less crowded"; prior-derived ones say **"end coaches are
+  usually lighter — no crowd data for this line yet"**. Silence was rejected
+  as its own kind of lie — it implies we had nothing to offer.
+* A second, subtler leak: `CrowdForecast.source` is one label for all eight
+  coaches, so in a *mixed* forecast (a few coaches reported, the rest prior —
+  the normal case) a prior-derived coach inherited the word "observed" from a
+  different coach. `CrowdForecast` now carries `observed_coaches`, and the
+  wording is decided per coach.
+* `_exit_reasons` **names the gate**: "closest to Gate No. 4" instead of the
+  unfalsifiable "stops nearest to a destination exit", via a new
+  `hint_exit_names_for` join. A rider can check a named gate against the signs
+  overhead. This is dormant until hints are curated — it is the mechanism, not
+  a live feature, and it is reported as such.
+
+Four tests added. Two fail on the pre-fix code (verified by reverting
+`_crowd_reasons`); one pins the constant-recommendation behaviour so it fails
+the moment real data changes the answer — which is exactly when the claim it
+guards stops being true.
+
+### 18.2 The conformance suite tested the contract, not the shipped decoder
+
+§17 established the adapter contract and ran it against a reference adapter
+and the live schedule source. It never ran it against
+`decode_vehicle_positions` — the code that actually wakes up when
+`gtfs_rt_enabled` flips. Two real defects were sitting in that gap, both
+reproduced by execution:
+
+| Defect | Consequence | Status |
+|---|---|---|
+| Duplicate `vehicle.id` | GTFS-RT guarantees `entity.id` unique, **not** `vehicle.id`. Two entities → two positions → the engine's `{p.vehicle_id: p}` collapsed them to one, and the diff reported the loser as *removed*. A train vanished off the map, no error anywhere. | Fixed: dedupe, first wins, logged at ERROR naming both entity ids |
+| `0,0` no-fix sentinel | lat/lon are `required` in GTFS-RT, so a producer with no fix must send *something* — and sends `0,0`. `RouteResolver.locate` projects any position onto the trip shape, so it would not even look wrong: it snaps to the end of the line and shows a confident, fictional train. | Fixed: `_has_fix` drops `0,0`, NaN, and out-of-range |
+
+One correction to the audit that surfaced these: it attributed the `0,0` bug
+to proto3 scalar defaults passing `HasField("position")`. That mechanism is
+wrong — GTFS-RT is proto2 and lat/lon are `required`, so an unset-coordinate
+payload cannot be encoded at all (protobuf raises `EncodeError`). The
+reachable bug is an *explicitly set* `0.0, 0.0`, which is valid protobuf and
+decoded into a live train. Same defect, different cause; the fix covers it.
+
+Also added: a staleness test with teeth. `is_stale` is structurally dead today
+(the schedule source stamps `timestamp=now` every cycle) and becomes the
+mechanism that stops a frozen train being drawn as a moving one the day a feed
+arrives. The contract now proves it *fires* on a ten-minute-old position, not
+merely that it is callable.
+
+Conformance suite: 8 → **12 tests**. Both decoder tests fail on the pre-fix
+decoder (verified by reverting the guards).
+
+### 18.3 Known gaps, recorded not fixed
+
+* **No composite source.** `cli.py:341-353` is strictly either/or, so a
+  partial DMRC rollout (a few lines live, the rest schedule) has no code path.
+  This is a plausible way for DMRC to actually roll out.
+* **`vehicle_id` changes meaning at cutover.** Today it is `sched-{trip_id}` —
+  one id per *trip*. Real GPS gives one id per *physical train*, persisting
+  across trips. `EtaEngine` keys history on it, so the 300 s window will span
+  terminal layovers and bias segment speed low right after each trip change.
+  Persisted Journey Mode sessions pin a `sched-*` id and will dangle; the app
+  degrades to timetable rather than crashing, but it needs an expiry pass.
+* **The `Decoder` seam is not config-reachable.** The `decoder=` kwarg exists
+  on the engine but `cli.py` never passes it, so a custom decoder requires
+  editing `cli.py`.
+
+Verification: backend **487 passed** (was 480), ruff and mypy clean across 125
+files; Flutter **272 passed**, `analyze` clean. Git mirror synced and diffed
+byte-identical.
+
+## 19. Sprint 7 Priority 5: making the beta measurable, without starting to watch
+
+### 19.1 One of the five metrics worked
+
+Measured against the code rather than assumed:
+
+| Metric | Before | Why |
+|---|---|---|
+| Journey completion | **Yes** | `/complete` + `/abandon` called from `journey_mode_screen.dart` |
+| Daily usage | No | the app emitted no analytics events at all |
+| Voice usage | No | speech, intent parsing and answers are entirely on-device |
+| Search behaviour | No | `searchStations()` is pure Dart over a cached list — the server never sees a query |
+| Crash reports | No | Crashlytics is wired, but `google-services.json` is absent, so `_crashlyticsReady` stays false and nothing uploads |
+
+The backend half had existed for some time — `analytics_events`, the batched
+`POST /api/v1/analytics/events`, an admin summary, retention pruning. The
+client half had never been written, which is the whole explanation for four
+unmeasurable metrics.
+
+### 19.2 Why it could not simply be switched on
+
+The published privacy policy enumerates what MetroPulse collects and closes
+that list with **"That's the whole list."** Product analytics is not on it.
+The "analytics events kept for 90 days" retention line refers to *vehicle and
+feed* events — train positions — not to anything about a rider.
+
+So the pipeline was built **fail-closed** and left off. `docs/analytics_consent.md`
+carries the draft policy amendment for the owner to approve; nothing collects
+until that ships and a rider opts in.
+
+### 19.3 Privacy enforced structurally, not by discipline
+
+Two properties, both load-bearing:
+
+* **Consent is a gate, not a preference.** `AnalyticsService.record` checks
+  consent before buffering, so there is no path that records first and decides
+  later. Withdrawal mid-session discards the buffer *unsent* — verified by
+  test, because "off" that still leaks the last few minutes is not off.
+* **The API cannot express the private thing.** `recordSearchSelected` takes a
+  query *length*; there is no query parameter. `recordVoiceIntent` takes an
+  intent *name*; there is no transcript parameter. On a transit app the search
+  query IS the destination, so this is the one place where making the leak
+  impossible beats making it discouraged.
+
+`LocalStore.analyticsConsent` reads `== 'true'` (absent → off), deliberately
+the opposite direction from `notificationsEnabled`'s `!= 'false'` (absent →
+on). The same shape copied without thought would have silently opted every
+already-installed user into collection they were never asked about.
+
+12 new Flutter tests cover the gate, withdrawal, payload shape, offline
+retry, oldest-first eviction, and per-run session ids.
+
+### 19.4 Owner actions still outstanding
+
+* Approve and ship the privacy policy amendment (draft in
+  `docs/analytics_consent.md`), then ask beta riders directly — a toggle
+  nobody knows about is a defensible default, not consent.
+* Add `app/android/app/google-services.json` from your own Firebase project.
+  Crash reporting is already disclosed in the current policy, so this needs no
+  legal change — but until the file exists, crash reports are silently inert,
+  which is right for a developer and wrong for a 30–50 person beta.
+
+Verification: Flutter **284 passed** (was 272), `analyze` clean; backend
+unchanged at 487. Git mirror synced, 12 files diffed byte-identical.
+
+### 19.5 Policy amendment approved and applied (9 August 2026)
+
+The owner approved the draft. Applied to **both** parallel copies — the in-app
+`legal_content.dart` and the hosted `docs/legal/privacy_policy.md` — since
+they are maintained separately and a drift between them is exactly the kind of
+gap that turns a privacy statement into a false one.
+
+Changes: the blocking sentence "That's the whole list" now names the opt-in
+extra; a new *Anonymous usage data — only if you turn it on* item states what
+is sent and what is not; a 90-day retention line was added; and the old
+"Vehicle/feed analytics events" bullet was reworded to "Train position and
+feed events (the network's, not yours)" because it read as though it might
+already have covered rider analytics, which it never did.
+
+The 90-day promise was checked against the code, not assumed: `purge_analytics`
+is scheduled every 24 h in `cli.py` against `analytics_retention_days`
+(default 90).
+
+Collection still does not start on its own. The Settings toggle remains
+default-off, which the amended policy now states as a commitment. Asking beta
+riders directly is the one remaining step, and it is a product decision, not a
+code change.
+
+Verification after the amendment: Flutter **284 passed**, `analyze` clean.
+Both legal files synced to the mirror byte-identical.
+
+## 20. Three field-reported bugs, checked on a real device
+
+Verified on the `metropulse_test` emulator (Android, 1080x2400) against the
+deployed backend, before and after the fix build.
+
+### 20.1 Station names — FIXED, reproduced and re-verified on device
+
+DMRC publishes **"Dwarka Sector - 10"** (spaces around the hyphen) and
+**"Mayur Vihar-I"** (a Roman numeral). There is no "Mayur Vihar Phase-1" in
+the feed at all. The matcher compared raw lowercase substrings, so what a
+rider actually types could never match. 31 of 262 stations carry a hyphen, so
+this broke a large slice of the network — and the voice assistant shares the
+same index, which is why it kept answering "try the exact station name".
+
+Before (old build): "dwarka sector 10" -> *"We couldn't find that one."*
+After: -> **Dwarka Sector - 10**, single clean hit.
+After: "mayur vihar phase 1" -> **Mayur Vihar-I** first, "Mayur Vihar Pocket 1"
+second — the loosening did not collapse two genuinely different stations.
+
+Normalisation folds punctuation and converts **hyphen-attached** Roman
+ordinals only. That restriction is load-bearing: "Mundka Industrial Area
+(M.I.A)" tokenises to m/i/a, and a blanket rule would rewrite it as "M 1 A"
+and start matching it against searches for "1". A hyphen means an ordinal
+("Phase-I", "Vihar-II"); a dot means an acronym. "Dilli Haat - INA" and
+"Terminal 1- IGI Airport" are likewise untouched.
+
+12 tests use names copied from the live `/api/v1/stations` response. 6 fail on
+the old matcher (verified by reverting).
+
+### 20.2 Back buttons — FIXED
+
+Favourites/"Saved" was a pushed route with a custom header instead of an
+`AppBar`, so it had no back affordance at all. Gesture-back still worked,
+which is exactly why it stayed invisible. Journey History and Network Map were
+audited too and are fine — they use `AppBar`, which supplies the arrow.
+
+### 20.3 "All options showing as live" — NOT REPRODUCED
+
+Walked every surface on the deployed backend. All read **SCHEDULE**:
+
+| Screen | Badge | Extra caveat shown |
+|---|---|---|
+| Home | SCHEDULE | — |
+| Explore / Live map | SCHEDULE | "Train positions are estimated from the schedule, not live GPS." |
+| Journey Mode | SCHEDULED ESTIMATE | — |
+| Station detail | SCHEDULE | "Arrival times are estimated from the schedule, not live GPS." |
+| Planner | n/a | options are timetable-based, nothing claims live |
+
+Two genuine **fail-open defaults** were found and fixed anyway, because both
+resolve absence of evidence to the claim rather than the caveat:
+
+* `LiveIndicator.dataEstimated` defaulted to `false` — a caller who simply
+  forgot the argument rendered a green LIVE badge. Now `required`.
+* Train detail used `train?.isEstimated ?? false` — a train missing from the
+  live map rendered as LIVE. Now `?? true`.
+
+Making the parameter required immediately caught that
+`golden_honesty_test.dart` was itself relying on that default: the honesty
+golden was asserting the un-honest value.
+
+Separately: production currently serves **zero trains** (`/api/v1/trains` ->
+`{"count": 0}`), so the realtime worker appears to be down on EC2. That is its
+own defect and worth fixing regardless — but with no trains the badge is
+correctly SCHEDULE, so it is not the cause of the report.
+
+The reported symptom remains unexplained and the task stays open pending the
+specific screen.
+
+Verification: Flutter **296 passed**, `analyze` clean, release APK built
+(87.7 MB) and installed on the emulator; the two fixes confirmed visually.
+
+### 20.4 The real cause: every release APK pointed at a developer's laptop
+
+The "reconnecting" report led to the actual defect, and it is a shipping
+blocker rather than a cosmetic one.
+
+`AppConfig.defaultApiBase` defaulted to **`http://10.0.2.2:8000`** — the
+Android emulator's alias for the *host machine's* localhost. Any release APK
+built without `--dart-define=MP_API_BASE=...` shipped pointing there. On a
+real phone that address routes nowhere, so:
+
+```
+FATAL: WebSocketChannelException: SocketException: Connection refused
+       (OS Error: Connection refused, errno = 111), address = 10.0.2.2
+```
+
+repeating on a backoff loop — badge stuck on CONNECTING then RECONNECTING, and
+an empty home screen. The Settings override that could have rescued it is
+gated behind `kDebugMode`, so a user had no way out.
+
+EC2 was healthy throughout: `/ws/live` returns `101 Switching Protocols`.
+Nothing was wrong with the server.
+
+Fixed by making production the default and the emulator address the OVERRIDE —
+the safe direction, since a developer can deliberately point at their own
+machine but nobody ships a build aimed at one by accident:
+
+    flutter run --dart-define=MP_API_BASE=http://10.0.2.2:8000
+
+**Why nothing caught this.** Every unit and widget test injects its own base
+URL, so none of them read the constant. And the emulator used for verification
+*can* reach 10.0.2.2 — the single environment where the bug is invisible was
+the environment it was checked in. `app/test/config_test.dart` now asserts the
+constant itself: not the emulator alias, not loopback, not a private LAN
+range, a well-formed absolute URL, and its derived ws/wss form. Three of the
+seven fail on the old value (verified by reverting).
+
+This also explains the original "all options showing as live" report better
+than any badge bug: with the socket never connecting, the pill never leaves
+CONNECTING/RECONNECTING and no screen ever loads data.
+
+**Why the earlier APK worked and this one didn't.** §11 records a build made
+with `MP_API_BASE=http://13.206.122.235:8000` passed explicitly. So the
+release process was correct only as long as someone remembered the flag — a
+plain `flutter build apk --release` silently produced a broken app. That is
+the class of defect worth removing outright rather than documenting, which is
+why the safe value is now the default. `app/README.md` corrected too; it had
+been advertising the emulator address as the default.
+
+Verified on device after the fix: badge reads SCHEDULE, **zero** WebSocket
+exceptions in logcat (was one every ~3 s), and server-driven home content
+loads. Flutter **303 passed**, `analyze` clean.
+
+## 21. Why the arrivals boards are empty — the timetable has no Sunday
+
+Chased from "/api/v1/trains returns 0". The worker is **not** broken:
+`/health` reports `feed_age_seconds: 4.29`, so it is publishing every few
+seconds. It is publishing an empty snapshot, correctly, because the data has
+nothing to publish.
+
+DMRC's GTFS, counted directly from `data/dmrc_gtfs.zip` (262 stops / 36 routes
+— matching production exactly):
+
+| service_id | days | trips |
+|---|---|---|
+| weekday | Mon–Fri | **5,379** |
+| saturday | Sat | **59** |
+| sunday | Sun | **0** |
+
+So on Sundays there is no scheduled service in the dataset at all, and
+Saturday carries 1.1% of a weekday. Roughly 2/7 of the week, the app can see
+nothing. Delhi Metro runs on both days; we are blind, not the network.
+
+### The honesty failure this caused
+
+Every empty board said **"No trains headed this way right now."** To a rider
+on a Sunday that reads as *the metro has stopped*. Absence of data was being
+presented as absence of trains — the same class of error as labelling a
+schedule estimate "Live", pointed the other way.
+
+### The trap in detecting it
+
+The obvious check passes. `active_service_ids` answers from `calendar.txt`,
+which *does* contain a `sunday` row with `sunday=1`, so on a Sunday it returns
+`{"sunday"}` — non-empty, service apparently exists. Only counting the TRIPS
+attached to those services reveals the truth. `ServiceDayService.coverage`
+does that, and `GET /api/v1/service-day` exposes it.
+
+The client now distinguishes three states, and the third matters as much as
+the second:
+
+* covered day, nothing approaching -> "No trains headed this way right now."
+* **uncovered day** -> "Our timetable has no service data for today, so we
+  can't show arrivals. Trains may still be running — check DMRC for times."
+* **unknown** (offline / still loading) -> the plain wording, because claiming
+  "no data for today" when we haven't asked would be inventing a cause. Not
+  knowing is not a licence to guess a reason.
+
+A still-connecting socket outranks both — we cannot know what today holds
+before we have connected.
+
+4 backend tests (including a `ghost_service` calendar row no trip references —
+the exact shape of the real bug) and 4 widget tests covering all three states
+plus the connecting case.
+
+### Owner action
+
+This is a **data** gap, not a code one, and the fix is not ours to fabricate:
+obtain a GTFS export from DMRC that includes weekend service. Until then the
+app is honest about the gap but still cannot show Saturday or Sunday arrivals.
+
+Verification: Flutter **307 passed**, `analyze` clean; ruff and mypy clean
+across 127 source files.
+
+## 22. Rider contributions — filling gaps without borrowing DMRC's authority
+
+Owner's call, and the right one: MetroPulse has gaps it cannot close alone,
+and riders are standing on the platform holding the answers. Contribution
+model chosen: **in-the-moment, per-prompt, opt-in**. Nothing is harvested
+passively.
+
+### What riders can and cannot fix (measured, not assumed)
+
+| Gap | Fixable? | The honest limit |
+|---|---|---|
+| Coach -> exit (`coach_exit_hints`: **0 rows, ever**) | **Yes — best target** | One tap at journey end; directly unlocks the named-gate explanation |
+| Lift / toilet status | Yes | Perishable — needs freshness decay, not permanent facts |
+| Crowding | Endpoint already exists | 0 observations because nothing prompts for it |
+| Step-free paths (56/262 confirmed) | Partly, **asymmetrically** | "I used the lift at Gate 3" is evidence; "I couldn't find one" is not evidence there isn't one. A single negative must never remove a badge |
+| Weekend timetable | Weakly | Journey times prove service exists and give rough headways; they cannot reconstruct a trip-level schedule |
+
+### The design, and what each piece is defending against
+
+* **Reports live in their own table.** `coach_exit_reports` never writes into
+  `coach_exit_hints`. Curated mapping and eyewitness agreement stay separable
+  everywhere downstream, by construction rather than by convention.
+* **Confirmation counts PEOPLE.** Three distinct riders, enforced by a unique
+  constraint on `(user_id, stop, route, direction, coach, exit)`. One
+  enthusiast tapping five times yields one vote — tested directly, because
+  without that constraint five taps and five witnesses look identical.
+  `route_id`/`direction_id` use `''`/`-1` sentinels rather than NULL, since
+  NULL never equals NULL and would have silently voided the constraint.
+* **Provenance survives to the screen.** A confirmed rider claim reads
+  **"riders say Gate No. 7 is closest"**, never "closest to Gate No. 7".
+  Curated hints outrank rider ones where both exist. Blending the two into one
+  confident sentence is the small dishonesty that would make every other claim
+  in the app suspect.
+* **Reports can only add.** Nothing a rider submits removes an existing fact.
+
+8 tests, including: an unconfirmed claim (2 riders) must change neither the
+wording nor the ranking; a confirmed one must change both; and a confirmed
+claim must leave `coach_exit_hints` still empty.
+
+### Privacy
+
+This needs its own consent and its own policy clause — it must **not** ride on
+the analytics toggle shipped in §19, which was scoped deliberately narrowly and
+whose policy text states we do not receive which stations a rider travelled
+between. A coach-exit report is exactly that. Client prompt, consent, and the
+policy clause are the remaining work.
+
+Verification: backend **500 passed** (was 492), ruff and mypy clean across 129
+source files, migration 0014 applied cleanly against real Postgres.
+
+### 22.1 The client half — asked once, at the only moment anyone knows
+
+The prompt appears after a rider **arrives** (an abandoned trip proves nothing
+about the destination), only with explicit contribution consent, and only when
+the destination has gates worth choosing between. Two taps or none: "Not now"
+is a first-class answer and skipping is not a failure state. A failed
+submission is silent — a contribution is a gift, not a task.
+
+The thank-you is honest about which of three things happened, because
+"submitted" would flatten them: *you had already told us that* / *a couple more
+riders and this becomes a tip for everyone* / *that's confirmed now*.
+
+**Consent is separate from analytics, and the storage layer enforces it.**
+`contributionConsent` is its own key with its own default-false. This is not
+tidiness: §19's policy text promises the analytics toggle does not receive
+which stations a rider travelled between, and a coach-exit report is exactly
+that, about one named station. Wiring them to one key would have silently
+opted people into the thing they were told was excluded. 5 tests assert the
+two consents move independently in both directions.
+
+### 22.2 A discrepancy found while writing the policy clause
+
+The in-app policy and the hosted `docs/legal/privacy_policy.md` are maintained
+in parallel, and they had **drifted**. The hosted copy said *"Your live
+location never leaves your device"* and omitted the share-a-trip disclosure
+entirely — no collection item, no retention line — while the in-app copy has
+carried both for some time. The hosted document was therefore inaccurate about
+the one feature that does send a rider's position to the server.
+
+Restored: the share-trip collection item, its 12-hour retention line, and a
+corrected short version. Both copies now also carry the new contribution
+clause and agree that there are **two** optional extras rather than one.
+
+Worth noting as a process risk: two hand-maintained copies of a legal document
+will drift again. A generated hosted copy, or a test diffing the two, would
+close it properly.
+
+Verification: Flutter **312 passed** (was 307), `analyze` clean; backend 500,
+ruff and mypy clean.
+
+## 23. Deploy: migration 0014 + the Sprint 7 backend, live on EC2
+
+Deployed 9 August 2026. Note that `docker compose up -d --build` necessarily
+ships the code with the schema, so this release also carried the decoder
+guards (§18.2), evidence-tiered coach reasons (§18.1), `/service-day` (§21)
+and `/contributions` (§22).
+
+Pre-flight: DB at 0013, `coach_exit_reports` absent, schema-only `pg_dump`
+taken as a rollback reference (1,750 lines). SSH reachable — current IP
+103.62.92.187, inside the `103.62.92.0/22` rule, so the lockout trap did not
+bite this time.
+
+Result: `metropulse-migrate-1` exit code **0**, log shows
+`Running upgrade 0013 -> 0014`, `alembic_version` now **0014**. The table
+landed with everything that matters intact — notably
+`uq_coach_exit_report_once_per_rider` on
+`(user_id, stop_id, route_id, direction_id, coach_index, exit_id)`, which is
+the mechanism that makes confirmation count people rather than taps, and both
+`ON DELETE CASCADE` foreign keys.
+
+### Production now demonstrates the Sunday finding directly
+
+```
+GET /api/v1/service-day
+{"service_date":"2026-08-09","has_timetable":false,
+ "scheduled_trips":0,"active_service_ids":["sunday"]}
+```
+
+That is §21's trap visible in one response: the calendar declares a `sunday`
+service as active, and **zero trips reference it**. Anything asking "is there
+service today?" from the calendar alone would answer yes.
+
+### Verified after deploy
+
+| Check | Result |
+|---|---|
+| `/health` | ok; database, redis true; `feed_age_seconds` 3.9 |
+| `/api/v1/service-day` | 200, correct for a Sunday |
+| `POST /api/v1/contributions/coach-exit` anonymous | **401** — wired and auth-gated |
+| `/recommendations/coach` | 200; reason reads "end coaches are usually lighter — no crowd data for this line yet" (the §18.1 wording, live) |
+| stations / journey plan / exit / accessibility / trains | all 200 |
+
+The coach recommendation confirms the honesty fix in production: it no longer
+claims "typically less crowded" over a triangular prior.
+
+Still outstanding and unchanged by this deploy: the GTFS has no weekend
+service (owner action — obtain a feed from DMRC that includes it), and the
+client APK carrying the contribution prompt is built but not distributed.

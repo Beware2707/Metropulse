@@ -115,7 +115,9 @@ async def test_recommendation_prefers_light_and_exit_aligned_coaches(
     assert recommendation.recommended_coach == 6
     assert recommendation.coach_count == 8
     top = recommendation.coaches[0]
-    assert "stops nearest to a destination exit" in top.reasons
+    # The gate is NAMED. "Stops nearest to a destination exit" is unfalsifiable
+    # from the platform; "closest to Gate 1" can be checked against the signs.
+    assert "closest to Gate 1" in top.reasons
     assert recommendation.crowd_source == "observed"
 
 
@@ -180,6 +182,105 @@ async def test_recommendation_rejects_unknown_stops(
     async with loaded_session_factory() as session:
         with pytest.raises(UnknownEntityError):
             await service.recommend(session, "GHOST", "S4", None, None, utcnow())
+
+
+async def test_a_prior_derived_coach_never_claims_to_be_typical(
+    loaded_session_factory: SessionFactory,
+) -> None:
+    """The honesty rule for explanations, at the point it is easiest to break.
+
+    With zero observations every occupancy is the triangular prior: a generic
+    assumption about metro loading, identical on every line and at every hour.
+    "Typically less crowded" would read to a rider as "we looked at how this
+    line actually runs" — a measurement claim. It must not appear.
+    """
+    predictor = HistoricalCrowdPredictor(loaded_session_factory)
+    service = CoachRecommendationService(predictor, default_coach_count=8)
+    async with loaded_session_factory() as session:
+        recommendation = await service.recommend(session, "S1", "S4", None, None, utcnow())
+
+    assert recommendation.crowd_source == "prior"
+    every_reason = [r for coach in recommendation.coaches for r in coach.reasons]
+    assert not any("typically" in r for r in every_reason), every_reason
+    # It still says something useful -- silence would be its own kind of lie,
+    # implying we simply had nothing to offer.
+    top = recommendation.coaches[0]
+    assert any("no crowd data for this line yet" in r for r in top.reasons), top.reasons
+
+
+async def test_an_unobserved_coach_does_not_inherit_observed_wording(
+    loaded_session_factory: SessionFactory,
+) -> None:
+    """Mixed forecasts are the normal case, and the trap.
+
+    Reports arrive for one coach; the rest fall back to the prior. The
+    forecast-wide ``source`` becomes "observed", so keying the wording off it
+    would let a prior-derived coach borrow the credibility of a coach someone
+    actually reported on.
+    """
+    await _seed_observations(loaded_session_factory, coach_index=4, occupancy=0.95, count=4)
+    predictor = HistoricalCrowdPredictor(loaded_session_factory)
+    service = CoachRecommendationService(predictor, default_coach_count=8)
+    async with loaded_session_factory() as session:
+        recommendation = await service.recommend(session, "S1", "S4", "R1", 0, at=utcnow())
+
+    assert recommendation.crowd_source == "observed"  # forecast-wide label
+    by_index = {c.coach_index: c for c in recommendation.coaches}
+    # Coach 4 was genuinely observed, and genuinely full.
+    assert "typically crowded" in by_index[4].reasons
+    # Coach 7 is the prior. It must not claim to be typical of anything.
+    assert not any("typically" in r for r in by_index[7].reasons), by_index[7].reasons
+
+
+async def test_a_nearby_coach_names_the_gate_it_is_a_short_walk_from(
+    loaded_session_factory: SessionFactory,
+) -> None:
+    """The weaker exit claim is named too -- "short walk" to WHICH gate."""
+    async with loaded_session_factory() as session:
+        async with session.begin():
+            exit_service = ExitService()
+            exit_row = await exit_service.add_exit(session, "S4", "Gate No. 4")
+            await exit_service.add_hint(session, "S4", exit_row.id, coach_index=6)
+
+    predictor = HistoricalCrowdPredictor(loaded_session_factory)
+    service = CoachRecommendationService(predictor, default_coach_count=8)
+    async with loaded_session_factory() as session:
+        recommendation = await service.recommend(session, "S1", "S4", None, None, utcnow())
+
+    by_index = {c.coach_index: c for c in recommendation.coaches}
+    assert "closest to Gate No. 4" in by_index[6].reasons
+    assert "short walk to Gate No. 4" in by_index[7].reasons
+    # A coach at the far end is neither, and says nothing about exits.
+    assert not any("Gate No. 4" in r for r in by_index[1].reasons), by_index[1].reasons
+
+
+async def test_with_no_data_at_all_the_recommendation_is_the_same_every_time(
+    loaded_session_factory: SessionFactory,
+) -> None:
+    """Characterisation of a live production behaviour, pinned deliberately.
+
+    On the deployed backend today ``coach_exit_hints`` is empty and no crowd
+    observations exist, so exit_alignment is 0.5 for every coach and occupancy
+    is the prior. The ranking then has no journey-specific input left: three
+    unrelated origin/destination pairs all return coach 7. That is not a bug
+    in the ranking -- it is the honest consequence of having no data -- but it
+    IS the reason the explanation must not imply a per-journey calculation.
+
+    This test fails the moment real hints or observations change the answer,
+    which is exactly when the claim it guards stops being true.
+    """
+    predictor = HistoricalCrowdPredictor(loaded_session_factory)
+    service = CoachRecommendationService(predictor, default_coach_count=8)
+    async with loaded_session_factory() as session:
+        picks = {
+            (origin, destination): (
+                await service.recommend(session, origin, destination, None, None, utcnow())
+            ).recommended_coach
+            for origin, destination in (("S1", "S4"), ("S2", "S4"), ("S1", "S3"))
+        }
+
+    assert len(set(picks.values())) == 1, picks
+    assert set(picks.values()) == {7}
 
 
 async def test_coach_api_and_crowd_reporting(

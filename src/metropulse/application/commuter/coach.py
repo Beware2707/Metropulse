@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from metropulse.application.commuter.contributions import ContributionService
 from metropulse.domain.commuter import CoachRecommendation, CoachScore, CrowdForecast
 from metropulse.domain.exceptions import UnknownEntityError
 from metropulse.infrastructure.db.base import SessionFactory
@@ -72,20 +73,21 @@ class HistoricalCrowdPredictor:
         prior = _triangular_prior(coach_count)
         occupancies: list[float] = []
         samples_used = 0
-        observed_any = False
+        observed: set[int] = set()
         for index in range(coach_count):
             samples = per_coach.get(index, [])
             if len(samples) >= _MIN_SAMPLES_PER_COACH:
                 occupancies.append(min(max(sum(samples) / len(samples), 0.0), 1.0))
                 samples_used += len(samples)
-                observed_any = True
+                observed.add(index)
             else:
                 occupancies.append(prior[index])
         return CrowdForecast(
             occupancies=tuple(occupancies),
-            source="observed" if observed_any else "prior",
+            source="observed" if observed else "prior",
             model_version=None,
             sample_count=samples_used,
+            observed_coaches=frozenset(observed),
         )
 
 
@@ -123,10 +125,26 @@ class CoachRecommendationService:
             if await stops.get(stop_id) is None:
                 raise UnknownEntityError(f"stop '{stop_id}' not found")
 
-        hints = await StationExitRepository(session).hints_for(
+        exit_repo = StationExitRepository(session)
+        hints = await exit_repo.hints_for(
             destination_stop_id, route_id=route_id, direction_id=direction_id
         )
-        hint_coaches = sorted({h.coach_index for h in hints if h.coach_index >= 0})
+        # Gate names for those hints, so a reason can name the gate a rider
+        # will actually see signposted rather than gesture at "an exit".
+        exit_names = await exit_repo.hint_exit_names_for(
+            destination_stop_id, route_id=route_id, direction_id=direction_id
+        )
+        # Claims enough separate riders have confirmed. Curated hints win where
+        # both exist — DMRC's own mapping outranks eyewitness agreement — but
+        # rider knowledge fills the (currently total) gaps, and stays labelled
+        # as rider knowledge all the way to the screen.
+        rider_exits = await ContributionService().confirmed_coach_exits(
+            session, destination_stop_id, route_id=route_id, direction_id=direction_id
+        )
+        rider_only = {k: v for k, v in rider_exits.items() if k not in exit_names}
+        hint_coaches = sorted(
+            {h.coach_index for h in hints if h.coach_index >= 0} | set(rider_only)
+        )
         coach_count = self._default_coach_count
         if hint_coaches:
             coach_count = max(coach_count, hint_coaches[-1] + 1)
@@ -143,7 +161,9 @@ class CoachRecommendationService:
         # its one coach rather than recommending nothing.
         excluded = {0} if coach_count > 1 else set()
         scores = [
-            self._score_coach(index, forecast, hint_coaches, coach_count)
+            self._score_coach(
+                index, forecast, hint_coaches, coach_count, exit_names, rider_only
+            )
             for index in range(coach_count)
             if index not in excluded
         ]
@@ -164,6 +184,8 @@ class CoachRecommendationService:
         forecast: CrowdForecast,
         hint_coaches: list[int],
         coach_count: int,
+        exit_names: dict[int, str] | None = None,
+        rider_exit_names: dict[int, str] | None = None,
     ) -> CoachScore:
         occupancy = forecast.occupancies[index]
         if hint_coaches:
@@ -173,15 +195,20 @@ class CoachRecommendationService:
             alignment = 0.5  # no exit data: neutral, crowding decides
 
         score = self._crowd_weight * (1.0 - occupancy) + self._exit_weight * alignment
-        reasons: list[str] = []
-        if occupancy <= 0.45:
-            reasons.append("typically less crowded")
-        elif occupancy >= 0.7:
-            reasons.append("typically crowded")
-        if hint_coaches and index in hint_coaches:
-            reasons.append("stops nearest to a destination exit")
-        elif hint_coaches and alignment >= 0.75:
-            reasons.append("short walk to a destination exit")
+        reasons = [
+            # Per-coach provenance, not the forecast-wide label: in a mixed
+            # forecast this coach's number may be a prior even when others
+            # were observed.
+            *_crowd_reasons(occupancy, observed=index in forecast.observed_coaches),
+            *_exit_reasons(
+                index,
+                hint_coaches,
+                alignment,
+                coach_count,
+                exit_names or {},
+                rider_exit_names or {},
+            ),
+        ]
         return CoachScore(
             coach_index=index,
             occupancy=round(occupancy, 3),
@@ -189,6 +216,68 @@ class CoachRecommendationService:
             score=round(score, 4),
             reasons=tuple(reasons),
         )
+
+
+def _crowd_reasons(occupancy: float, *, observed: bool) -> list[str]:
+    """The crowd half of a coach's explanation, pitched at its evidence.
+
+    "Typically less crowded" is a claim about how this line actually runs, and
+    a rider is entitled to read it that way. It is only earned when THIS
+    coach's number came from real observations. Otherwise the number is the
+    triangular prior — a generic assumption that trains fill toward the
+    middle, identical on every line, in every direction, at every hour — so
+    the wording has to say so. Dressing a constant as a measurement is exactly
+    the failure this codebase exists not to make.
+    """
+    if observed:
+        if occupancy <= 0.45:
+            return ["typically less crowded"]
+        if occupancy >= 0.7:
+            return ["typically crowded"]
+        return []
+    if occupancy <= 0.45:
+        return ["end coaches are usually lighter — no crowd data for this line yet"]
+    return []
+
+
+def _exit_reasons(
+    index: int,
+    hint_coaches: list[int],
+    alignment: float,
+    coach_count: int,
+    exit_names: dict[int, str],
+    rider_exit_names: dict[int, str],
+) -> list[str]:
+    """The exit half: name the gate whenever anything gives us one.
+
+    "Closest to Gate No. 4" is checkable against the signs overhead; "stops
+    nearest to a destination exit" is not. Unnamed phrasing is kept only for
+    the case where a hint exists but its exit row has no usable name.
+
+    Rider-confirmed claims are worded differently on purpose. "Riders say Gate
+    No. 4 is closest" tells someone where the knowledge came from, so they can
+    weigh it themselves — three commuters agreeing is good evidence, and it is
+    still not DMRC's own mapping. Blending the two into one confident sentence
+    would be the small dishonesty that makes every other claim suspect.
+    """
+    if not hint_coaches:
+        return []
+
+    def phrase(coach: int, curated: str, rider: str) -> list[str]:
+        if (name := exit_names.get(coach)) is not None:
+            return [curated.format(name=name)]
+        if (name := rider_exit_names.get(coach)) is not None:
+            return [rider.format(name=name)]
+        return [curated.format(name="a destination exit").replace("Gate", "gate")]
+
+    if index in hint_coaches:
+        return phrase(index, "closest to {name}", "riders say {name} is closest")
+    if alignment >= 0.75:
+        nearest = min(hint_coaches, key=lambda hint: (abs(index - hint), hint))
+        return phrase(
+            nearest, "short walk to {name}", "riders say {name} is a short walk"
+        )
+    return []
 
 
 def _hour_distance(a: int, b: int) -> int:

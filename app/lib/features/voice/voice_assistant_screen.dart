@@ -12,6 +12,7 @@ import '../../core/widgets/ambient_background.dart';
 import '../../core/widgets/glass_surface.dart';
 import '../../core/widgets/gradient_button.dart';
 import '../../domain/voice_intent.dart';
+import '../../providers/core_providers.dart';
 import '../home/home_providers.dart';
 import 'voice_assistant_controller.dart';
 
@@ -125,6 +126,14 @@ class _VoiceAssistantScreenState extends ConsumerState<VoiceAssistantScreen> {
       _capabilityError = null;
     });
     final intent = parseVoiceIntent(text);
+    // Voice usage, as the intent's NAME only. The transcript in `text` is the
+    // rider's own words and frequently contains where they are going, so it
+    // must not be what we learn from. `unknown` is reported as unrecognised
+    // rather than as an intent — the gap between what riders say and what the
+    // engine understands is the most useful thing this metric can show.
+    ref.read(analyticsServiceProvider).recordVoiceIntent(
+          intent.kind == VoiceIntentKind.unknown ? null : intent.kind.name,
+        );
     final answer = await ref.read(voiceAssistantControllerProvider).answer(intent);
     if (!mounted) return;
     setState(() {

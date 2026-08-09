@@ -33,6 +33,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://metropulse:metropulse@postgres:5432/metropulse
       REDIS_URL: redis://redis:6379/0
       DMRC_API_KEY: ${DMRC_API_KEY:?set DMRC_API_KEY in .env}
+      DTS_API_KEY: ${DTS_API_KEY:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:
       postgres:

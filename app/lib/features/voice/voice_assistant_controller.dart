@@ -67,7 +67,15 @@ class VoiceAssistantController {
     }
     final hits = searchStations(stations: bundle.stations, exits: bundle.exits, query: query);
     if (hits.isEmpty) {
-      return VoiceAnswer('I couldn\'t find a station matching "$query" — try the exact station name.');
+      // Deliberately no longer says "try the exact station name". The matcher
+      // now handles the ways people actually speak — "mayur vihar 1" for
+      // "Mayur Vihar-I", "dwarka sector 10" for "Dwarka Sector - 10" — so
+      // demanding DMRC's exact punctuation was asking the rider to fix our
+      // problem. If we still miss, the useful hint is a nearby landmark.
+      return VoiceAnswer(
+        'I couldn\'t find a station matching "$query". Try the area name, or a '
+        'landmark next to it.',
+      );
     }
     final destination = hits.first.station;
     final origin = await _resolveOrigin();

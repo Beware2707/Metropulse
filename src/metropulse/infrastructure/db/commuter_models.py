@@ -30,6 +30,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -358,6 +359,48 @@ class CoachExitHint(Base):
     coach_index: Mapped[int] = mapped_column(Integer)
 
 
+class CoachExitReport(Base):
+    """One rider's first-hand observation: "I rode coach N and exit E was the
+    nearest one when I got off."
+
+    Separate from :class:`CoachExitHint` on purpose. Hints are curated and
+    authoritative; these are eyewitness reports that have not earned that
+    status yet. Keeping them in their own table means a rider claim can never
+    be mistaken for DMRC's own mapping — the same separation the rest of this
+    codebase draws between observed and assumed.
+
+    The unique constraint is the integrity mechanism: one report per person
+    per claim, so "three riders agree" means three PEOPLE, not one enthusiast
+    tapping the same button three times. Confirmation counts distinct users or
+    it counts nothing.
+    """
+
+    __tablename__ = "coach_exit_reports"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "stop_id", "route_id", "direction_id", "coach_index", "exit_id",
+            name="uq_coach_exit_report_once_per_rider",
+        ),
+        Index("ix_coach_exit_reports_lookup", "stop_id", "route_id", "direction_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigIntPk, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    stop_id: Mapped[str] = mapped_column(String(64))
+    #: Empty string rather than NULL: NULL never equals NULL, so a nullable
+    #: column here would silently defeat the unique constraint above and let
+    #: one rider report the same generic claim without limit.
+    route_id: Mapped[str] = mapped_column(String(64), default="")
+    direction_id: Mapped[int] = mapped_column(Integer, default=-1)
+    exit_id: Mapped[int] = mapped_column(
+        ForeignKey("station_exits.id", ondelete="CASCADE")
+    )
+    coach_index: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class StationFacility(Base):
     """Station accessibility + parking facilities, curated from a Delhi
     Transport Stack dataset (dmrc_station_details_with_parking.xlsx) and
@@ -529,6 +572,51 @@ class StationTopDestinations(Base):
     period: Mapped[str] = mapped_column(String(32))
     total_out: Mapped[int] = mapped_column(Integer)
     top: Mapped[list[dict[str, Any]]] = mapped_column(JsonB)
+    match_method: Mapped[str] = mapped_column(String(16))
+
+
+class RegionalRailConnection(Base):
+    """A walkable connection from a metro station to a Namo Bharat (RRTS)
+    station, derived from NCRTC's published GTFS.
+
+    Only stations NCRTC actually schedules trips to are ever stored. Its feed
+    lists 16 stops but runs trips to just 7; the nine unserved ones include
+    Anand Vihar (63 m from its metro namesake), Jangpura (35 m) and New Ashok
+    Nagar (105 m) -- the Delhi extension, built into the feed but not yet
+    running. Storing those would put a train 63 metres from a rider that does
+    not exist, which is the exact lie this app refuses to tell. When NCRTC
+    ships a feed with those trips, re-running the loader lights them up on
+    evidence rather than optimism.
+
+    RRTS is a separate operator with its own (much higher) fares, so this is
+    deliberately a *connection*, not a route: it never enters the metro
+    planner and never borrows the metro fare table.
+    """
+
+    __tablename__ = "regional_rail_connections"
+
+    id: Mapped[int] = mapped_column(BigIntPk, primary_key=True, autoincrement=True)
+    stop_id: Mapped[str] = mapped_column(String(64), index=True)
+    operator: Mapped[str] = mapped_column(String(32))  # e.g. "NCRTC"
+    service_name: Mapped[str] = mapped_column(String(64))  # e.g. "Namo Bharat"
+    rail_station_name: Mapped[str] = mapped_column(String(128))
+    distance_m: Mapped[int] = mapped_column(Integer)
+    #: Typical gap between departures IN ONE DIRECTION. Never the merged
+    #: both-directions figure: a Delhi-bound rider gains nothing from a
+    #: Meerut-bound train, so merging would halve the apparent wait.
+    headway_minutes: Mapped[int | None] = mapped_column(Integer)
+    #: Who produced this timetable, per the feed's own attributions.txt, and
+    #: whether the times are authoritative. NCRTC's feed declares
+    #: OpenStreetMap contributors as producer (NOT NCRTC), and its schedule
+    #: is plainly synthesised -- zero dwell at all 910 stops, two identical
+    #: timing profiles across 130 trips, a flat 900 s headway all day. Real
+    #: timetables are never that clean. So these are indicative times from a
+    #: community reconstruction, and the UI must say so.
+    source: Mapped[str] = mapped_column(String(128))
+    times_indicative: Mapped[bool] = mapped_column(Boolean, default=True)
+    first_departure: Mapped[str | None] = mapped_column(String(8))
+    last_departure: Mapped[str | None] = mapped_column(String(8))
+    directions: Mapped[list[dict[str, Any]] | None] = mapped_column(JsonB)
     match_method: Mapped[str] = mapped_column(String(16))
 
 

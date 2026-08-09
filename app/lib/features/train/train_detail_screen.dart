@@ -44,7 +44,10 @@ class TrainDetailScreen extends ConsumerWidget {
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 16),
-            child: Center(child: LiveIndicator(dataEstimated: train?.isEstimated ?? false)),
+            // `?? true`, not `?? false`: when the train isn't in the live map
+            // at all we know LESS about it, not more, and the old fallback
+            // turned "no data" into a green LIVE badge.
+            child: Center(child: LiveIndicator(dataEstimated: train?.isEstimated ?? true)),
           ),
         ],
       ),

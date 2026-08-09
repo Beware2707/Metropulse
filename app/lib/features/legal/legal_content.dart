@@ -43,7 +43,7 @@ class LegalNotice extends LegalBlock {
   final String text;
 }
 
-const String legalLastUpdated = '6 July 2026';
+const String legalLastUpdated = '9 August 2026';
 
 const List<LegalBlock> privacyPolicyBlocks = [
   LegalNotice(
@@ -59,7 +59,9 @@ const List<LegalBlock> privacyPolicyBlocks = [
     'seconds so that whoever holds your share link can follow you, until you stop sharing. We '
     'store your favourites, journey history, and notification preferences so the app works the '
     'same way next time you open it, plus anything you choose to send us directly (a crowding '
-    "report, a feedback message). That's the whole list.",
+    'report, a feedback message). Two optional extras, each off unless you switch it on: '
+    'anonymous usage data about which features you use, and station details you volunteer '
+    'after a trip. That is the whole list.',
   ),
   LegalHeading('What we collect'),
   LegalItem(
@@ -113,6 +115,28 @@ const List<LegalBlock> privacyPolicyBlocks = [
         'device model, OS version, app version, and the technical details of what went wrong '
         '(a stack trace) — never your name, location, or the content of your journeys.',
   ),
+  LegalItem(
+    'Station details you choose to contribute — only if you turn it on.',
+    'If you switch on "Help improve station info" in Settings, then after a '
+        'trip we may ask you one question — which coach you were in, which '
+        'exit you used — so we can map things DMRC has not published. Unlike '
+        'the usage data below, your answer does include the station it is '
+        'about, because that is the whole point of it. We store it with your '
+        'anonymous identifier so that several riders reporting the same thing '
+        'counts once each. Every question is optional and skippable, nothing '
+        'is recorded unless you tap send, and turning the setting off stops '
+        'the questions.',
+  ),
+  LegalItem(
+    'Anonymous usage data — only if you turn it on.',
+    'If you switch on "Share anonymous usage data" in Settings, the app sends us a record of '
+        'which features you use: when you open the app, whether a journey you started was '
+        'finished or ended early and how long it took, which kinds of requests you make by '
+        'voice, and how long your search text was and which result you picked. We do not '
+        'receive what you searched for, what you said out loud, or which stations you '
+        'travelled between from this. It is off unless you turn it on, and turning it off '
+        'stops it immediately and discards anything not yet sent.',
+  ),
   LegalHeading('Third-party services we use'),
   LegalBullets([
     'Google Firebase Crashlytics — crash reporting, described above, governed by Google\'s '
@@ -131,7 +155,12 @@ const List<LegalBlock> privacyPolicyBlocks = [
   LegalBullets([
     'Favourites, journey history, and notification preferences: kept until you delete them '
         'or ask us to (see below).',
-    'Vehicle/feed analytics events: kept for 90 days, then automatically deleted.',
+    'Train position and feed events (the network\'s, not yours): kept for 90 days, then '
+        'automatically deleted.',
+    'Anonymous usage data, if you turned it on: kept for 90 days, then automatically '
+        'deleted.',
+    'Station details you contributed: kept while they remain useful to other riders, since '
+        'removing them would undo the map they helped build.',
     'Train position history: kept for 72 hours, then automatically deleted. (This is the '
         "trains' positions, not yours.)",
     'Your position from a shared trip: a share stops being viewable 12 hours after you start '

@@ -39,9 +39,11 @@ class _MetroPulseAppState extends ConsumerState<MetroPulseApp>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _startNotificationTimer();
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => ref.read(notificationsSyncControllerProvider).sync(),
-    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(notificationsSyncControllerProvider).sync();
+      // Daily-usage basis. A no-op unless the rider has opted in.
+      ref.read(analyticsServiceProvider).recordAppOpened();
+    });
   }
 
   void _startNotificationTimer() {
@@ -70,10 +72,15 @@ class _MetroPulseAppState extends ConsumerState<MetroPulseApp>
       case AppLifecycleState.paused || AppLifecycleState.detached:
         ws.suspend();
         _stopNotificationTimer();
+        // Backgrounding is the last reliable moment to send: the buffer is
+        // in-memory only, so anything still held when the OS reclaims the
+        // process is gone.
+        unawaited(ref.read(analyticsServiceProvider).flush());
       case AppLifecycleState.resumed:
         ws.resume();
         _startNotificationTimer();
         ref.read(notificationsSyncControllerProvider).sync();
+        ref.read(analyticsServiceProvider).recordAppOpened();
       case AppLifecycleState.inactive || AppLifecycleState.hidden:
         break;
     }

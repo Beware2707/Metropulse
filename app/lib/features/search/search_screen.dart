@@ -38,8 +38,26 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   String _query = '';
   final _controller = TextEditingController();
 
+  /// How many results the last build produced, and whether the rider ever
+  /// picked one. Both exist only to describe the SHAPE of a search in
+  /// analytics — "did search find what they meant, and how much typing did it
+  /// cost" — without the query itself ever being recorded.
+  int _lastHitCount = 0;
+  bool _pickedAResult = false;
+
   @override
   void dispose() {
+    // Leaving with a query typed and nothing chosen is the interesting
+    // failure: search had something to work with and still didn't help.
+    // Reported on the way out because there is no other moment that means
+    // "they gave up".
+    final abandoned = _query.trim();
+    if (abandoned.isNotEmpty && !_pickedAResult) {
+      ref.read(analyticsServiceProvider).recordSearchAbandoned(
+            queryLength: abandoned.length,
+            resultCount: _lastHitCount,
+          );
+    }
     _controller.dispose();
     super.dispose();
   }
@@ -67,6 +85,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             favouriteStopIds: favouriteIds,
             recentStopIds: recentIds.toSet(),
           );
+    _lastHitCount = hits.length;
 
     return Scaffold(
       body: AmbientBackground(
@@ -145,7 +164,19 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     );
   }
 
-  void _openStation(Station station) {
+  void _openStation(Station station, {int? rank}) {
+    final typed = _query.trim();
+    if (typed.isNotEmpty) {
+      _pickedAResult = true;
+      // `rank` is null when the pick came from favourites or recents rather
+      // than the ranked result list; -1 records that honestly instead of
+      // pretending it was the top hit.
+      ref.read(analyticsServiceProvider).recordSearchSelected(
+            queryLength: typed.length,
+            resultRank: rank ?? -1,
+            resultCount: _lastHitCount,
+          );
+    }
     ref.read(localStoreProvider).recordSearchVisit(station.stopId);
     ref.invalidate(recentSearchIdsProvider);
     if (widget.mapPickerMode) {
@@ -211,7 +242,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     }
     return KeyedSubtree(
       key: const ValueKey('results'),
-      child: _ResultsList(hits: hits, onTap: _openStation),
+      child: _ResultsList(
+        hits: hits,
+        onTap: (station, rank) => _openStation(station, rank: rank),
+      ),
     );
   }
 }
@@ -220,7 +254,10 @@ class _ResultsList extends StatelessWidget {
   const _ResultsList({required this.hits, required this.onTap});
 
   final List<SearchHit> hits;
-  final void Function(Station) onTap;
+
+  /// Receives the station AND its rank in the list, so analytics can record
+  /// how far down a rider had to look without recording what they looked for.
+  final void Function(Station station, int rank) onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -242,7 +279,7 @@ class _ResultsList extends StatelessWidget {
               : (hit.reason == SearchMatchReason.alias ? 'Also known as "${hit.matchedText}"' : 'Near ${hit.matchedText}'),
           subtitleIcon: hit.reason == SearchMatchReason.landmark ? Icons.near_me_rounded : null,
           dimmed: hit.reason == SearchMatchReason.landmark,
-          onTap: onTap,
+          onTap: (station) => onTap(station, index),
         );
       },
     );

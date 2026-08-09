@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -26,6 +28,7 @@ import '../../domain/models/journey.dart';
 import '../../domain/models/station.dart';
 import '../../providers/core_providers.dart';
 import '../home/home_providers.dart';
+import '../settings/settings_providers.dart';
 import '../shared/station_search_sheet.dart';
 import 'latest_departure.dart';
 
@@ -48,7 +51,6 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
   Station? _origin;
   Station? _destination;
   RoutePreference _preference = RoutePreference.fastest;
-  bool _stepFreePreferred = false;
   JourneyPlan? _plan;
   String? _error;
   bool _loading = false;
@@ -154,7 +156,7 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
               const SizedBox(height: AppSpacing.xl),
               _PreferenceSelector(
                 preference: _preference,
-                stepFreePreferred: _stepFreePreferred,
+                stepFreePreferred: ref.watch(stepFreePreferredProvider),
                 deltaCaption: _preferenceDeltaCaption,
                 onPreferenceChanged: (value) {
                   if (_loading || value == _preference) return;
@@ -189,7 +191,7 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
                   delay: const Duration(milliseconds: 80),
                   child: _RouteVisualization(plan: _plan!),
                 ),
-                if (_stepFreePreferred) ...[
+                if (ref.watch(stepFreePreferredProvider)) ...[
                   const SizedBox(height: AppSpacing.lg),
                   DelayedReveal(
                     delay: const Duration(milliseconds: 100),
@@ -214,6 +216,7 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
                   destination: _destination!.stopId,
                 ),
                 _OnwardSection(destination: _destination!),
+                _MultimodalSection(origin: _origin!, destination: _destination!),
                 const SizedBox(height: AppSpacing.lg),
                 GhostButton(
                   label: context.t.plannerViewOnMap,
@@ -343,11 +346,15 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
   /// which is genuinely fewer stair/interchange transfers — and surfaces the
   /// interchange stations' facility facts under the plan. It makes no
   /// wheelchair-accessibility guarantee (see [stepFreeHonestyCaption]).
-  void _onStepFreeToggled(bool value) {
+  Future<void> _onStepFreeToggled(bool value) async {
     final needsReplan =
         value && _preference != RoutePreference.fewerTransfers && !_loading;
+    // Persist: the need follows the rider into Journey Mode and into their
+    // next trip, instead of being re-stated on every plan.
+    await ref.read(localStoreProvider).setStepFreePreferred(value);
+    ref.invalidate(stepFreePreferredProvider);
+    if (!mounted) return;
     setState(() {
-      _stepFreePreferred = value;
       if (needsReplan) {
         _previousPlan = _plan;
         _previousPlanPreference = _preference;
@@ -468,6 +475,153 @@ final _onwardLastMileProvider = FutureProvider.autoDispose
     .family<List<Map<String, dynamic>>, String>((ref, stopId) {
   return ref.watch(stationsRepositoryProvider).lastMileRoutes(stopId);
 });
+
+/// Door-to-door options via the licensed Delhi Transport Stack planner,
+/// keyed by the endpoint coordinates so a new plan refetches.
+///
+/// Kept alive deliberately. The DTS upstream takes ~20 s, and this section
+/// sits low in a scrolling list, so its element unmounts the moment the user
+/// scrolls past — with plain autoDispose that cancelled the in-flight request
+/// and restarted it on the way back, so the section never resolved for anyone
+/// who scrolled while waiting (observed on-device: three identical upstream
+/// calls, nothing rendered). The result is cached for ten minutes; a new
+/// origin/destination is a different key, so this never serves a stale route.
+final _multimodalProvider = FutureProvider.autoDispose
+    .family<Map<String, dynamic>?, String>((ref, key) {
+  final link = ref.keepAlive();
+  final timer = Timer(const Duration(minutes: 10), link.close);
+  ref.onDispose(timer.cancel);
+  final parts = key.split(',');
+  return ref.watch(journeyRepositoryProvider).multimodalPlan(
+        srcLat: double.parse(parts[0]),
+        srcLon: double.parse(parts[1]),
+        dstLat: double.parse(parts[2]),
+        dstLon: double.parse(parts[3]),
+      );
+});
+
+/// "Bus + metro, door to door": the top Transport Stack options between the
+/// chosen stations. Hidden entirely when the server has no DTS key, on error,
+/// or while loading — never a guessed route.
+///
+/// Honesty & license: every render carries the attribution string the
+/// license requires, and DTS's own `response_type` is respected — "static"
+/// options are labelled "timetable-based", and nothing here says "live"
+/// unless DTS itself said so.
+class _MultimodalSection extends ConsumerWidget {
+  const _MultimodalSection({required this.origin, required this.destination});
+
+  final Station origin;
+  final Station destination;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final key =
+        '${origin.lat},${origin.lon},${destination.lat},${destination.lon}';
+    final async = ref.watch(_multimodalProvider(key));
+    final theme = Theme.of(context);
+    // The upstream is slow (~20 s). Say so, rather than leaving a silent gap
+    // that reads as "there are no bus options".
+    if (async.isLoading) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SectionHeader(title: 'Bus + metro, door to door'),
+          Row(
+            children: [
+              const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Text('Checking bus routes…', style: theme.textTheme.bodySmall),
+            ],
+          ),
+        ],
+      );
+    }
+    final data = async.valueOrNull;
+    final options = (data?['options'] as List? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .take(3)
+        .toList();
+    if (options.isEmpty) return const SizedBox.shrink();
+    final allStatic =
+        options.every((o) => '${o['response_type']}' == 'static');
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SectionHeader(title: 'Bus + metro, door to door'),
+        MomentList(
+          children: [
+            for (final o in options)
+              MomentRow(
+                leading: const IconBadge(icon: Icons.directions_bus_rounded),
+                title: Text(
+                  '${(o['total_minutes'] as num?)?.round() ?? '–'} min · '
+                  '${o['fare_unit'] ?? '₹'}${(o['total_fare'] as num?)?.round() ?? '–'}'
+                  '${(o['reach_by'] ?? '') != '' ? ' · reach by ${_hhmm('${o['reach_by']}')}' : ''}',
+                  style: theme.textTheme.titleMedium,
+                ),
+                subtitle: Text(
+                  _legChain(o),
+                  style: theme.textTheme.bodySmall,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+          ],
+        ),
+        Padding(
+          padding: const EdgeInsets.only(top: AppSpacing.xs, left: AppSpacing.sm),
+          child: Text(
+            '${data!['attribution']}'
+            '${allStatic ? ' · timetable-based' : ''}',
+            style: theme.textTheme.labelSmall
+                ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          ),
+        ),
+      ],
+    );
+  }
+
+  static String _hhmm(String hhmmss) =>
+      hhmmss.length >= 5 ? hhmmss.substring(0, 5) : hhmmss;
+
+  /// "walk 7 min → DTC 448 → Yellow Line" — the legs as a compact chain.
+  static String _legChain(Map<String, dynamic> option) {
+    final parts = <String>[];
+    for (final l in (option['legs'] as List? ?? const [])) {
+      if (l is! Map) continue;
+      final kind = '${l['kind']}';
+      switch (kind) {
+        case 'walk':
+          parts.add('walk ${(l['minutes'] as num?)?.round() ?? '?'} min');
+        case 'bus':
+          parts.add('${l['agency']} ${_busRoute('${l['route']}')}'.trim());
+        case 'metro':
+          parts.add('${_titleCase('${l['route']}')} Line');
+        default:
+          parts.add(kind);
+      }
+    }
+    return parts.join(' → ');
+  }
+
+  /// '448DOWN' -> '448' (strip the direction suffix, an internal key).
+  static String _busRoute(String raw) =>
+      raw.replaceAll(RegExp(r'(UP|DOWN|STL.*)$', caseSensitive: true), '');
+
+  static String _titleCase(String s) => s.isEmpty
+      ? s
+      : s[0].toUpperCase() + s.substring(1).toLowerCase();
+}
+
+@visibleForTesting
+String multimodalLegChainForTest(Map<String, dynamic> option) =>
+    _MultimodalSection._legChain(option);
 
 /// Typical crowding along the planned route (origin + interchanges +
 /// destination), keyed by the joined stop ids so a new plan refetches.

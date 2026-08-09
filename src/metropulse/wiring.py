@@ -30,6 +30,7 @@ from metropulse.application.commuter.exits import ExitService
 from metropulse.application.commuter.favourites import FavouritesService
 from metropulse.application.commuter.journeys import JourneyService
 from metropulse.application.commuter.crowd_forecast import CrowdForecastService
+from metropulse.application.commuter.multimodal import MultimodalPlanService
 from metropulse.application.commuter.last_train import LastTrainService
 from metropulse.application.commuter.notifications import (
     LoggingNotificationChannel,
@@ -92,6 +93,7 @@ class CommuterServices:
     journey_share: JourneyShareService
     rider_reports: RiderReportService
     crowd_forecast: CrowdForecastService
+    multimodal: MultimodalPlanService
 
 
 @dataclass
@@ -198,6 +200,10 @@ def build_commuter_services(
         journey_share=JourneyShareService(),
         rider_reports=RiderReportService(),
         crowd_forecast=CrowdForecastService(),
+        multimodal=MultimodalPlanService(
+            api_key=settings.dts_api_key.get_secret_value(),
+            base_url=settings.dts_base_url,
+        ),
     )
 
 

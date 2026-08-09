@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
+
 from datetime import date, datetime
 from typing import Any, Literal
 
@@ -21,6 +23,7 @@ from metropulse.domain.intelligence import (
     SmartRecommendation,
 )
 from metropulse.application.commuter.crowd_forecast import CrowdForecast
+from metropulse.application.commuter.multimodal import MultimodalResult
 from metropulse.domain.journey import JourneyPlan, RideLeg
 from metropulse.domain.replay import MonthlyReplay, TripReplay
 
@@ -312,6 +315,65 @@ class JourneyStopOut(BaseModel):
 
     stop_id: str
     name: str
+
+
+class MultimodalLegOut(BaseModel):
+    """One leg of a door-to-door multimodal option."""
+
+    kind: str
+    agency: str
+    route: str
+    headsign: str
+    departure_time: str
+    minutes: float
+    fare: float
+    from_name: str
+    to_name: str
+    stop_count: int
+
+
+class MultimodalOptionOut(BaseModel):
+    """One ranked door-to-door option (Delhi Transport Stack)."""
+
+    total_minutes: float
+    total_fare: float
+    fare_unit: str
+    reach_by: str
+    #: DTS's own static/realtime label, passed through verbatim -- clients
+    #: must not present "static" as anything livelier.
+    response_type: str
+    legs: list[MultimodalLegOut]
+
+
+class MultimodalPlanOut(BaseModel):
+    """Door-to-door options via the licensed Transport Stack API.
+
+    ``attribution`` must be displayed wherever options are shown (license
+    Schedule 1). ``error`` is set instead of options when the feature is off
+    or upstream failed -- never a guessed route.
+    """
+
+    options: list[MultimodalOptionOut]
+    attribution: str
+    error: str | None
+
+    @classmethod
+    def from_domain(cls, result: MultimodalResult) -> "MultimodalPlanOut":
+        return cls(
+            options=[
+                MultimodalOptionOut(
+                    total_minutes=o.total_minutes,
+                    total_fare=o.total_fare,
+                    fare_unit=o.fare_unit,
+                    reach_by=o.reach_by,
+                    response_type=o.response_type,
+                    legs=[MultimodalLegOut(**asdict(leg)) for leg in o.legs],
+                )
+                for o in result.options
+            ],
+            attribution=result.attribution,
+            error=result.error,
+        )
 
 
 class StopCrowdOut(BaseModel):

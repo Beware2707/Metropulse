@@ -24,6 +24,7 @@ class JourneyProgressSnapshot {
     required this.arrivingSoon,
     required this.arrived,
     required this.justBoarded,
+    this.interchangeStopId,
     this.delaySeconds,
     this.isReconnecting = false,
   });
@@ -41,6 +42,11 @@ class JourneyProgressSnapshot {
   final Duration? etaToDestination;
   final bool approachingInterchange;
   final String? interchangeStationName;
+
+  /// The interchange's stop id, not just its name — station guidance needs
+  /// to look up that station's gates and lift paths, and resolving a name
+  /// back to an id is a guess where two stations share a name.
+  final String? interchangeStopId;
   final bool arrivingSoon;
   final bool arrived;
 
@@ -91,6 +97,7 @@ JourneyProgressSnapshot fromLiveTrain({
         : Duration(milliseconds: (destinationEta.etaSeconds * 1000).round()),
     approachingInterchange: isInterchange,
     interchangeStationName: isInterchange ? train.nextStation!.name : null,
+    interchangeStopId: isInterchange ? nextStopId : null,
     arrivingSoon: remainingToDest == 1,
     arrived: remainingToDest == 0,
     justBoarded: totalStations != null &&
@@ -124,6 +131,7 @@ JourneyProgressSnapshot fromTimetable(
     etaToDestination: snapshot.arrived ? Duration.zero : snapshot.etaToDestination,
     approachingInterchange: isInterchange,
     interchangeStationName: isInterchange ? snapshot.next!.name : null,
+    interchangeStopId: isInterchange ? nextId : null,
     arrivingSoon: snapshot.remainingCount == 1,
     arrived: snapshot.arrived,
     justBoarded: passed == 0,

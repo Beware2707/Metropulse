@@ -4,6 +4,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/analytics.dart';
 import '../data/api_client.dart';
 import '../data/local_store.dart';
 import '../data/repositories.dart';
@@ -61,6 +62,46 @@ final replayRepositoryProvider = Provider<ReplayRepository>(
 final feedbackRepositoryProvider = Provider<FeedbackRepository>(
   (ref) => FeedbackRepository(ref.watch(apiClientProvider)),
 );
+
+final analyticsRepositoryProvider = Provider<AnalyticsRepository>(
+  (ref) => AnalyticsRepository(ref.watch(apiClientProvider)),
+);
+
+final serviceDayRepositoryProvider = Provider<ServiceDayRepository>(
+  (ref) => ServiceDayRepository(ref.watch(apiClientProvider)),
+);
+
+final contributionRepositoryProvider = Provider<ContributionRepository>(
+  (ref) => ContributionRepository(ref.watch(apiClientProvider)),
+);
+
+/// True/false when the server could answer, null while loading or offline.
+///
+/// Kept alive: the answer changes at most once a day, and re-asking on every
+/// empty board would be pure noise.
+final hasTimetableTodayProvider = FutureProvider<bool?>((ref) async {
+  ref.keepAlive();
+  return ref.watch(serviceDayRepositoryProvider).hasTimetableToday();
+});
+
+/// The app-wide analytics emitter.
+///
+/// Reads consent through `ref.read` at emit time rather than capturing it
+/// once: a rider who turns analytics off in Settings must stop being recorded
+/// immediately, not at the next app launch. The service also drops anything
+/// already buffered when it finds consent gone (see [AnalyticsService.flush]).
+///
+/// Not `autoDispose` — this outlives every screen by design, and disposing it
+/// mid-session would silently drop the buffer.
+final analyticsServiceProvider = Provider<AnalyticsService>((ref) {
+  final repository = ref.watch(analyticsRepositoryProvider);
+  final service = AnalyticsService(
+    uploader: repository.upload,
+    consentGranted: () => ref.read(localStoreProvider).analyticsConsent,
+  );
+  ref.onDispose(service.dispose);
+  return service;
+});
 
 /// True when the OS reports an active network path — proactive, unlike
 /// every other offline signal in this app (an HTTP call's own 8s/15s

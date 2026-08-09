@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 
+import '../core/analytics.dart';
 import '../core/config.dart';
 import '../domain/models/commute_card.dart';
 import '../domain/models/eta.dart';
@@ -87,6 +88,23 @@ class StationsRepository {
     try {
       final response = await _api.dio.get<List<dynamic>>(
         '/api/v1/stations/$stopId/last-mile',
+      );
+      return (response.data ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .toList();
+    } on DioException {
+      return const [];
+    }
+  }
+
+  /// Walkable Namo Bharat (RRTS) connections from this metro station, from
+  /// NCRTC's published GTFS. Empty for almost every station — only the few
+  /// near a station NCRTC actually runs trips to have one. A separate
+  /// operator with separate fares: never present this as a metro ride.
+  Future<List<Map<String, dynamic>>> regionalRail(String stopId) async {
+    try {
+      final response = await _api.dio.get<List<dynamic>>(
+        '/api/v1/stations/$stopId/regional-rail',
       );
       return (response.data ?? const [])
           .whereType<Map<String, dynamic>>()
@@ -228,6 +246,38 @@ class JourneyRepository {
       },
     );
     return JourneyPlan.fromJson(response.data!);
+  }
+
+  /// Door-to-door bus+metro options via the licensed Delhi Transport Stack
+  /// API (proxied server-side; the key never ships in this app). Null when
+  /// the server has no key configured (503), on error, or offline — the UI
+  /// hides the section rather than guessing. The response's `attribution`
+  /// must be displayed wherever options are shown.
+  Future<Map<String, dynamic>?> multimodalPlan({
+    required double srcLat,
+    required double srcLon,
+    required double dstLat,
+    required double dstLon,
+  }) async {
+    try {
+      final response = await _api.dio.get<Map<String, dynamic>>(
+        '/api/v1/journey/multimodal',
+        queryParameters: {
+          'src_lat': srcLat,
+          'src_lon': srcLon,
+          'dst_lat': dstLat,
+          'dst_lon': dstLon,
+        },
+        // The DTS upstream routinely takes ~20s for a multi-modal query —
+        // beyond the client's default 15s receive timeout, which silently
+        // hid this section (caught on-device). The section sits below the
+        // fold, so a late arrival is fine; a silent absence is not.
+        options: Options(receiveTimeout: const Duration(seconds: 40)),
+      );
+      return response.data;
+    } on DioException {
+      return null;
+    }
   }
 
   /// Typical crowding along a route from DMRC's measured hourly ridership.
@@ -792,6 +842,115 @@ class ReplayRepository {
 
 /// In-app feedback (Sprint 4: beta launch) -- a message plus real, honest
 /// context (app version, platform) rather than an anonymous string alone.
+/// What a submitted contribution achieved.
+///
+/// [confirmations] exists so the app can thank someone honestly: "you're the
+/// first to report this" and "that's confirmed now" are both true, at
+/// different moments, and a rider deserves to know which one they're in.
+class ContributionResult {
+  const ContributionResult({
+    required this.confirmations,
+    required this.confirmed,
+    required this.wasNew,
+  });
+
+  final int confirmations;
+  final bool confirmed;
+  final bool wasNew;
+}
+
+/// Rider-contributed station knowledge.
+class ContributionRepository {
+  ContributionRepository(this._api);
+
+  final ApiClient _api;
+
+  /// Report which coach stopped nearest an exit. Returns null on any failure —
+  /// a contribution is a gift, never a task, so a failed one must not turn
+  /// into an error the rider has to deal with.
+  Future<ContributionResult?> reportCoachExit({
+    required String stopId,
+    required int exitId,
+    required int coachIndex,
+    String? routeId,
+    int? directionId,
+  }) async {
+    try {
+      final response = await _api.dio.post<Map<String, dynamic>>(
+        '/api/v1/contributions/coach-exit',
+        data: {
+          'stop_id': stopId,
+          'exit_id': exitId,
+          'coach_index': coachIndex,
+          if (routeId != null) 'route_id': routeId,
+          if (directionId != null) 'direction_id': directionId,
+        },
+      );
+      final data = response.data;
+      if (data == null) return null;
+      return ContributionResult(
+        confirmations: (data['confirmations'] as num?)?.toInt() ?? 0,
+        confirmed: data['confirmed'] as bool? ?? false,
+        wasNew: data['was_new'] as bool? ?? false,
+      );
+    } on DioException {
+      return null;
+    }
+  }
+}
+
+/// Whether the loaded timetable covers today.
+///
+/// Exists so an empty arrivals board can say WHY it is empty. DMRC's feed
+/// schedules no trips at all on Sundays, so on a Sunday every board is blank
+/// and "No trains headed this way right now" reads as *the metro has stopped*.
+/// It hasn't; we're blind. Returns null when the answer can't be fetched — the
+/// UI then keeps its old wording rather than asserting a cause it doesn't know.
+class ServiceDayRepository {
+  ServiceDayRepository(this._api);
+
+  final ApiClient _api;
+
+  Future<bool?> hasTimetableToday() async {
+    try {
+      final response =
+          await _api.dio.get<Map<String, dynamic>>('/api/v1/service-day');
+      return response.data?['has_timetable'] as bool?;
+    } on DioException {
+      return null;
+    }
+  }
+}
+
+/// Uploads batched product-analytics events.
+///
+/// Returns false rather than throwing on any failure: the caller keeps the
+/// batch buffered and retries later. A dropped analytics batch is never worth
+/// surfacing to a rider, and never worth losing on a flaky tunnel connection.
+class AnalyticsRepository {
+  AnalyticsRepository(this._api);
+
+  final ApiClient _api;
+
+  Future<bool> upload(List<AnalyticsEvent> batch, String sessionId) async {
+    if (batch.isEmpty) return true;
+    try {
+      final response = await _api.dio.post<Map<String, dynamic>>(
+        '/api/v1/analytics/events',
+        data: {
+          'events': [
+            for (final event in batch) {...event.toJson(), 'session_id': sessionId},
+          ],
+        },
+      );
+      final code = response.statusCode ?? 0;
+      return code >= 200 && code < 300;
+    } on DioException {
+      return false;
+    }
+  }
+}
+
 class FeedbackRepository {
   FeedbackRepository(this._api);
 

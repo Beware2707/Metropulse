@@ -19,8 +19,15 @@ String? expectedCrowding(List<dynamic>? coaches) {
 }
 
 /// Why the recommended coach was picked — straight from the recommendation
-/// endpoint's own per-coach `reasons` list (e.g. "typically less crowded",
-/// "stops nearest to a destination exit"), never an invented caption.
+/// endpoint's own per-coach `reasons` list, never an invented caption.
+///
+/// The backend pitches each reason at its evidence, so the wording that
+/// arrives here already carries its own provenance: "typically less crowded"
+/// only when real observations back THAT coach, "end coaches are usually
+/// lighter — no crowd data for this line yet" when the number is the generic
+/// prior, and a named gate ("closest to Gate No. 4") only when a curated
+/// coach-exit hint exists. Rendering these verbatim is therefore the honest
+/// thing to do; paraphrasing would strip the distinction.
 List<String> recommendedCoachReasons(Map<String, dynamic>? coach) {
   final recommended = coach?['recommended_coach'];
   final coaches = coach?['coaches'] as List<dynamic>?;

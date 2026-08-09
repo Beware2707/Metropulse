@@ -241,6 +241,33 @@ class StationTopDestinationsOut(BaseModel):
     match_method: str
 
 
+class RegionalRailConnectionOut(BaseModel):
+    """A walkable connection to a Namo Bharat (RRTS) station.
+
+    Derived only from stations NCRTC actually schedules trips to. Separate
+    operator, separate fare -- clients must not present this as a metro ride.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    stop_id: str
+    operator: str
+    service_name: str
+    rail_station_name: str
+    distance_m: int
+    headway_minutes: int | None
+    first_departure: str | None
+    last_departure: str | None
+    directions: list[dict[str, Any]] | None
+    #: Who produced the timetable (the feed's own attributions.txt), and
+    #: whether its times are authoritative. NCRTC's feed is a community
+    #: reconstruction with a synthesised schedule, so clients must present
+    #: the times as indicative and credit the producer.
+    source: str
+    times_indicative: bool
+    match_method: str
+
+
 class LastMileRouteOut(BaseModel):
     """Curated shared-mobility (e-rickshaw) last-mile route."""
 

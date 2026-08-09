@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/config.dart';
 import '../../core/design/app_colors.dart';
 import '../../core/design/app_motion.dart';
 import '../../core/design/app_radius.dart';
@@ -42,6 +43,14 @@ final _facilitiesProvider = FutureProvider.autoDispose
 final _lastMileProvider = FutureProvider.autoDispose
     .family<List<Map<String, dynamic>>, String>((ref, stopId) async {
   return ref.watch(stationsRepositoryProvider).lastMileRoutes(stopId);
+});
+
+/// Namo Bharat connections. Returns empty without a request when the feature
+/// is flagged off, so a disabled feature costs nothing on the wire.
+final _regionalRailProvider = FutureProvider.autoDispose
+    .family<List<Map<String, dynamic>>, String>((ref, stopId) async {
+  if (!AppConfig.rrtsEnabled) return const [];
+  return ref.watch(stationsRepositoryProvider).regionalRail(stopId);
 });
 
 final _accessibilityProvider = FutureProvider.autoDispose
@@ -87,6 +96,7 @@ class StationDetailScreen extends ConsumerWidget {
     final facilities = ref.watch(_facilitiesProvider(stopId));
     final lastMile = ref.watch(_lastMileProvider(stopId));
     final accessibility = ref.watch(_accessibilityProvider(stopId));
+    final regionalRail = ref.watch(_regionalRailProvider(stopId));
     final busyness = ref.watch(_busynessProvider(stopId));
     final topDestinations = ref.watch(_topDestinationsProvider(stopId));
 
@@ -337,6 +347,22 @@ class StationDetailScreen extends ConsumerWidget {
                 loading: () => const SizedBox.shrink(),
                 error: (_, __) => const SizedBox.shrink(),
               ),
+              if (AppConfig.rrtsEnabled &&
+                  regionalRail.hasValue &&
+                  regionalRail.value!.isNotEmpty) ...[
+                const SectionHeader(title: 'Namo Bharat (RRTS)'),
+                MomentList(
+                  children: [
+                    for (final c in regionalRail.value!)
+                      MomentRow(
+                        leading: const IconBadge(icon: Icons.train_rounded),
+                        title: Text('${c['rail_station_name']} station',
+                            style: Theme.of(context).textTheme.titleMedium),
+                        subtitle: _RegionalRailDetail(connection: c),
+                      ),
+                  ],
+                ),
+              ],
               if (lastMile.hasValue && lastMile.value!.isNotEmpty) ...[
                 const SectionHeader(title: 'Last-mile options'),
                 MomentList(
@@ -553,18 +579,39 @@ class _ExitLandmarks extends StatelessWidget {
 /// first-time user if the WS connection simply hasn't finished (re)joining
 /// yet, so this distinguishes "still connecting" from "genuinely nothing
 /// scheduled".
+/// Test-only handle on [_EmptyArrivals], whose wording is load-bearing enough
+/// to deserve its own tests without making the widget itself public API.
+@visibleForTesting
+class EmptyArrivalsForTest extends StatelessWidget {
+  const EmptyArrivalsForTest({super.key});
+
+  @override
+  Widget build(BuildContext context) => const _EmptyArrivals();
+}
+
 class _EmptyArrivals extends ConsumerWidget {
   const _EmptyArrivals();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final status = ref.watch(wsStatusProvider).valueOrNull;
+    // Only claim "no trains" when we actually have a timetable to say that
+    // from. DMRC's feed schedules nothing on Sundays, so on a Sunday the old
+    // wording told riders the metro had stopped when it was running normally
+    // and we simply could not see it. Absence of data is not absence of trains.
+    final hasTimetable = ref.watch(hasTimetableTodayProvider).valueOrNull;
     final message = switch (status) {
       WsStatus.connecting => 'Connecting to live arrivals…',
       WsStatus.reconnecting => 'Reconnecting to live arrivals…',
+      _ when hasTimetable == false =>
+        "Our timetable has no service data for today, so we can't show "
+            'arrivals. Trains may still be running — check DMRC for times.',
       _ => 'No trains headed this way right now.',
     };
-    return EmptyState(icon: Icons.train_rounded, message: message);
+    return EmptyState(
+      icon: hasTimetable == false ? Icons.event_busy_rounded : Icons.train_rounded,
+      message: message,
+    );
   }
 }
 
@@ -754,6 +801,73 @@ class _FavouriteToggleState extends ConsumerState<_FavouriteToggle> {
 /// (the widget itself is private to this screen).
 @visibleForTesting
 Widget exitLandmarksForTest(Map<String, dynamic> exit) => _ExitLandmarks(exit: exit);
+
+/// One Namo Bharat connection: how far to walk, how often trains run, and
+/// the plain fact that it is a different operator with a different ticket.
+///
+/// The headway is per direction, and the times are labelled indicative,
+/// because NCRTC's feed is a community reconstruction with a plainly
+/// synthesised schedule (zero dwell at every stop, one timing profile per
+/// direction, a flat 15-minute gap all day). Presenting that as a departure
+/// board would dress a guess up as a promise.
+///
+/// "Interchange" is reserved for connections under 500 m; anything further is
+/// described as a walk with its real distance, because calling a 1.2 km hike
+/// an interchange is the kind of small overclaim that loses a rider's trust
+/// at the exact moment they are standing outside in the heat.
+class _RegionalRailDetail extends StatelessWidget {
+  const _RegionalRailDetail({required this.connection});
+
+  final Map<String, dynamic> connection;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final metres = (connection['distance_m'] as num?)?.round() ?? 0;
+    final headway = (connection['headway_minutes'] as num?)?.round();
+    final first = _hhmm('${connection['first_departure'] ?? ''}');
+    final last = _hhmm('${connection['last_departure'] ?? ''}');
+    // ~80 m/min is a normal walking pace.
+    final walkMinutes = (metres / 80).ceil();
+    final indicative = connection['times_indicative'] == true;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          metres <= 500
+              ? 'Interchange · ${metres}m walk (about $walkMinutes min)'
+              : '${metres}m walk (about $walkMinutes min)',
+          style: theme.textTheme.bodySmall,
+        ),
+        if (headway != null && first.isNotEmpty)
+          Text(
+            'Roughly every $headway min each way, $first–$last'
+            '${indicative ? ' (indicative)' : ''}',
+            style: theme.textTheme.bodySmall,
+          ),
+        Text(
+          'Operated by ${connection['operator']} · separate ticket from the metro',
+          style: theme.textTheme.labelSmall
+              ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+        ),
+        if (indicative)
+          Text(
+            'Times from a community timetable (${connection['source']}) — '
+            'check ncrtc.in before you travel',
+            style: theme.textTheme.labelSmall
+                ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          ),
+      ],
+    );
+  }
+
+  static String _hhmm(String v) => v.length >= 5 ? v.substring(0, 5) : v;
+}
+
+@visibleForTesting
+Widget regionalRailDetailForTest(Map<String, dynamic> c) =>
+    _RegionalRailDetail(connection: c);
 
 @visibleForTesting
 Widget accessibilitySummaryForTest(Map<String, dynamic> data) =>

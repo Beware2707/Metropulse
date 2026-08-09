@@ -14,6 +14,7 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from metropulse.infrastructure.db.commuter_models import (
+    RegionalRailConnection,
     StationAccessibility,
     StationHourlyLoad,
     StationTopDestinations,
@@ -779,6 +780,40 @@ class StationExitRepository:
         result = await self._session.execute(stmt)
         return result.scalars().all()
 
+    async def hint_exit_names_for(
+        self, stop_id: str, route_id: str | None = None, direction_id: int | None = None
+    ) -> dict[int, str]:
+        """``coach_index`` -> the name of an exit that coach stops nearest to.
+
+        Lets a coach recommendation say "closest to Gate No. 4" instead of the
+        unfalsifiable "stops nearest to a destination exit". A rider can check
+        a named gate against the signs in front of them; they cannot check a
+        gate we decline to name.
+
+        A coach can front more than one exit. Ordering by name makes the pick
+        deterministic, so the same journey never explains itself two different
+        ways on two different days.
+        """
+        stmt = (
+            select(CoachExitHint.coach_index, StationExit.name)
+            .join(StationExit, StationExit.id == CoachExitHint.exit_id)
+            .where(CoachExitHint.stop_id == stop_id)
+        )
+        if route_id is not None:
+            stmt = stmt.where(
+                (CoachExitHint.route_id == route_id) | (CoachExitHint.route_id.is_(None))
+            )
+        if direction_id is not None:
+            stmt = stmt.where(
+                (CoachExitHint.direction_id == direction_id)
+                | (CoachExitHint.direction_id.is_(None))
+            )
+        result = await self._session.execute(stmt.order_by(StationExit.name))
+        names: dict[int, str] = {}
+        for coach_index, name in result.all():
+            names.setdefault(coach_index, name)
+        return names
+
 
 class StationFacilityRepository:
     """Curated station accessibility/parking facilities.
@@ -809,6 +844,27 @@ class StationFacilityRepository:
     async def all_rows(self) -> Sequence[StationFacility]:
         """Every curated facility row (bulk consumers: summaries, park & ride)."""
         result = await self._session.execute(select(StationFacility))
+        return result.scalars().all()
+
+
+class RegionalRailConnectionRepository:
+    """Metro -> Namo Bharat (RRTS) walkable connections (NCRTC feed)."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def replace_all(self, rows: Sequence[RegionalRailConnection]) -> None:
+        """Delete every existing row and stage the replacement set."""
+        await self._session.execute(delete(RegionalRailConnection))
+        self._session.add_all(rows)
+
+    async def for_station(self, stop_id: str) -> Sequence[RegionalRailConnection]:
+        """Connections from a metro station, nearest first."""
+        result = await self._session.execute(
+            select(RegionalRailConnection)
+            .where(RegionalRailConnection.stop_id == stop_id)
+            .order_by(RegionalRailConnection.distance_m)
+        )
         return result.scalars().all()
 
 

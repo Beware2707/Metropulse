@@ -73,9 +73,58 @@ class LocalStore {
   Future<void> setDynamicColorEnabled(bool enabled) =>
       _box.put('dynamic_color', '$enabled');
 
+  /// Step-free preference: the rider needs a lift-served path, not stairs.
+  ///
+  /// Persisted and app-wide on purpose. It began as local state on the
+  /// planner screen, which meant a wheelchair user re-stated the need on
+  /// every plan and Journey Mode never learned it at all — so the guidance
+  /// that matters most, at the moment they are actually standing in the
+  /// station, was the one place it could not reach.
+  bool get stepFreePreferred => _box.get('step_free_preferred') == 'true';
+  Future<void> setStepFreePreferred(bool enabled) =>
+      _box.put('step_free_preferred', '$enabled');
+
   bool get notificationsEnabled => _box.get('notifications_enabled') != 'false';
   Future<void> setNotificationsEnabled(bool enabled) =>
       _box.put('notifications_enabled', '$enabled');
+
+  /// Whether the rider has agreed to share anonymous usage analytics.
+  ///
+  /// Defaults to FALSE, and note the comparison direction: `== 'true'` means
+  /// an absent or unreadable key resolves to "no". The notifications flag
+  /// above uses `!= 'false'` because a missing preference there should mean
+  /// "on"; here the same shape would silently opt every existing installed
+  /// user into collection they were never asked about.
+  bool get analyticsConsent => _box.get('analytics_consent') == 'true';
+  Future<void> setAnalyticsConsent(bool granted) =>
+      _box.put('analytics_consent', '$granted');
+
+  /// True once the rider has actually been ASKED (either answer). Lets the
+  /// app tell "declined" apart from "never prompted", so a future prompt
+  /// doesn't nag someone who already said no.
+  bool get analyticsConsentAsked => _box.get('analytics_consent_asked') == 'true';
+  Future<void> setAnalyticsConsentAsked(bool asked) =>
+      _box.put('analytics_consent_asked', '$asked');
+
+  /// Whether the rider agreed to contribute station knowledge (which coach
+  /// stops nearest which exit, and similar).
+  ///
+  /// Deliberately SEPARATE from [analyticsConsent]. Analytics is scoped so it
+  /// cannot carry a destination — the privacy policy says in as many words
+  /// that we do not receive which stations you travelled between. A coach-exit
+  /// report is exactly that, about one station, and so it has to be its own
+  /// decision. Folding it into the analytics toggle would quietly break a
+  /// promise the rider already read.
+  ///
+  /// `== 'true'` so an absent key means no.
+  bool get contributionConsent => _box.get('contribution_consent') == 'true';
+  Future<void> setContributionConsent(bool granted) =>
+      _box.put('contribution_consent', '$granted');
+
+  bool get contributionConsentAsked =>
+      _box.get('contribution_consent_asked') == 'true';
+  Future<void> setContributionConsentAsked(bool asked) =>
+      _box.put('contribution_consent_asked', '$asked');
 
   // -- notifications sync state -----------------------------------------------
 

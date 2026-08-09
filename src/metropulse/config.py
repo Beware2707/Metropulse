@@ -102,6 +102,12 @@ class Settings(BaseSettings):
     #: data we hold, and it has no use once the share stops being readable.
     share_position_retention_hours: float = Field(default=24.0, gt=0)
     analytics_max_batch: int = Field(default=500, ge=1)
+    #: Delhi Transport Stack Journey Planner (licensed API; attribution
+    #: required). Empty key = multimodal feature off. SecretStr like every
+    #: other key here — out of reprs, logs and tracebacks; NEVER commit it,
+    #: it comes from the environment / .env only.
+    dts_api_key: SecretStr = SecretStr("")
+    dts_base_url: str = "https://dts-backend.transportstack.in"
     default_coach_count: int = Field(default=8, ge=1)
     crowd_lookback_days: int = Field(default=28, ge=1)
     crowd_hour_window: int = Field(default=1, ge=0)

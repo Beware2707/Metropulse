@@ -22,6 +22,8 @@ from metropulse.api.v1.recommendations import router as recommendations_router
 from metropulse.api.v1.reminders import router as reminders_router
 from metropulse.api.v1.replay import router as replay_router
 from metropulse.api.v1.routes import router as routes_router
+from metropulse.api.v1.contributions import router as contributions_router
+from metropulse.api.v1.service_day import router as service_day_router
 from metropulse.api.v1.stations import router as stations_router
 from metropulse.api.v1.trains import router as trains_router
 from metropulse.api.v1.users import router as users_router
@@ -29,6 +31,8 @@ from metropulse.api.v1.users import router as users_router
 router = APIRouter(prefix="/api/v1")
 router.include_router(trains_router)
 router.include_router(stations_router)
+router.include_router(service_day_router)
+router.include_router(contributions_router)
 router.include_router(routes_router)
 router.include_router(eta_router)
 router.include_router(users_router)

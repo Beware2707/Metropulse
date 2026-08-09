@@ -35,6 +35,9 @@ from metropulse.application.commuter.journey_share import (
     forget_expired_share_positions,
 )
 from metropulse.application.commuter.last_mile_loader import load_last_mile_routes
+from metropulse.application.commuter.regional_rail_loader import (
+    load_regional_rail,
+)
 from metropulse.application.commuter.otd_loader import (
     load_accessibility,
     load_hourly,
@@ -218,6 +221,37 @@ async def load_last_mile_cmd(settings: Settings, zip_path: Path) -> int:
                 )
         else:
             print("  unmatched: 0")
+        return 0
+    finally:
+        await resources.close()
+
+
+async def load_regional_rail_cmd(settings: Settings, zip_path: Path) -> int:
+    """Derive metro <-> Namo Bharat (RRTS) connections from an NCRTC GTFS zip.
+
+    NOT the same as ``load-gtfs``: that command REPLACES the entire static
+    dataset, so pointing it at an NCRTC feed would wipe the Delhi Metro
+    network. This one only reads the archive and writes connection rows.
+
+    Prints which RRTS stations are actually served, which are in the feed with
+    no trips (never shown to riders), and which are served but too far from
+    any metro station to connect. Returns a process exit code.
+    """
+    resources = build_resources(settings)
+    try:
+        result = await load_regional_rail(resources.session_factory, zip_path)
+        print(f"connections: {len(result.connections)}")
+        for c in result.connections:
+            print(f"    {c.rail_station_name} <- {c.distance_m} m walk "
+                  f"(every ~{c.headway_minutes} min, {c.first_departure}-{c.last_departure})")
+        print(f"  served RRTS stations: {len(result.served_stations)} "
+              f"{result.served_stations}")
+        print(f"  in feed but NOT served (never shown): "
+              f"{len(result.unserved_stations)} {result.unserved_stations}")
+        if result.unconnected_stations:
+            print("  served but beyond walking distance of any metro station:")
+            for u in result.unconnected_stations:
+                print(f"    {u['name']} (nearest {u['nearest_metro']}, {u['distance_m']} m)")
         return 0
     finally:
         await resources.close()
@@ -600,6 +634,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="directory of normalized OTD JSON artifacts",
     )
 
+    load_rrts = sub.add_parser(
+        "load-regional-rail",
+        help="derive Namo Bharat (RRTS) connections from an NCRTC GTFS zip "
+             "(does NOT touch the metro dataset, unlike load-gtfs)",
+    )
+    load_rrts.add_argument("zip_path", type=Path, help="path to the NCRTC GTFS zip")
+
     sub.add_parser("run-worker", help="run the realtime polling worker")
     return parser
 
@@ -622,6 +663,8 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(load_station_facilities_cmd(settings, args.xlsx_path))
     if args.command == "load-last-mile":
         return asyncio.run(load_last_mile_cmd(settings, args.zip_path))
+    if args.command == "load-regional-rail":
+        return asyncio.run(load_regional_rail_cmd(settings, args.zip_path))
     if args.command == "load-otd":
         return asyncio.run(load_otd_cmd(settings, args.data_dir))
     if args.command == "load-station-exits":

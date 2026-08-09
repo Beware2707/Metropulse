@@ -23,8 +23,16 @@ dart run build_runner build --delete-conflicting-outputs   # freezed/json codege
 flutter run --dart-define=MP_API_BASE=http://10.0.2.2:8000
 ```
 
-`MP_API_BASE` defaults to `http://10.0.2.2:8000` (Android emulator -> host).
-The WebSocket URL is derived from it. Override at runtime in Settings.
+`MP_API_BASE` defaults to the **production** backend, and the WebSocket URL is
+derived from it. Pass the flag above to point a local run at your own machine
+(`10.0.2.2` is the Android emulator's alias for the host).
+
+The default used to be `10.0.2.2` — which meant a release APK built without
+the flag shipped aimed at a developer's laptop, so the socket was refused on a
+loop and the app sat on CONNECTING/RECONNECTING forever. The runtime override
+in Settings is `kDebugMode`-only, so a user could not recover from it. The
+default is now the safe value and the emulator address is the override;
+`test/config_test.dart` fails the build if that ever inverts again.
 
 Verified against **Flutter 3.44.4 / Dart 3.12.2**: `flutter analyze` reports
 zero issues, `flutter test` passes 62/62, and `flutter build web` compiles

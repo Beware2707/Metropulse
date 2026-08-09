@@ -17,7 +17,15 @@ import '../design/app_radius.dart';
 /// downgrades to "SCHEDULE" instead. Screens with no train data behind them
 /// should not show this pill at all.
 class LiveIndicator extends ConsumerStatefulWidget {
-  const LiveIndicator({super.key, this.dataEstimated = false});
+  /// [dataEstimated] is REQUIRED, and deliberately has no default.
+  ///
+  /// It defaulted to `false` — meaning a caller who simply forgot the argument
+  /// got a green LIVE badge over whatever happened to be on screen. That is
+  /// the one default this widget must never have: the honesty rule everywhere
+  /// else in this codebase is that absence of evidence resolves to the caveat,
+  /// and a default of `false` resolved it to the claim. Making it required
+  /// means the question has to be answered at every call site.
+  const LiveIndicator({super.key, required this.dataEstimated});
 
   /// True when the data on this screen is schedule-interpolated, not live GPS.
   final bool dataEstimated;

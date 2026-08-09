@@ -73,4 +73,40 @@ void main() {
 
     expect(find.byType(SnackBar), findsOneWidget);
   });
+
+  testWidgets('the failure message names the real cause, not the network',
+      (tester) async {
+    // The shipped copy said "check your connection", sending people to check
+    // their wifi over an Android package-visibility problem that had nothing
+    // to do with it.
+    await pumpTickets(tester, launchSucceeds: false);
+    await tester.ensureVisible(find.text('DMRC web ticket portal'));
+    await tester.tap(find.text('DMRC web ticket portal'));
+    await tester.pump();
+
+    expect(find.textContaining('connection'), findsNothing);
+    expect(find.textContaining("Couldn't open that link on this device"),
+        findsOneWidget);
+    expect(find.text('Copy link'), findsOneWidget,
+        reason: 'a dead end needs a way out — let them paste it in a browser');
+  });
+
+  testWidgets('every non-WhatsApp channel opens too', (tester) async {
+    // The regression: on Android 11+ only wa.me resolved (verified App
+    // Links), so the four plain web channels silently did nothing.
+    final launched = await pumpTickets(tester);
+
+    for (final title in const [
+      'DMRC web ticket portal',
+      'DMRC Momentum 2.0 app',
+      'Official online recharge',
+      'Autope auto top-up',
+    ]) {
+      await tester.ensureVisible(find.text(title));
+      await tester.tap(find.text(title));
+      await tester.pump();
+    }
+    expect(launched.length, 4, reason: 'all four must reach the launcher');
+    expect(launched.every((u) => u.scheme == 'https'), isTrue);
+  });
 }

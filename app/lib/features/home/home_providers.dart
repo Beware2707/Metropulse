@@ -62,8 +62,9 @@ final commuteDelayEstimateProvider = FutureProvider<DelayEstimate?>((ref) async 
 
 /// Why Metro Intelligence recommends this coach for the commute — reused
 /// straight from the existing coach-recommendation endpoint's own `reasons`
-/// list (e.g. "typically less crowded", "short walk to a destination
-/// exit"), never an invented caption. Empty when there's nothing to explain.
+/// list, never an invented caption. Each reason is already worded to match
+/// the evidence behind it (see [recommendedCoachReasons]). Empty when there's
+/// nothing to explain.
 final homeCoachReasonsProvider = FutureProvider<List<String>>((ref) async {
   final card = await ref.watch(commuteCardProvider.future);
   if (card == null) return const [];
