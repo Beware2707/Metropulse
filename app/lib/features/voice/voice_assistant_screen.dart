@@ -141,6 +141,13 @@ class _VoiceAssistantScreenState extends ConsumerState<VoiceAssistantScreen> {
       _response = answer;
     });
     await _tts.speak(answer.text);
+    // "Set up a new journey" is a request to START something. Saying a
+    // sentence and stopping there was the whole bug: the assistant answered
+    // and nothing happened. Navigate after speaking so the rider hears the
+    // confirmation and lands on the planner.
+    if (answer.openPlanner && mounted) {
+      context.push('/planner');
+    }
   }
 
   @override

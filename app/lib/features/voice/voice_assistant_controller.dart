@@ -18,10 +18,15 @@ import '../journey_mode/journey_mode_providers.dart';
 /// doesn't come from a tracked-progress source at all (most intents), in
 /// which case no live/estimate pill should be shown.
 class VoiceAnswer {
-  const VoiceAnswer(this.text, {this.isLive});
+  const VoiceAnswer(this.text, {this.isLive, this.openPlanner = false});
 
   final String text;
   final bool? isLive;
+
+  /// True when the answer is "let's do this on a screen instead". Speaking a
+  /// sentence is the wrong response to "set up a new journey" — the rider is
+  /// asking to start something, not to be told about it.
+  final bool openPlanner;
 }
 
 /// Turns a classified [VoiceIntent] into a spoken answer, using only the
@@ -42,7 +47,13 @@ class VoiceAssistantController {
   Future<VoiceAnswer> answer(VoiceIntent intent) {
     switch (intent.kind) {
       case VoiceIntentKind.routeTo:
-        return _answerRouteTo(intent.stationQuery!);
+        return _answerRouteTo(intent.stationQuery!, originQuery: intent.originQuery);
+      case VoiceIntentKind.planJourney:
+        return Future.value(const VoiceAnswer(
+          'Opening the journey planner — pick where you\'re starting from and '
+          'where you\'re going.',
+          openPlanner: true,
+        ));
       case VoiceIntentKind.whenToLeave:
         return _answerWhenToLeave();
       case VoiceIntentKind.runningLate:
@@ -60,7 +71,7 @@ class VoiceAssistantController {
     }
   }
 
-  Future<VoiceAnswer> _answerRouteTo(String query) async {
+  Future<VoiceAnswer> _answerRouteTo(String query, {String? originQuery}) async {
     final bundle = await _ref.read(offlineBundleProvider.future);
     if (bundle == null || bundle.stations.isEmpty) {
       return const VoiceAnswer("I don't have station data yet — connect once to download it.");
@@ -78,11 +89,29 @@ class VoiceAssistantController {
       );
     }
     final destination = hits.first.station;
-    final origin = await _resolveOrigin();
+
+    // An explicitly spoken origin ("from Dwarka to Saket") beats Home. Falling
+    // back to Home for everyone was why this feature was unusable for anyone
+    // who had not set one — and until now, nobody could.
+    Station? origin;
+    if (originQuery != null) {
+      final originHits = searchStations(
+        stations: bundle.stations, exits: bundle.exits, query: originQuery,
+      );
+      if (originHits.isEmpty) {
+        return VoiceAnswer(
+          'I found ${destination.name}, but not a station matching '
+          '"$originQuery" to start from. Try the area name.',
+        );
+      }
+      origin = originHits.first.station;
+    } else {
+      origin = await _resolveOrigin();
+    }
     if (origin == null) {
       return const VoiceAnswer(
-        "I'm not sure where you're starting from yet — set your Home "
-        "station in Favourites and I'll be able to route you.",
+        "I'm not sure where you're starting from. Tell me both ends — say "
+        'route from Rajiv Chowk to Saket — or set a Home station in Saved.',
       );
     }
     if (origin.stopId == destination.stopId) {

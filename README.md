@@ -1,11 +1,25 @@
 # MetroPulse
 
 Production-grade, commuter-first GTFS platform for Delhi Metro: static GTFS
-ingestion into PostgreSQL, a 5-second GTFS-Realtime polling engine backed by
-Redis, route/station resolution, per-station ETAs, a REST API, a diff-based
-WebSocket stream — plus commuter features: favourites, destination alerts,
-last-train reminders, service alerts, journey tracking, coach & exit
-recommendations, offline bundles and analytics.
+ingestion into PostgreSQL, a **realtime-ready GTFS/DMRC integration layer**
+with a 5-second polling architecture backed by Redis, route/station
+resolution, per-station ETAs, a REST API, a diff-based WebSocket stream —
+plus commuter features: favourites, destination alerts, last-train reminders,
+service alerts, journey tracking, coach & exit recommendations, offline
+bundles and analytics.
+
+> **MetroPulse does not have live Delhi Metro train GPS.**
+> The current public OTD `VehiclePositions` endpoint is **not** used as Metro
+> train telemetry: checked against the real feed, it is Delhi's citywide *bus*
+> GPS (vehicle IDs are road registration plates, ~4,000 simultaneous vehicles,
+> positions spread across ordinary roads). `GTFS_RT_ENABLED` ships `false`.
+>
+> Train positions are therefore **interpolated from the static timetable** and
+> labelled `schedule_estimate` everywhere — the app shows SCHEDULE, never a
+> LIVE badge, over that data. When official DMRC Metro realtime access is
+> provided it connects through the existing adapter boundary
+> (`application/realtime_engine.py`), which any source must satisfy — see
+> `tests/test_adapter_conformance.py`.
 
 Commuter architecture details (and how AI crowd/ETA prediction plugs in with
 no schema changes): see [docs/COMMUTER_DESIGN.md](docs/COMMUTER_DESIGN.md).
@@ -37,9 +51,14 @@ Two processes share PostgreSQL and Redis:
 
 - **API** (`uvicorn metropulse.main:app`): serves REST + WebSocket. Subscribes
   to the Redis `mp:updates` channel and fans diffs out to WebSocket clients.
-- **Worker** (`python -m metropulse.cli run-worker`): polls the DMRC
-  VehiclePositions feed every 5 s (APScheduler), diffs against the Redis
-  snapshot, persists history to PostgreSQL, and publishes enriched diffs.
+- **Worker** (`python -m metropulse.cli run-worker`): produces a position
+  snapshot every 5 s (APScheduler), diffs against the Redis snapshot,
+  persists history to PostgreSQL, and publishes enriched diffs.
+  **Today that snapshot is interpolated from the static timetable**
+  (`ScheduleEstimatedPositionSource`, tagged `schedule_estimate`). The
+  GTFS-Realtime polling path exists and is exercised by tests, but is
+  disabled (`GTFS_RT_ENABLED=false`) until an official Metro feed is
+  available — the public OTD endpoint is bus GPS, not Metro.
 
 This split scales horizontally: run N API replicas behind a load balancer and
 exactly one worker; Redis pub/sub delivers diffs to every replica.
@@ -167,7 +186,11 @@ All frames are JSON text. The first client frame must be:
 
 ## Realtime engine behaviour
 
-- Polls every `POLL_INTERVAL_SECONDS` (default 5 s); overlapping runs are
+This section describes the engine's contract. It applies to whichever position
+source is configured — and note again that the shipped default is the
+schedule-interpolated source, not a live feed.
+
+- Runs every `POLL_INTERVAL_SECONDS` (default 5 s); overlapping runs are
   prevented (`max_instances=1`, coalescing).
 - Each fetch retries up to `FETCH_MAX_ATTEMPTS` with exponential backoff; all
   failures are logged, and a failed cycle never corrupts state.

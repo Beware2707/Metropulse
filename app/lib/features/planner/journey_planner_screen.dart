@@ -23,6 +23,8 @@ import '../../core/widgets/section_header.dart';
 import '../../data/api_client.dart';
 import '../../data/repositories.dart';
 import '../../domain/crowding.dart';
+import '../../domain/journey_tracking.dart';
+import '../journey_mode/journey_tracking_service.dart';
 import '../../domain/fare.dart';
 import '../../domain/models/journey.dart';
 import '../../domain/models/station.dart';
@@ -460,6 +462,37 @@ class _JourneyPlannerScreenState extends ConsumerState<JourneyPlannerScreen> {
       'coach_reasons': recommendedCoachReasons(coach),
       'crowd_source': crowdSource(coach),
     });
+
+    // Rider-initiated tracking, started here and nowhere else. They tapped
+    // "Start journey" while looking at this screen — that is the consent, the
+    // ongoing notification is the reminder, and its Stop button plus the one
+    // in Journey Mode are the exits. Tracking that could begin any other way
+    // would need ACCESS_BACKGROUND_LOCATION and the Play review that comes
+    // with it (see AndroidManifest.xml).
+    //
+    // Failure is silent on purpose: a rider who declines the permission still
+    // gets their journey, just without the notification.
+    // A plan's stops carry only id and name; coordinates come from the offline
+    // station index. Any stop we cannot place is dropped rather than sent with
+    // a zero coordinate — a station at 0,0 would sit in the Gulf of Guinea and
+    // quietly poison every distance the tracker computes.
+    final index = ref.read(stationIndexProvider);
+    final stations = [
+      for (final stop in plan.remainingStations)
+        if (index[stop.stopId] case final station?)
+          TrackedStation(
+            stopId: stop.stopId,
+            name: stop.name,
+            lat: station.lat,
+            lon: station.lon,
+          ),
+    ];
+    if (stations.isNotEmpty) {
+      await JourneyTrackingService.start(
+        journeyId: journey.id,
+        stations: stations,
+      );
+    }
 
     ref
       ..invalidate(activeJourneyProvider)

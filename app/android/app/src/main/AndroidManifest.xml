@@ -1,5 +1,25 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+
+    <!-- Journey tracking runs as a FOREGROUND service, started while the rider
+         is looking at the app and stoppable by them at any time.
+
+         Note what is deliberately ABSENT: ACCESS_BACKGROUND_LOCATION. A
+         foreground service may read location without it — the ongoing
+         notification is the user-visible signal that replaces that permission,
+         which is why turn-by-turn navigation apps do not request it. Adding it
+         would pull this app into Play's background-location review (manual
+         assessment, "core functionality" test, video demonstration) for a
+         capability we do not need.
+
+         The line that must not be crossed: tracking without the rider starting
+         it. Rider-initiated only keeps us out of that review entirely. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
+    <!-- Android 13+: the ongoing notification is the whole point, so without
+         this the service runs invisibly, which is neither useful nor honest. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
     <application
         android:label="MetroPulse"
         android:name="${applicationName}"
@@ -27,6 +47,15 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- Android 14+ requires every foreground service to declare its type,
+             and requires the matching FOREGROUND_SERVICE_* permission above.
+             "location" is the accurate one: this service exists to follow the
+             rider's progress along a route. -->
+        <service
+            android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
+            android:foregroundServiceType="location"
+            android:exported="false" />
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

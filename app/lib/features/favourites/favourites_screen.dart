@@ -12,6 +12,7 @@ import '../../core/widgets/gradient_button.dart';
 import '../../core/widgets/icon_badge.dart';
 import '../../core/widgets/moment_row.dart';
 import '../../core/widgets/section_header.dart';
+import '../../domain/models/station.dart';
 import '../../domain/place_suggestions.dart';
 import '../../providers/core_providers.dart';
 import '../home/home_providers.dart'
@@ -142,7 +143,7 @@ class FavouritesScreen extends ConsumerWidget {
                 child: PrimaryButton(
                   label: 'Add a station',
                   icon: Icons.add_rounded,
-                  onPressed: () => context.push('/search'),
+                  onPressed: () => _addStation(context, ref),
                 ),
               ),
             ],
@@ -150,6 +151,70 @@ class FavouritesScreen extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  /// Pick a station, then label it — the flow that made Home settable.
+  ///
+  /// This button used to `context.push('/search')` and stop there. Search's
+  /// normal tap opens station DETAIL, so the picked station was never returned
+  /// and never saved: the button could not add a favourite at all. That is why
+  /// there was no way to set a Home station, and in turn why the assistant kept
+  /// answering "set your Home station in Favourites" — advice the app made
+  /// impossible to follow.
+  ///
+  /// `mapPicker=true` is the existing mode where search POPS the chosen station
+  /// back to its caller instead of navigating away.
+  Future<void> _addStation(BuildContext context, WidgetRef ref) async {
+    final picked = await context.push<Station?>('/search?mapPicker=true');
+    if (picked == null || !context.mounted) return;
+
+    final label = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.sm),
+              child: Text('Save ${picked.name} as',
+                  style: Theme.of(sheetContext).textTheme.titleLarge),
+            ),
+            for (final quick in _quickLabels)
+              ListTile(
+                leading: IconBadge(icon: _labelIcon(quick.toLowerCase())),
+                title: Text(quick),
+                onTap: () => Navigator.of(sheetContext).pop(quick),
+              ),
+            ListTile(
+              leading: const IconBadge(icon: Icons.star_rounded),
+              title: const Text('Just save it'),
+              subtitle: const Text('No label'),
+              onTap: () => Navigator.of(sheetContext).pop(''),
+            ),
+            const SizedBox(height: AppSpacing.md),
+          ],
+        ),
+      ),
+    );
+    if (label == null) return; // dismissed: save nothing, silently
+
+    await ref.read(favouritesRepositoryProvider).save(
+          picked.stopId,
+          label: label.isEmpty ? null : label,
+        );
+    ref.invalidate(favouriteStationsProvider);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(label.isEmpty
+              ? 'Saved ${picked.name}.'
+              : 'Saved ${picked.name} as $label.'),
+        ),
+      );
+    }
   }
 
   Future<void> _onStationAction(
@@ -234,6 +299,15 @@ class _PlaceSuggestionCard extends StatelessWidget {
   }
 }
 
+/// Icon for a favourite's label. Shared by the row and the save-as sheet so
+/// the same station cannot appear with two different icons for one label.
+IconData _labelIcon(String label) => switch (label) {
+      'home' => Icons.home_rounded,
+      'work' => Icons.work_rounded,
+      'college' => Icons.school_rounded,
+      _ => Icons.star_rounded,
+    };
+
 class _FavouriteRow extends StatelessWidget {
   const _FavouriteRow({required this.row, required this.name, required this.onAction, required this.onTap});
 
@@ -244,13 +318,7 @@ class _FavouriteRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final label = '${row['label'] ?? ''}'.toLowerCase();
-    final icon = switch (label) {
-      'home' => Icons.home_rounded,
-      'work' => Icons.work_rounded,
-      'college' => Icons.school_rounded,
-      _ => Icons.star_rounded,
-    };
+    final icon = _labelIcon('${row['label'] ?? ''}'.toLowerCase());
     return MomentRow(
       leading: IconBadge(icon: icon, gradient: AppColors.heroGradientFor()),
       title: Text(name, style: Theme.of(context).textTheme.titleMedium),

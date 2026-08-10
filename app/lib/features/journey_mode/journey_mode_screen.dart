@@ -28,6 +28,7 @@ import '../settings/settings_providers.dart';
 import '../../providers/core_providers.dart';
 import '../home/home_providers.dart';
 import 'coach_exit_prompt.dart';
+import 'journey_tracking_service.dart';
 import 'journey_mode_providers.dart';
 import 'journey_share.dart';
 
@@ -564,6 +565,10 @@ class _JourneyView extends ConsumerWidget {
     if (completed && context.mounted) {
       await _maybeAskAboutCoachAndExit(context, ref);
     }
+    // Whichever way the journey ended, the notification must not outlive it.
+    // A tracker still running after arrival is the thing that makes people
+    // uninstall an app — and it would keep holding a location subscription.
+    await JourneyTrackingService.stop();
     await ref.read(localStoreProvider).clearJourneyContext();
     ref
       ..invalidate(activeJourneyProvider)

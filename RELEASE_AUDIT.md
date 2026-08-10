@@ -1385,3 +1385,147 @@ claims "typically less crowded" over a triangular prior.
 Still outstanding and unchanged by this deploy: the GTFS has no weekend
 service (owner action — obtain a feed from DMRC that includes it), and the
 client APK carrying the contribution prompt is built but not distributed.
+
+## 24. README overclaim fixed, and one correction to the release brief
+
+### 24.1 README vs .env.example — the owner was right
+
+`README.md` opened with "a 5-second GTFS-Realtime polling engine" and stated
+the worker "polls the DMRC VehiclePositions feed every 5 s", while
+`.env.example` correctly documented that the same endpoint is Delhi's
+**citywide bus** GPS and shipped `GTFS_RT_ENABLED=false`. Two documents in the
+repo disagreed about the single most sensitive claim the project makes, and
+the README was the one a DMRC official would read first.
+
+Fixed in three places: the opening description now reads "realtime-ready
+GTFS/DMRC integration layer with a 5-second polling architecture" and carries
+an explicit callout — **MetroPulse does not have live Delhi Metro train GPS**
+— with the evidence (registration-plate vehicle ids, ~4,000 simultaneous
+vehicles, positions on ordinary roads); the worker bullet says the snapshot is
+interpolated from the static timetable; and the "Realtime engine behaviour"
+section states it describes a contract that today runs over the
+schedule-estimated source.
+
+### 24.2 Correction: there is no escalator data, and there never was
+
+The brief asks the UI to show "⬆ Escalator available" alongside gate and lift.
+That cannot be built honestly. Counted again across every approved artifact:
+
+| Artifact | "escalator" occurrences |
+|---|---|
+| `official_stations_gates.json` | **0** |
+| `pathways.json` | **0** |
+| `hourly_profile.json` | **0** |
+| `od_top_destinations.json` | **0** |
+| `ncrtc_assessment.json` | **0** |
+
+`pathways.json` covers 220 stations across 9 lines and its node categories are
+exactly: **845 lifts, 667 gates, 355 platforms, 566 others, 1,307 edges**.
+There is no escalator category — not an empty one, none. The DMRC facilities
+spreadsheet has no escalator column either.
+
+This is the third time this has been checked and reported (§17 corrected the
+same premise). Everything else in the requested row is real and buildable:
+
+    Exit Gate 4
+    120 m to your destination     <- from exit coordinates
+    Lift available                <- graph-confirmed, 56/262 stations
+
+So the row ships without the escalator line, and `station_guidance.dart`
+already has a test asserting the word "escalator" can never appear for any
+phase or preference.
+
+### 24.3 The HTTPS blocker — and a sequencing trap
+
+Agreed and already listed as an owner action. One caveat on ordering: flipping
+`AppConfig.defaultApiBase` to `https://api.metropulse.in` **before** DNS and a
+certificate exist would break the app completely — same class of failure as
+the `10.0.2.2` default fixed in §20.4, since the release build hides the
+Settings override behind `kDebugMode`. The domain, certificate and reverse
+proxy must land first; the one-line client change is last, not first.
+
+## 24. Four field-reported bugs, and they were one chain
+
+Reported from real use: the assistant would not give a route, would not set up
+a journey, Home station could not be set, and a screen had no back button.
+
+**The root was the third.** Favourites' "Add a station" did
+`context.push('/search')` and stopped. Search's normal tap opens station
+DETAIL, so the pick was never returned and never saved — the button was
+structurally incapable of adding a favourite. Hence no Home station.
+
+That cascaded: `_answerRouteTo` fell back to Home for every rider, so with no
+Home it replied *"set your Home station in Favourites"* — advice the app made
+impossible to follow. Fixed by using the existing picker mode, awaiting the
+station, and asking Home / Work / College / just-save.
+
+**The voice parser** matched only the literal `"route to"`, so
+*"best route FROM x TO y"* — the most natural phrasing — was the one
+guaranteed to fail. Now matches best/fastest/quickest route, directions and
+travel-to, and parses BOTH endpoints (non-greedy, so a multi-word origin like
+"dwarka sector 10" is not truncated). Speaking both ends now works with no
+Home station at all.
+
+**"Set up a new journey"** matched nothing; a new `planJourney` intent now
+opens the planner — answering with a sentence and going nowhere was the bug.
+`"plan a trip to Saket"` still routes rather than opening a blank form.
+
+17 tests; 18 assertions fail on the pre-fix parser (verified by reverting).
+
+Also fixed the README overclaim: the "5-second GTFS-Realtime polling engine"
+headline and "polls the DMRC VehiclePositions feed" now read realtime-**ready**,
+with a block stating plainly that MetroPulse has no live Metro GPS and that the
+public OTD endpoint is Delhi's citywide BUS feed. README and `.env.example`
+now agree.
+
+## 25. Journey tracking: four sources, and what each may claim
+
+Rider-initiated only, stoppable from the notification and from Journey Mode.
+The constraint that shaped it: **63 of 215 stations are underground** (counted
+from OTD facilities data), and GPS does not work in a tunnel — satellite
+signals arrive weaker than the receiver's own noise floor, so a few metres of
+concrete ends them. Station coordinates cannot fill that gap; they say where
+stations are, not where the rider is.
+
+| Source | Works underground | May claim |
+|---|---|---|
+| `gps` | No | Distance, and therefore "get ready to alight" |
+| `approximate` (wifi/cell) | Often | Which station, when accuracy beats half the local spacing |
+| `stopCount` (accelerometer) | **Yes** | How many stops since boarding |
+| `schedule` | Yes | Position only, never proximity |
+
+Design decisions worth keeping:
+
+* **Adaptive accuracy gate.** A fixed 150 m threshold discarded the only
+  positioning that survives a tunnel. Android's fused provider falls back to
+  wifi APs underground and reports large accuracy — but a 300 m fix is decisive
+  where neighbouring stations are 1.2 km apart. Judged against local spacing,
+  not a constant.
+* **Monotonic progress.** One stray fix cannot rewind the journey and
+  re-announce a passed station.
+* **"Get ready to alight" requires a distance.** From a timetable it is an
+  instruction backed by a guess, and this is the moment that would hurt.
+* **The schedule veto is one-directional.** A count exceeding what the elapsed
+  time physically allows is impossible, so it is corrected down. A slow journey
+  is NEVER revised up: a delayed train and a missed dwell look identical in the
+  timing, and revising up would put a rider a station ahead of reality. Note
+  also that *agreement* proves nothing — a mid-tunnel hold inflates the count
+  AND slows the journey, so both drift together.
+* **Schematic, not geographic.** The map is a diagram with straightened lines,
+  so plotting a raw coordinate on it would look authoritative and mean nothing.
+  The marker is driven by which stations have been passed; with no hop distance
+  it sits at the last known platform rather than an invented midpoint.
+
+Play policy: `ACCESS_BACKGROUND_LOCATION` is deliberately **absent**. A
+foreground service may read location without it — the ongoing notification is
+the user-visible signal that replaces it. That keeps MetroPulse out of the
+background-location review entirely, and the manifest says so where someone
+would otherwise "helpfully" add the permission.
+
+**Not yet done, and not to be claimed:** nothing has run on a device; the
+schematic renderer does not yet consume the computed marker; and every
+threshold (stillness cutoff, dwell minimum, minimum run time) is **reasoned,
+not measured**. One instrumented ride is required before this ships — a wrong
+dwell threshold miscounts, and a miscount is worse than showing nothing.
+
+Verification: Flutter **380 passed**, `analyze` clean.
