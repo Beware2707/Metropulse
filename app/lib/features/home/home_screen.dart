@@ -401,8 +401,15 @@ class _CommuteRow extends ConsumerWidget {
           );
     final isUrgent = status != null && status.urgency != CommuteUrgency.onTime;
 
-    final leaveText =
-        card.leaveInSeconds != null ? context.t.homeLeaveIn(minutesLabel(card.leaveInSeconds)) : context.t.homeNoDepartures;
+    // minutesLabel's sub-minute value is the bare word 'now', which cannot be
+    // substituted into "Leave in {duration}" — it needs its own sentence.
+    final leadLabel =
+        card.leaveInSeconds != null ? minutesLabel(card.leaveInSeconds) : null;
+    final leaveText = leadLabel == null
+        ? context.t.homeNoDepartures
+        : leadLabel == 'now'
+            ? context.t.homeLeaveNow
+            : context.t.homeLeaveIn(leadLabel);
     final routeText = '${card.originName} → ${card.destinationName}';
 
     return MomentRow(

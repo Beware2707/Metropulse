@@ -8,6 +8,7 @@
       "duration": {"type": "String"}
     }
   },
+  "homeLeaveNow": "Leave now to be on time",
   "homeNoDepartures": "Nothing scheduled just yet",
   "homeSetupCommuteTitle": "Let's set up your commute",
   "homeSetupCommuteBody": "Star your Home and Work stations and we'll build your daily commute card for you.",

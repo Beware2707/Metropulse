@@ -3,6 +3,7 @@
   "appTitle": "MetroPulse",
   "homeYourCommute": "आपकी यात्रा",
   "homeLeaveIn": "समय पर पहुँचने के लिए {duration} में निकलें",
+  "homeLeaveNow": "समय पर पहुँचने के लिए अभी निकलें",
   "homeNoDepartures": "अभी कुछ भी निर्धारित नहीं है",
   "homeSetupCommuteTitle": "आइए आपकी यात्रा सेट करें",
   "homeSetupCommuteBody": "अपने घर और काम के स्टेशन स्टार करें और हम आपके लिए रोज़ की यात्रा कार्ड बना देंगे।",

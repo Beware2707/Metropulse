@@ -84,6 +84,49 @@ FACTS: dict[str, tuple[str, str]] = {
     # ---- network naming (drives the search-matching defect story) ----
     "hyphenated_stops": ("31", "GTFS stops.txt — stop names containing a hyphen"),
 
+    # ---- device measurements, 2026-08-14 ----
+    # These are developer device testing, NOT commuter analytics. They are
+    # small-n and they measure whether the build works, not whether riders
+    # complete journeys. Everywhere they appear they must say so, because a
+    # reader who mistakes them for usage data has been misled by us, not by
+    # their own carelessness.
+    "device_sessions": ("6 of 6",
+                        "core commuter flow walked end to end on device, "
+                        "scripted, 2026-08-14"),
+    "device_crashes": ("0",
+                       "fatal exceptions and process crashes across those "
+                       "six sessions, from logcat"),
+    "device_anr": ("1",
+                   "one ANR, reason 'Buffer processing hung up due to stuck "
+                   "fence — indicates GPU hang': an emulator graphics fault, "
+                   "not an application defect"),
+    "live_trains": ("293",
+                    "schedule-estimated train positions served by the "
+                    "deployed backend at 22:31 IST, 2026-08-14"),
+
+    # ---- the public OTD VehiclePositions feed, measured ----
+    # A capture of that feed (trains.json, 2026-07-05) was analysed rather than
+    # assumed. Every figure below is from that capture. This is why MetroPulse
+    # ships with realtime ingestion disabled: the feed is real, but it is not
+    # Metro. Presenting it as Metro would have been the easiest possible way to
+    # look further along than the product is.
+    "feed_vehicles": ("3,476", "trains.json capture, 2026-07-05T01:26-01:37Z"),
+    "feed_plate_ids": ("3,476 of 3,476",
+                       "every vehicle_id matches an Indian road registration "
+                       "plate pattern; prefixes DL1P and DL51"),
+    "feed_resolved": ("0", "vehicles the Metro resolver could match to a "
+                           "Metro route, station or trip"),
+    "feed_median_dist": ("720 m",
+                         "median distance from a reporting vehicle to the "
+                         "nearest of the 262 Metro stations"),
+    "feed_near_station": ("1.0%",
+                          "share of vehicles within 50 m of any Metro station"),
+    "feed_max_dist": ("30.5 km",
+                      "furthest reporting vehicle from the Metro network"),
+    "feed_routes": ("1,107", "distinct route_id values in the capture"),
+    "feed_window": ("11 minutes",
+                    "span of timestamps across all 3,476 simultaneous reports"),
+
     # ---- organisation ----
     "founder": ("Jai Pratap Singh", "repository git history"),
     "incorporation": ("Not incorporated", "stated by the founder"),
@@ -92,6 +135,10 @@ FACTS: dict[str, tuple[str, str]] = {
                 "provided by the founder"),
     "contact_phone": ("+91 91037 52190", "provided by the founder"),
     "contact_email": ("riddlesforeverbiz@gmail.com", "provided by the founder"),
+    "repo_url": ("github.com/Beware2707/Metropulse",
+                 "git remote of the working repository — private at the time "
+                 "of writing; must be made public or shared before the QR "
+                 "codes resolve for a reviewer"),
 }
 
 

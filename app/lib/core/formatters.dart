@@ -37,6 +37,16 @@ String elapsedLabel(double? seconds) {
   return minutesLabel(seconds);
 }
 
+/// A complete arrival phrase: 'Arriving now', '2 min away', '1 h 05 min
+/// away'. [minutesLabel]'s sub-minute value is the bare word 'now', which is
+/// right on its own but turns into "now away" the moment a call site appends
+/// a suffix — so the suffix and the sub-minute case live together here.
+String etaAwayLabel(double? seconds) {
+  if (seconds == null) return 'Approaching';
+  if ((seconds / 60).round() < 1) return 'Arriving now';
+  return '${minutesLabel(seconds)} away';
+}
+
 /// Real Delhi Metro line names keyed by the line code embedded in GTFS
 /// `route_long_name`/`route_short_name` (e.g. "ORANGE/AIRPORT_New Delhi to
 /// Dwarka Sector - 21", "O_DN") -- mirrors the code list `routeColor` in

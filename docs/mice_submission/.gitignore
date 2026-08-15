@@ -1,5 +1,7 @@
-# Build outputs. `build.py` regenerates all of them from mice/, so the source
-# is what is worth tracking — and the APK is 88 MB, which git should not carry.
+# Build outputs. `build.py` regenerates the whole package from mice/, so the
+# source is what is worth tracking — and the APK is 88 MB, which git should
+# not carry.
+MetroPulse_MICE_FINAL/
 *.pdf
 *.pptx
 *.docx

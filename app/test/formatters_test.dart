@@ -10,6 +10,22 @@ void main() {
     expect(minutesLabel(3900), '1 h 05 min');
   });
 
+  group('etaAwayLabel', () {
+    test('a sub-minute ETA reads "Arriving now", never "now away"', () {
+      // minutesLabel(20) is the bare word 'now'; the old call site appended
+      // ' away' to it and shipped "now away" to the arrivals list.
+      expect(etaAwayLabel(20), 'Arriving now');
+      expect(etaAwayLabel(0), 'Arriving now');
+      expect(etaAwayLabel(29), 'Arriving now');
+    });
+
+    test('a resolved ETA carries the suffix; an unresolved one stays vague', () {
+      expect(etaAwayLabel(120), '2 min away');
+      expect(etaAwayLabel(3900), '1 h 05 min away');
+      expect(etaAwayLabel(null), 'Approaching');
+    });
+  });
+
   test('distanceLabel switches to km past 1000 m', () {
     expect(distanceLabel(null), '–');
     expect(distanceLabel(350), '350 m');

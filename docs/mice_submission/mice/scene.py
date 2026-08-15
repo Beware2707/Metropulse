@@ -86,6 +86,13 @@ class Recorder:
 
     # ----------------------------------------------------------- compound
     def step(self, x, y, w, h, title, sub, colour, light=True):
+        """One box in a flow diagram.
+
+        `light` describes the *text*, not the box: True paints white text for a
+        dark or saturated fill, False paints navy text for a pale one. Passing
+        it the wrong way round renders navy on navy, which disappears rather
+        than merely looking wrong.
+        """
         self.rect(x, y, w, h, colour, radius=True)
         self.text(x + 0.1, y + 0.13, w - 0.2, 0.46, title, size=11.5, bold=True,
                   font=T.HEAD, colour="FFFFFF" if light else T.INK, align=CENTER)

@@ -626,8 +626,7 @@ class _ArrivalEtaSubtitle extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final eta = ref.watch(_arrivalEtaProvider(vehicleId));
     final seconds = eta.valueOrNull?.nextStation?.etaSeconds;
-    final label = seconds == null ? 'Approaching' : '${minutesLabel(seconds)} away';
-    return Text(label, style: Theme.of(context).textTheme.bodySmall);
+    return Text(etaAwayLabel(seconds), style: Theme.of(context).textTheme.bodySmall);
   }
 }
 

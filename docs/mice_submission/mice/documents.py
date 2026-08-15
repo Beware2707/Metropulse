@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 
 from reportlab.lib.units import mm
-from reportlab.platypus import PageBreak, Spacer
+from reportlab.platypus import Image, PageBreak, Spacer
 
 from . import theme as T
 from .facts import (APP_STACK, BACKEND_STACK, DATA_REQUIRED, INFRA, f, src)
@@ -139,6 +139,16 @@ def technical_architecture(path: str) -> str:
             ["schedule_estimate", "Interpolated from the timetable", "SCHEDULE"],
             ["prior / model", "Modelled, not observed", "Labelled as estimated"],
         ], widths=[38 * mm, CONTENT_W - 38 * mm - 38 * mm, 38 * mm], keep=True),
+    ]
+    story += [
+        Spacer(1, 4 * mm),
+        heading("Open the implementation"),
+        para("Architecture, tests and the technical implementation are "
+             "available for review in the working repository."),
+        Image(os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "assets", "qr_repo.png"),
+            width=30 * mm, height=30 * mm, hAlign="LEFT"),
+        para(f("repo_url"), "caption"),
     ]
     return build(path, "Technical Architecture",
                  "System design, data flow and the realtime seam",
@@ -271,12 +281,47 @@ def testing_report(path: str) -> str:
                    "journey, journey guidance, station detail, tickets."),
         Spacer(1, 2 * mm),
         para("This is developer verification on a device, distinct from the "
-             "commuter trial described on the next page. Both were used: the "
+             "commuter trial described below. Both were used: the "
              "device walk-through catches what is visibly broken, and the "
              "commuter trial catches what is wrong in ways only a real journey "
              "reveals — a station name nobody types the way the feed spells it, "
              "or an assistant that answers a question without doing anything."),
         PageBreak(),
+
+        heading("Device measurements"),
+        para("Taken on 14 August 2026 against the deployed backend, by "
+             "scripting the core commuter flow and reading the device log. "
+             "These say whether the build works. They are not usage data and "
+             "must not be read as any of the commuter metrics above.", "lead"),
+        table([
+            ["Measurement", "Result", "What it does and does not show"],
+            ["Core flow completed",
+             f("device_sessions"),
+             "Search, station detail, accessibility, network map and back to "
+             "home, six times. Shows the build is stable through the flow; "
+             "says nothing about whether a rider would finish a real journey."],
+            ["Crashes",
+             f("device_crashes"),
+             "No fatal exception and no process crash in those sessions. Six "
+             "sessions is far too small to state a crash-free rate, which is "
+             "why one is not stated."],
+            ["ANRs",
+             f("device_anr"),
+             "Reason recorded as a GPU hang in the emulator graphics stack, "
+             "not application code. Listed rather than omitted."],
+            ["Backend serving positions",
+             f("live_trains"),
+             "Schedule-estimated train positions served at 22:31 IST. "
+             "Confirms the position pipeline runs end to end — with the "
+             "timetable as its source, not a realtime feed."],
+        ], widths=[34 * mm, 24 * mm, CONTENT_W - 58 * mm]),
+        callout("Why these are not the metrics on the previous page",
+                "A completion rate answers 'do riders finish journeys'. Six "
+                "scripted sessions on one emulator answer 'does the build "
+                "survive the flow'. Presenting the second as though it were "
+                "the first would be the exact substitution this submission "
+                "exists to avoid, so the two are kept on separate pages with "
+                "different names.", "warn"),
 
         heading("Commuter trial"),
         status_row("IMPLEMENTED",
@@ -388,6 +433,88 @@ def crowd_management(path: str) -> str:
                 "concourse. Control-room detection, staff deployment and station "
                 "regulation remain entirely DMRC's.", "good"),
 
+        heading("Before the crowd forms"),
+        para("The proposition is passenger-flow optimisation, not a crowd "
+             "alert. An alert tells a rider they are already inside a "
+             "bottleneck; the aim here is to predict where passenger "
+             "pressure is likely to build and guide riders before they "
+             "enter it — a different gate, a slightly earlier departure, a "
+             "different interchange, or a lift-first route."),
+        status_row("PROPOSED",
+                   'Example instructions: "Use Gate 3 instead" · "Leave 8 '
+                   'minutes earlier" · "Use the next interchange route" · '
+                   '"Lift route currently preferred".'),
+        Spacer(1, 3 * mm),
+
+        heading("What goes in"),
+        para("Five inputs, of which two are available today. Each keeps its "
+             "own provenance the whole way through, so a crowd figure derived "
+             "partly from rider reports can never be presented as though it "
+             "came from DMRC.", "lead"),
+        table([
+            ["Input", "What it contributes", "Status"],
+            ["Official DMRC data",
+             "Operational occupancy or gate throughput — the only input that "
+             "makes crowd figures measured rather than modelled.",
+             "REQUIRES DMRC DATA"],
+            ["Station infrastructure",
+             "Gate, platform and pathway counts, which set how much load a "
+             "station can absorb before it congests.",
+             "APPROVED DATA"],
+            ["Historical patterns",
+             f"The hourly load profile ({f('hourly_profile')} entries) and "
+             f"origin-destination pairs ({f('od_origins')} origins), which "
+             "give the shape of a normal day.",
+             "APPROVED DATA"],
+            ["Events",
+             "Scheduled large gatherings near a station, which move demand in "
+             "ways history does not predict.",
+             "PROPOSED"],
+            ["Aggregated rider observations",
+             "Opt-in reports, used only after multiple independent riders "
+             "agree, and never overwriting official data.",
+             "IMPLEMENTED"],
+        ], widths=[42 * mm, CONTENT_W - 42 * mm - 34 * mm, 34 * mm]),
+
+        heading("What intelligence does with it"),
+        table([
+            ["", "Question", "Output"],
+            ["Detect", "Where is crowding building right now?",
+             "A station and a direction, with the confidence attached."],
+            ["Predict", "Where will it build next?",
+             "A window ahead of the rider, not a report after the fact."],
+            ["Recommend", "What should this rider do differently?",
+             "Exactly one action, chosen for this journey."],
+        ], widths=[26 * mm, 64 * mm, CONTENT_W - 90 * mm]),
+        para("The third row is the one that matters. A rider walking toward a "
+             "gate cannot use a heat map; they can use a sentence. Everything "
+             "upstream exists to produce one instruction that fits in the "
+             "seconds a rider has while moving."),
+
+        heading("What the passenger is told"),
+        table([
+            ["Instruction", "When it fires", "What it saves"],
+            ["Use an alternative gate",
+             "The nearest gate is congested but another is not",
+             "Queueing at the entry a rider would have chosen by habit"],
+            ["Change at a different station",
+             "The usual interchange is loaded and a viable alternative exists",
+             "The most stressful minute of the journey"],
+            ["Leave a few minutes later or earlier",
+             "A short shift moves the rider off the peak",
+             "Standing for the whole trip instead of sitting"],
+            ["Congestion warning",
+             "No good alternative exists and the rider should simply know",
+             "Being surprised, which is worse than being warned"],
+        ], widths=[46 * mm, (CONTENT_W - 46 * mm) / 2, (CONTENT_W - 46 * mm) / 2]),
+        callout("Why exactly one instruction",
+                "Showing a rider three options during a commute is the same "
+                "as showing none: they are moving, holding a phone in one "
+                "hand, and the decision has a deadline. The hard part of "
+                "crowd guidance is not computing the alternatives, it is "
+                "choosing between them on the rider's behalf and being right "
+                "often enough to be trusted.", "info"),
+
         heading("What exists today"),
         status_row("APPROVED DATA",
                    f"Hourly station load profile ({f('hourly_profile')} entries) "
@@ -411,7 +538,6 @@ def crowd_management(path: str) -> str:
                 "architectural one: the prediction interface is pluggable, and "
                 "a model trained on real occupancy would implement the same "
                 "interface with no schema change."),
-        PageBreak(),
 
         heading("What DMRC data would unlock"),
         table([
@@ -459,6 +585,31 @@ def realtime_request(path: str) -> str:
              "records what MetroPulse has already established about the public "
              "feeds, so that no time is spent re-checking it.", "lead"),
         *_legend(),
+        PageBreak(),
+
+        heading("Decision requested from DMRC / MICE"),
+        para("The entire ask, on one page.", "lead"),
+        table([
+            ["", "Requested"],
+            ["1 · Realtime Metro data",
+             "Vehicle positions or train movement, ETA or trip updates, and "
+             "service alerts — in a test environment first."],
+            ["2 · Operational station data",
+             "Facility operational status, gate closures, accessibility "
+             "changes, and escalator inventory and status."],
+            ["3 · Passenger-flow data",
+             "Station occupancy, gate throughput, or aggregated crowd "
+             "indicators — whichever DMRC can share."],
+            ["4 · Technical collaboration",
+             "Feed specification, identifier mapping, data refresh "
+             "expectations, and a named pilot technical contact."],
+            ["5 · Pilot",
+             "A controlled ninety-day pilot on selected stations and routes, "
+             "evaluated against the KPIs in the pilot proposal."],
+        ], widths=[46 * mm, CONTENT_W - 46 * mm]),
+        callout("No funding or exclusivity is requested at this stage",
+                "Items 4 and 5 cost nothing but time, and remove most of the "
+                "risk from items 1 to 3.", "good"),
         PageBreak(),
 
         heading("What has already been checked"),
@@ -531,84 +682,248 @@ def realtime_request(path: str) -> str:
 # --------------------------------------------------------------- 6. pilot
 def pilot_proposal(path: str) -> str:
     story = [
-        heading("MICE pilot proposal"),
-        para("A four-phase pilot, each phase with a defined exit check so that "
-             "it can be stopped as easily as it can be continued. No dates are "
-             "asserted; timelines would be agreed with DMRC.", "lead"),
+        heading("Ninety-day pilot proposal"),
+        para("Five stages across ninety days, each ending in an exit check, so "
+             "the pilot can be stopped as easily as it can be continued. The "
+             "ninety days are a shape, not a commitment: the start date and "
+             "the pilot lines are DMRC to choose.", "lead"),
         *_legend(),
         PageBreak(),
 
-        heading("Phases"),
-        flow_diagram([
-            ("01 Technical integration", "Adapter connected in\na test environment"),
-            ("02 Validation", "App output compared\nagainst ground truth"),
-            ("03 Commuter pilot", "Limited public group,\none or two lines"),
-            ("04 Evaluation", "Joint review and a\ndecision to extend or stop"),
-        ], per_row=2),
-        status_row("PROPOSED", "All four phases below are proposed, not agreed."),
+        heading("The five stages"),
+        status_row("PROPOSED", "Every stage below is proposed, not agreed."),
         Spacer(1, 3 * mm),
-
         table([
-            ["Phase", "Activity", "Exit check"],
-            ["01 Technical integration",
-             "Connect the realtime adapter to a DMRC feed in a non-public "
-             "environment. Map identifiers, set staleness thresholds, run the "
-             "conformance suite against the live feed.",
-             "Data flows end to end and passes the conformance contract."],
-            ["02 Validation",
-             "Compare application output against ground truth on selected "
-             "corridors. Measure arrival accuracy and position accuracy, "
-             "including underground sections.",
-             "Accuracy characterised and agreed with DMRC."],
-            ["03 Commuter pilot",
-             "A limited, recruited public group using the application on one or "
-             "two lines, with opt-in analytics enabled and feedback collected.",
-             "Usage and feedback captured; no unresolved safety or accuracy "
-             "issue."],
-            ["04 Evaluation",
-             "Joint review of accuracy, commuter usefulness, accessibility "
-             "guidance and crowd guidance.",
-             "A documented decision to extend, revise or stop."],
-        ], widths=[38 * mm, CONTENT_W - 38 * mm - 46 * mm, 46 * mm]),
+            ["Stage", "Activity", "Exit criterion"],
+            ["Days 0-15 — Technical integration",
+             "Scope and data-handling terms agreed; the adapter connected to "
+             "a DMRC feed in a non-public environment; identifiers mapped; "
+             "the conformance suite run against the live feed rather than a "
+             "fixture.",
+             "Feed successfully consumed and mapped."],
+            ["Days 16-30 — Data validation",
+             "Freshness, completeness and accuracy measured against ground "
+             "truth on selected corridors, including underground sections "
+             "where satellite positioning is unavailable.",
+             "Agreed freshness and completeness thresholds achieved."],
+            ["Days 31-60 — Controlled commuter pilot",
+             "A predefined passenger cohort uses the application on selected "
+             "routes with opt-in analytics enabled, so the metrics currently "
+             "marked [DATA REQUIRED] can be measured for the first time.",
+             "The cohort completes its test journeys."],
+            ["Days 61-75 — Crowd and accessibility experiments",
+             "Selected crowd-guidance and step-free scenarios run and "
+             "measured against DMRC's own observations for the same period.",
+             "Selected scenarios validated."],
+            ["Days 76-90 — Evaluation",
+             "Joint review of accuracy, usefulness, accessibility and crowd "
+             "guidance, written up including the negative findings.",
+             "MICE receives the final performance report."],
+        ], widths=[38 * mm, CONTENT_W - 38 * mm - 42 * mm, 42 * mm]),
+        Spacer(1, 2 * mm),
+        heading("Three possible endings", 2),
+        table([
+            ["Outcome", "Meaning"],
+            ["GO", "Extend beyond the pilot lines, on terms discussed then."],
+            ["ITERATE", "Revise and re-run the stage that missed its "
+                        "criterion."],
+            ["STOP", "Wind down. The findings are delivered either way."],
+        ], widths=[26 * mm, CONTENT_W - 26 * mm]),
+        callout("Why every stage ends in a check",
+                "A pilot without stopping points tends to continue on "
+                "momentum. Naming the check in advance makes the decision to "
+                "stop a normal outcome rather than an admission, which is the "
+                "only way a negative result gets reported honestly.",
+                "info"),
         PageBreak(),
 
-        heading("What MetroPulse provides"),
+        heading("Pilot KPIs"),
+        para("None of these is measured today. Baselines are set jointly in "
+             "the first week of the commuter-pilot stage, so any improvement "
+             "is measured against something both sides agreed to. Targets are "
+             "deliberately not asserted here, because a target set without a "
+             "baseline is a guess.", "lead"),
+
+        heading("Passenger", 2),
+        table([
+            ["KPI", "How it is measured"],
+            ["Passenger decision success rate — headline",
+             "Did MetroPulse give the correct actionable instruction at the "
+             "moment it was needed? Correct gate, platform, interchange, "
+             "accessibility route, exit and realtime status, each confirmed "
+             "in-app at the moment of use."],
+            ["Journey completion rate",
+             "Opt-in analytics: journeys started against journeys that reach "
+             "the destination station."],
+            ["Step-free journeys completed",
+             "Sessions with accessibility mode on that finished without "
+             "falling back to a stepped route."],
+            ["Rider-reported usefulness",
+             "A short in-app survey at journey end; free text is kept "
+             "separate from the metric."],
+        ], widths=[62 * mm, CONTENT_W - 62 * mm]),
+
+        heading("System", 2),
+        table([
+            ["KPI", "How it is measured"],
+            ["Arrival-time error against ground truth",
+             "Seconds, per line and per hour, compared with DMRC own record "
+             "for the same trip."],
+            ["Position accuracy underground",
+             "Metres, compared against station arrival events rather than "
+             "against a satellite fix that does not exist below ground."],
+            ["Feed availability and staleness",
+             "Adapter conformance metrics already emitted today: gap "
+             "duration, stale-snapshot count, rejected-record count."],
+            ["Crash-free session rate",
+             "Crash reporting, which is wired but not yet configured."],
+        ], widths=[62 * mm, CONTENT_W - 62 * mm]),
+
+        heading("Crowd", 2),
+        table([
+            ["KPI", "How it is measured"],
+            ["Congestion detected against congestion observed",
+             "MetroPulse detections compared with DMRC station reports for "
+             "the same period."],
+            ["Guidance acted on",
+             "Share of crowd warnings after which the rider selected an "
+             "alternative gate, interchange or departure time."],
+            ["Load shifted off a peak",
+             "Distribution of chosen departure times before and after "
+             "guidance is enabled."],
+            ["False-positive warnings",
+             "Reviewed jointly with DMRC. A warning nobody needed is a "
+             "defect, not a rounding error."],
+        ], widths=[62 * mm, CONTENT_W - 62 * mm]),
+        PageBreak(),
+
+        heading("What each side provides"),
+        heading("MetroPulse provides", 2),
         *bullets([
             "The application and backend, already built and deployed.",
-            "Engineering work for integration and validation.",
-            "Reporting at each phase, including negative findings.",
+            "Engineering work for integration, validation and reporting.",
+            "A written report at each stage, including negative findings.",
             "Compliance with any data-handling conditions DMRC sets.",
         ]),
-        heading("What is requested from DMRC", 2),
+        heading("DMRC is asked for", 2),
         *bullets([
             "Access to a realtime feed in a test environment.",
             "A named technical contact for feed questions.",
-            "Agreement on the evaluation criteria before phase 02 begins.",
+            "Agreement on the evaluation criteria before validation begins.",
             "Guidance on any approval required before a public pilot group.",
         ]),
         Spacer(1, 4 * mm),
-
-        heading("Risks and how they are handled"),
-        table([
-            ["Risk", "Mitigation"],
-            ["Realtime feed identifiers do not match static GTFS",
-             "Configurable mapping chain already implemented — exact match, "
-             "explicit map, then rewrite rules."],
-            ["Underground accuracy is poor",
-             "Multi-source tracking already designed: satellite fix, coarse "
-             "network fix, motion-based stop counting, and timetable fallback — "
-             "each labelled distinctly to the rider."],
-            ["Crowd data unavailable during pilot",
-             "Crowd guidance is scoped as a separate phase and can be deferred "
-             "without affecting the rest."],
-            ["Pilot shows the product is not useful",
-             "Phase 04 explicitly permits stopping. Each phase has an exit "
-             "check for this reason."],
-        ], widths=[62 * mm, CONTENT_W - 62 * mm]),
+        callout("No commercial terms are proposed",
+                "This submission requests no funding, no exclusivity and no "
+                "commercial arrangement. What happens after a successful "
+                "pilot is a separate conversation, and should be had on its "
+                "own merits.", "good"),
     ]
-    return build(path, "MICE Pilot Proposal",
-                 "Four phases, each with an exit check",
+    return build(path, "Ninety-Day Pilot Proposal",
+                 "Five stages, five exit checks, and how success is measured",
                  "Pilot Proposal", META, story)
+
+
+# --------------------------------------------------------------- 6b. risks
+def risk_and_mitigation(path: str) -> str:
+    story = [
+        heading("Risk and mitigation"),
+        para("Every risk MetroPulse can foresee in a DMRC pilot, with the "
+             "mitigation that exists today. Where a mitigation is not built "
+             "yet it is named as outstanding, rather than described as though "
+             "it were finished.", "lead"),
+        *_legend(),
+        PageBreak(),
+
+        heading("Realtime and data risks"),
+        table([
+            ["Risk", "Mitigation", "Status"],
+            ["The feed fails, or goes stale without failing",
+             "Staleness thresholds are enforced in the adapter. Past the "
+             "threshold the position is dropped and the app falls back to "
+             "SCHEDULE and says so, rather than showing a train frozen on "
+             "the map.",
+             "IMPLEMENTED"],
+            ["Realtime identifiers do not match static GTFS",
+             "A configurable mapping chain: exact match, then an explicit "
+             "map, then rewrite rules. A conformance suite fails the build "
+             "when a source violates the contract.",
+             "IMPLEMENTED"],
+            ["The feed carries a position that is absent or impossible",
+             "The decoder rejects null-island coordinates, out-of-range "
+             "values and NaN, and logs duplicate vehicle identifiers at "
+             "error level instead of silently keeping the last one.",
+             "IMPLEMENTED"],
+            ["Static data goes stale after a network change",
+             "Loaders replace each table wholesale inside a single "
+             "transaction, so a re-run cannot leave a mix of old and new "
+             "rows for the same station.",
+             "IMPLEMENTED"],
+        ], widths=[44 * mm, CONTENT_W - 44 * mm - 32 * mm, 32 * mm]),
+
+        heading("Accuracy and trust risks"),
+        table([
+            ["Risk", "Mitigation", "Status"],
+            ["A prediction is simply wrong",
+             "No prediction is presented as fact. Every value carries its "
+             "trust level to the screen, so a wrong estimate misleads nobody "
+             "about what kind of claim it was.",
+             "IMPLEMENTED"],
+            ["Positioning is poor underground",
+             "Multi-source tracking: satellite fix, coarse network fix, "
+             "motion-based stop counting and timetable fallback, each "
+             "labelled distinctly rather than blended into one false "
+             "confidence.",
+             "IN DEVELOPMENT"],
+            ["A rider report is wrong, or malicious",
+             "Rider observations appear only after agreement from multiple "
+             "independent riders, and never overwrite official data: they "
+             "sit at the lowest trust level.",
+             "IMPLEMENTED"],
+            ["Crowd data is unavailable during the pilot",
+             "Crowd guidance is a separable stage and can be deferred "
+             "without affecting the rest of the pilot.",
+             "PROPOSED"],
+        ], widths=[44 * mm, CONTENT_W - 44 * mm - 32 * mm, 32 * mm]),
+
+        heading("Privacy, security and operational risks"),
+        table([
+            ["Risk", "Mitigation", "Status"],
+            ["Rider location is over-collected",
+             "Location tracking is opt-in per journey and the rider can stop "
+             "it at any time. Location stays on the device except when the "
+             "rider explicitly shares a trip.",
+             "IMPLEMENTED"],
+            ["Analytics reveals where an individual travels",
+             "The analytics API is shaped so it cannot express the private "
+             "thing: no search query, no spoken phrase and no station pair "
+             "can be attached to an event.",
+             "IMPLEMENTED"],
+            ["Credentials leak through the client",
+             "The licensed Transport Stack key is held server-side and "
+             "proxied. It is not in the application package and not in "
+             "version control.",
+             "IMPLEMENTED"],
+            ["API load during a public pilot",
+             "Diff-based WebSocket fan-out and a Redis snapshot keep the "
+             "per-client cost low. Rate limiting and a restricted firewall "
+             "are named as hardening still to do.",
+             "IN DEVELOPMENT"],
+            ["Single-developer capacity",
+             "Acknowledged, and the reason each pilot stage is deliberately "
+             "small with its own exit check rather than one large "
+             "commitment.",
+             "PROPOSED"],
+        ], widths=[44 * mm, CONTENT_W - 44 * mm - 32 * mm, 32 * mm]),
+        callout("A risk with no mitigation is still listed",
+                "Two rows above are marked IN DEVELOPMENT and two PROPOSED. "
+                "That is the honest state of the work. A risk register in "
+                "which every risk is already fully handled is a risk "
+                "register nobody checked.", "warn"),
+    ]
+    return build(path, "Risk and Mitigation",
+                 "Every foreseeable risk, and what exists to handle it",
+                 "Risk Register", META, story)
 
 
 # ------------------------------------------------------------- 7. founder
@@ -621,6 +936,15 @@ def founder_profile(path: str) -> str:
              "can be checked directly in the repository and the deployed "
              "system.", "lead"),
         Spacer(1, 3 * mm),
+
+        heading("Why I built MetroPulse — founder's statement", 2),
+        para("MetroPulse was built around a simple observation: a passenger's "
+             "information need does not end when they receive a route. The "
+             "difficult decisions happen inside the station, during "
+             "interchanges, and immediately before reaching the destination. "
+             "The project turns transit data into contextual guidance at the "
+             "moment each of those decisions is made."),
+        Spacer(1, 2 * mm),
 
         heading("Biographical — self-reported", 2),
         table([
@@ -642,6 +966,7 @@ def founder_profile(path: str) -> str:
         ], widths=[42 * mm, CONTENT_W - 42 * mm]),
         Spacer(1, 5 * mm),
 
+        PageBreak(),
         heading("Evidenced by the project"),
         para("Unlike the table above, the following can be verified directly "
              "from the MetroPulse repository and the deployed system."),
@@ -733,26 +1058,40 @@ def roadmap(path: str) -> str:
 # -------------------------------------------------------------- 9. status
 def document_status(path: str) -> str:
     docs = [
-        ["MetroPulse_MICE_Pitch_Deck.pptx / .pdf", "Complete",
-         "16 slides. Contact details on the closing slide need completing."],
-        ["MetroPulse_MICE_Project_Proposal.docx / .pdf", "Complete",
-         "Main proposal document."],
-        ["MetroPulse_Technical_Architecture.pdf", "Complete",
+        ["Pitch_Deck.pptx / .pdf", "Complete",
+         "20 slides, editable and as PDF."],
+        ["Project_Proposal.docx / .pdf", "Complete",
+         "24 sections, editable and as PDF."],
+        ["Technical_Architecture.pdf", "Complete",
          "Drawn from the repository as built."],
-        ["MetroPulse_OTD_Data_Integration.pdf", "Complete",
+        ["OTD_Data_Integration.pdf", "Complete",
          "Counts taken from the loaded artifacts."],
-        ["MetroPulse_Commuter_Testing_Report.pdf", "Partial",
-         "Automated testing complete. Trial ran with 25 commuters but was "
-         "not instrumented, so derived metrics remain [DATA REQUIRED]."],
-        ["MetroPulse_Crowd_Management_Proposal.pdf", "Complete",
-         "Guidance surface is labelled PROPOSED, not built."],
-        ["MetroPulse_Realtime_Data_Request.pdf", "Complete", "—"],
-        ["MetroPulse_MICE_Pilot_Proposal.pdf", "Complete",
-         "No dates asserted; to be agreed with DMRC."],
-        ["MetroPulse_Founder_Profile.pdf", "Complete",
-         "Biographical fields are self-reported and labelled as such."],
-        ["MetroPulse_Roadmap.pdf", "Complete", "—"],
-        ["MetroPulse_Document_Status.pdf", "Complete", "This document."],
+        ["Commuter_Validation.pdf", "Partial",
+         "Automated coverage complete. The 25-rider trial was defect-driven "
+         "rather than instrumented, so usage metrics remain [DATA REQUIRED]."],
+        ["Crowd_Management.pdf", "Complete",
+         "The guidance surface is labelled PROPOSED, not built. Crowd "
+         "prediction needs occupancy data that does not exist yet."],
+        ["Realtime_Data_Request.pdf", "Complete",
+         "Includes the measured evidence that the public VehiclePositions "
+         "feed is Delhi bus GPS, not Metro."],
+        ["Pilot_Proposal.pdf", "Complete",
+         "Ninety days, five stages, five exit checks. No start date "
+         "asserted; that is DMRC to choose."],
+        ["Risk_and_Mitigation.pdf", "Complete",
+         "Two risks carry IN DEVELOPMENT mitigations and two PROPOSED, which "
+         "is the honest state rather than an oversight."],
+        ["Founder_Profile.pdf", "Complete",
+         "Biographical fields are self-reported and labelled as such, kept "
+         "separate from repository-verifiable claims."],
+        ["Roadmap.pdf", "Complete",
+         "Ordered by dependency, not by date."],
+        ["Document_Status.pdf", "Complete", "This document."],
+        ["Demo/", "Complete",
+         "Signed release APK, twelve screenshots from that build, and a "
+         "five-minute walkthrough."],
+        ["README.md", "Complete",
+         "Reading order, claims discipline, and what is still outstanding."],
     ]
     story = [
         heading("Document status"),
@@ -797,13 +1136,14 @@ def document_status(path: str) -> str:
 
 
 ALL = {
-    "MetroPulse_Technical_Architecture.pdf": technical_architecture,
-    "MetroPulse_OTD_Data_Integration.pdf": otd_data_integration,
-    "MetroPulse_Commuter_Testing_Report.pdf": testing_report,
-    "MetroPulse_Crowd_Management_Proposal.pdf": crowd_management,
-    "MetroPulse_Realtime_Data_Request.pdf": realtime_request,
-    "MetroPulse_MICE_Pilot_Proposal.pdf": pilot_proposal,
-    "MetroPulse_Founder_Profile.pdf": founder_profile,
-    "MetroPulse_Roadmap.pdf": roadmap,
-    "MetroPulse_Document_Status.pdf": document_status,
+    "Technical_Architecture.pdf": technical_architecture,
+    "OTD_Data_Integration.pdf": otd_data_integration,
+    "Commuter_Validation.pdf": testing_report,
+    "Crowd_Management.pdf": crowd_management,
+    "Realtime_Data_Request.pdf": realtime_request,
+    "Pilot_Proposal.pdf": pilot_proposal,
+    "Risk_and_Mitigation.pdf": risk_and_mitigation,
+    "Founder_Profile.pdf": founder_profile,
+    "Roadmap.pdf": roadmap,
+    "Document_Status.pdf": document_status,
 }

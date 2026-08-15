@@ -7,6 +7,8 @@ than either on its own.
 
 from __future__ import annotations
 
+import re
+
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Inches, Pt, RGBColor
@@ -26,19 +28,54 @@ def _content() -> list[tuple]:
     C: list[tuple] = []
     a = C.append
 
+    a(("h1", "MICE at a glance"))
+    a(("table", ([
+        ["", "The proposal in one page"],
+        ["Problem",
+         "Delhi Metro commuters must make multiple decisions during a "
+         "journey — gate, platform, coach, interchange, exit, step-free "
+         "route — that conventional route planners do not address."],
+        ["Solution",
+         "A journey companion providing contextual platform, gate, "
+         "accessibility, journey and realtime guidance at the moment each "
+         "decision is made."],
+        ["Proof",
+         "A working Android application and deployed backend · "
+         f"{f('backend_tests')} backend tests · {f('app_tests')} application "
+         f"tests · {f('beta_users')} commuter trial participants · "
+         f"{f('lifts')} lifts, {f('gates')} gates and {f('platforms')} "
+         f"platforms integrated · {f('pathway_stations')} OTD-mapped "
+         "stations."],
+        ["Gap", "Official Delhi Metro realtime and operational data."],
+        ["MICE opportunity",
+         "Integrate → validate → controlled pilot → measure passenger "
+         "impact."],
+        ["Ask",
+         "Realtime data, operational data, passenger-flow data, technical "
+         "collaboration, and a controlled ninety-day pilot."],
+    ], [32 * mm, CONTENT_W - 32 * mm])))
+    a(("callout", ("No funding or exclusivity is requested at this stage",
+                   "This page is the whole proposal in one screen: a working "
+                   "product on approved data, one missing input, and a "
+                   "measurable pilot to close the gap.", "good")))
+    a(("pagebreak", None))
+
     a(("h1", "1. Executive summary"))
     a(("lead",
-       "MetroPulse is a working Android application and backend that turns "
+       "A journey is eight decisions, not one route — and route planning "
+       "answers only the first. MetroPulse is the layer that answers the "
+       "other seven: a working Android application and backend that turns "
        "Delhi Open Transit Data into moment-by-moment commuter guidance. It is "
        "deployed, tested, and has been used by commuters on the Delhi Metro. "
        "It does not have official realtime Delhi Metro data, and it says so "
        "everywhere that matters — in the product, in this proposal, and on the "
        "first slide of the accompanying deck."))
     a(("p",
-       "The submission asks DMRC for four things: a realtime Metro feed, "
-       "operational data for crowding and escalators, technical guidance on "
-       "feed formats and identifiers, and collaboration on a four-phase pilot. "
-       "It does not ask for funding, exclusivity, or any operational role."))
+       "The submission asks DMRC for five things: realtime Metro data, "
+       "operational station data, passenger-flow data, technical "
+       "collaboration on feed formats and identifiers, and a controlled "
+       "ninety-day pilot. It does not ask for funding, exclusivity, or any "
+       "operational role."))
     a(("p",
        "The architectural point most relevant to DMRC is that the realtime "
        "pipeline is already built and only its first block is missing. "
@@ -160,6 +197,28 @@ def _content() -> list[tuple]:
        "label is what allows the application to display SCHEDULE rather than "
        "LIVE over interpolated data — and what would make official DMRC data "
        "visibly distinct the moment it arrived."))
+    a(("h2", "Today, and with a DMRC feed"))
+    a(("p",
+       "The same screens answer differently once real positions arrive. "
+       "Nothing on the right needs a new application; each row is a different "
+       "value behind the same interface, carrying a different provenance "
+       "label."))
+    a(("table", ([
+        ["", "Today — schedule only", "With a DMRC realtime feed"],
+        ["Train position", "Interpolated from the timetable",
+         "Actual position from the feed"],
+        ["Arrival time", "Scheduled, labelled SCHEDULE",
+         "Predicted, labelled LIVE"],
+        ["Disruption", "Rider reports only",
+         "Detected from the feed within seconds"],
+        ["Journey tracking", "GPS above ground, stop-count below",
+         "Confirmed against the train the rider is on"],
+        ["Crowd guidance", "A generic prior, the same everywhere",
+         "Measured loading, per line and hour"],
+        ["Interchange advice", "Static walking allowance",
+         "Timed against the connecting train"],
+    ], [34 * mm, (CONTENT_W - 34 * mm) / 2, (CONTENT_W - 34 * mm) / 2])))
+
     a(("h2", "Four kinds of data, kept separate"))
     a(("table", ([
         ["Kind", "Status today", "Shown to the rider as"],
@@ -174,7 +233,8 @@ def _content() -> list[tuple]:
                    "road registration plates, several thousand vehicles report "
                    "simultaneously, and positions fall across ordinary roads. "
                    "It is Delhi's citywide bus GPS. MetroPulse ships with "
-                   "realtime ingestion disabled for this reason.", "warn")))
+                   "realtime ingestion disabled for this reason. The full measurement "
+                   "record is in the appendix.", "warn")))
 
     a(("h1", "8. AI and voice"))
     a(("status", ("IMPLEMENTED",
@@ -231,7 +291,59 @@ def _content() -> list[tuple]:
                    "good")))
     a(("pagebreak", None))
 
-    a(("h1", "11. Data governance"))
+    a(("h1", "Data trust model"))
+    a(("lead",
+       "Five levels of certainty, ordered. A lower level never silently "
+       "overwrites a higher one, and nothing is displayed without its label — "
+       "which is what lets a rider tell an official fact from an estimate "
+       "without reading documentation."))
+    a(("table", ([
+        ["Level", "Source", "How the rider sees it", "Status"],
+        ["1", "Official DMRC information",
+         "Presented as official, attributed to DMRC", "REQUIRES DMRC DATA"],
+        ["2", "Official OTD / static data",
+         "Timetable, pathways and gates, shown as published data",
+         "APPROVED DATA"],
+        ["3", "MetroPulse calculation",
+         "Routing, fares and interchange timing, marked SCHEDULE where "
+         "time-based", "IMPLEMENTED"],
+        ["4", "AI prediction",
+         "Labelled as an estimate, never as fact", "IMPLEMENTED"],
+        ["5", "Crowdsourced observation",
+         "Attributed to riders, and only after independent confirmation",
+         "IMPLEMENTED"],
+    ], [14 * mm, 44 * mm, CONTENT_W - 14 * mm - 44 * mm - 34 * mm, 34 * mm])))
+    a(("p",
+       "The rule is enforced in the code rather than in review. A position "
+       "carries its source label through every layer to the screen, so the "
+       "interface cannot render a schedule estimate as though it were live "
+       "without the label coming with it. Rider observations are the only "
+       "level that requires agreement from multiple independent people before "
+       "anyone sees them, because it is the only level where one person can "
+       "be wrong on purpose."))
+    a(("callout", ("Why this is a design constraint and not a promise",
+                   "Discipline decays. Where it mattered most, the API was "
+                   "shaped so the unwanted thing cannot be expressed at all: "
+                   "the analytics call has no parameter for a search query, "
+                   "and there is no way to publish a position without its "
+                   "source. A rule that cannot be broken by accident does not "
+                   "need to be remembered.", "good")))
+    a(("pagebreak", None))
+
+    a(("h1", "Security and privacy"))
+    a(("h2", "Privacy by design"))
+    a(("flow", ([
+        ("Rider location", "stays on the device\nby default"),
+        ("Opt-in", "per journey, stoppable\nat any time"),
+        ("Minimum processing", "only what the next\ninstruction needs"),
+        ("Journey intelligence", "the product of the data,\nnot a copy of it"),
+        ("Aggregation", "rider reports used only\nafter independent agreement"),
+        ("No individual tracking", "shared trips expire; analytics\ncarries no station pair"),
+    ], 3)))
+    a(("p",
+       "Official data, calculated data and rider-generated observations are "
+       "kept in separate stores and never merged, so one can never be "
+       "presented as another."))
     a(("ul", [
         "Riders are identified only by an anonymous device identifier — never "
         "a name, email or phone number.",
@@ -249,6 +361,31 @@ def _content() -> list[tuple]:
        "Any DMRC data provided would be used only for commuter-facing guidance "
        "within the agreed pilot scope, labelled as official, and never "
        "presented as more certain than it is."))
+
+    a(("h2", "Security"))
+    a(("ul", [
+        "The licensed Delhi Transport Stack API key is held server-side and "
+        "proxied. It is not in the application package and not in version "
+        "control, so a decompiled APK does not yield a working credential.",
+        "Database and cache are reachable only from the application host; "
+        "public access is closed at the security-group level.",
+        "Schema changes go through versioned migrations applied in "
+        "production, so the deployed schema is always a known revision.",
+        "Loaders replace each dataset wholesale inside one transaction, so a "
+        "failed re-run cannot leave a station described half by old data and "
+        "half by new.",
+        "Rate limiting and a TLS certificate on a proper domain are named as "
+        "hardening still to do before any public pilot, and are listed as "
+        "such in the risk register rather than implied to be finished.",
+    ]))
+    a(("h2", "Auditability"))
+    a(("p",
+       "Every rider-visible claim can be traced back to the artifact it came "
+       "from: the loaders record which file and which run produced each row, "
+       "and provenance labels survive to the screen. Official and "
+       "user-generated data are stored in separate tables and never merged, "
+       "so a rider observation cannot be mistaken for an official record even "
+       "by a future query written by someone who was not there."))
 
     a(("h1", "12. Testing"))
     a(("status", ("IMPLEMENTED",
@@ -276,46 +413,104 @@ def _content() -> list[tuple]:
        "riders' hands, which in turn needs the privacy policy amendment "
        "published. They are not estimated here."))
 
-    a(("h1", "13. Proposed pilot"))
-    a(("status", ("PROPOSED", "All four phases below are proposed, not agreed. "
-                              "No dates are asserted.")))
+    a(("h1", "Proposed pilot"))
+    a(("status", ("PROPOSED", "Every stage below is proposed, not agreed. "
+                              "The start date and the pilot lines are DMRC "
+                              "to choose.")))
     a(("table", ([
-        ["Phase", "Activity", "Exit check"],
-        ["01 Technical integration",
-         "Connect the adapter to a DMRC feed in a non-public environment; map "
-         "identifiers; run the conformance suite against the live feed.",
-         "Data flows end to end and passes the contract."],
-        ["02 Validation",
-         "Compare output against ground truth on selected corridors, including "
-         "underground sections.",
-         "Accuracy characterised and agreed."],
-        ["03 Commuter pilot",
-         "A recruited public group on one or two lines, with opt-in analytics "
-         "enabled.",
-         "Usage and feedback captured."],
-        ["04 Evaluation",
-         "Joint review of accuracy, usefulness, accessibility and crowd "
-         "guidance.",
-         "Documented decision to extend, revise or stop."],
-    ], [36 * mm, CONTENT_W - 36 * mm - 44 * mm, 44 * mm])))
-
-    a(("h1", "14. Key performance indicators"))
+        ["Stage", "Activity", "Exit criterion"],
+        ["Days 0-15 — Technical integration",
+         "Terms agreed; adapter connected to a DMRC feed in a non-public "
+         "environment; identifiers mapped; conformance suite run against the "
+         "live feed.",
+         "Feed successfully consumed and mapped."],
+        ["Days 16-30 — Data validation",
+         "Freshness, completeness and accuracy measured against ground truth "
+         "on selected corridors, including underground sections.",
+         "Agreed freshness and completeness thresholds achieved."],
+        ["Days 31-60 — Controlled commuter pilot",
+         "A predefined cohort rides selected routes with opt-in analytics "
+         "enabled, measuring the metrics currently marked [DATA REQUIRED].",
+         "The cohort completes its test journeys."],
+        ["Days 61-75 — Crowd and accessibility experiments",
+         "Selected crowd-guidance and step-free scenarios run and measured.",
+         "Selected scenarios validated."],
+        ["Days 76-90 — Evaluation",
+         "Joint review written up including the negative findings.",
+         "MICE receives the final performance report."],
+    ], [36 * mm, CONTENT_W - 36 * mm - 40 * mm, 40 * mm])))
+    a(("table", ([
+        ["Outcome", "Meaning"],
+        ["GO", "Extend beyond the pilot lines, on terms discussed then."],
+        ["ITERATE", "Revise and re-run the stage that missed its criterion."],
+        ["STOP", "Wind down. The findings are delivered either way."],
+    ], [26 * mm, CONTENT_W - 26 * mm])))
     a(("p",
-       "Proposed for agreement with DMRC before phase 02 begins. Baselines "
-       "cannot be stated in advance of measurement."))
+       "All three endings are defined in advance, so stopping is a normal "
+       "outcome rather than an admission — the only arrangement under which "
+       "a negative result gets reported honestly."))
+
+    a(("h1", "Key performance indicators"))
+    a(("p",
+       "None of these is measured today. Baselines are set jointly in the "
+       "first week of the commuter-pilot stage, so any improvement is "
+       "measured against something both sides agreed to. Targets are "
+       "deliberately not asserted, because a target set without a baseline is "
+       "a guess."))
+    a(("h2", "Headline: passenger decision success rate"))
+    a(("p",
+       "Did MetroPulse give the correct actionable instruction at the moment "
+       "the passenger needed it? Correct gate, platform, interchange, "
+       "accessibility route, exit and realtime status — each confirmed "
+       "in-app at the moment of use. This is the product proposition made "
+       "measurable."))
+    a(("h2", "Passenger"))
     a(("table", ([
-        ["KPI", "How measured", "Baseline"],
-        ["Arrival prediction accuracy",
-         "App output versus ground truth on pilot corridors", DATA_REQUIRED],
+        ["KPI", "How it is measured", "Baseline"],
+        ["Passenger decision success rate",
+         "In-app confirmation at the moment of use, across the six decision "
+         "kinds above", DATA_REQUIRED],
+        ["Journey completion rate",
+         "Opt-in analytics: journeys started against journeys reaching the "
+         "destination station", DATA_REQUIRED],
+        ["Correct-exit rate",
+         "In-app confirmation prompt at journey end", DATA_REQUIRED],
+        ["Step-free journeys completed",
+         "Accessibility-mode sessions finished without falling back",
+         DATA_REQUIRED],
+        ["Rider-reported usefulness",
+         "Short in-app survey at journey end", DATA_REQUIRED],
+    ], [44 * mm, CONTENT_W - 44 * mm - 30 * mm, 30 * mm])))
+    a(("h2", "System"))
+    a(("table", ([
+        ["KPI", "How it is measured", "Baseline"],
+        ["Arrival-time error against ground truth",
+         "Seconds, per line and per hour, against DMRC own record",
+         DATA_REQUIRED],
         ["Position accuracy underground",
-         "Tracked station versus actual, on tunnelled sections", DATA_REQUIRED],
-        ["Journey completion rate", "Opt-in analytics", DATA_REQUIRED],
-        ["Accessible-route usefulness",
-         "Structured feedback from step-free riders", DATA_REQUIRED],
-        ["Crowd guidance usefulness",
-         "Whether riders act on the suggested alternative", DATA_REQUIRED],
-    ], [46 * mm, CONTENT_W - 46 * mm - 30 * mm, 30 * mm])))
-    a(("pagebreak", None))
+         "Metres, against station arrival events rather than a satellite fix "
+         "that does not exist below ground", DATA_REQUIRED],
+        ["Feed availability and staleness",
+         "Adapter conformance metrics already emitted today", DATA_REQUIRED],
+        ["Crash-free session rate",
+         "Crash reporting, wired but not yet configured", DATA_REQUIRED],
+    ], [44 * mm, CONTENT_W - 44 * mm - 30 * mm, 30 * mm])))
+    a(("h2", "Crowd"))
+    a(("table", ([
+        ["KPI", "How it is measured", "Baseline"],
+        ["Congestion detected against congestion observed",
+         "MetroPulse detections against DMRC station reports for the same "
+         "period", DATA_REQUIRED],
+        ["Guidance acted on",
+         "Share of warnings after which the rider chose an alternative gate, "
+         "interchange or departure time", DATA_REQUIRED],
+        ["Load shifted off a peak",
+         "Distribution of chosen departure times before and after guidance",
+         DATA_REQUIRED],
+        ["False-positive warnings",
+         "Reviewed jointly with DMRC; a warning nobody needed is a defect",
+         DATA_REQUIRED],
+    ], [44 * mm, CONTENT_W - 44 * mm - 30 * mm, 30 * mm])))
 
     a(("h1", "15. Value to DMRC"))
     a(("ul", [
@@ -399,6 +594,7 @@ def _content() -> list[tuple]:
          "Acknowledged. The scope of each pilot phase is deliberately small."],
     ], [52 * mm, CONTENT_W - 52 * mm])))
 
+    a(("pagebreak", None))
     a(("h1", "21. Current limitations"))
     a(("p", "Stated plainly, because a reviewer will find them anyway."))
     a(("ul", [
@@ -421,17 +617,18 @@ def _content() -> list[tuple]:
     a(("h1", "22. Appendices"))
     a(("h2", "A. Accompanying documents"))
     a(("ul", [
-        "MetroPulse_MICE_Pitch_Deck.pptx / .pdf",
-        "MetroPulse_Technical_Architecture.pdf",
-        "MetroPulse_OTD_Data_Integration.pdf",
-        "MetroPulse_Commuter_Testing_Report.pdf",
-        "MetroPulse_Crowd_Management_Proposal.pdf",
-        "MetroPulse_Realtime_Data_Request.pdf",
-        "MetroPulse_MICE_Pilot_Proposal.pdf",
-        "MetroPulse_Founder_Profile.pdf",
-        "MetroPulse_Roadmap.pdf",
-        "MetroPulse_Document_Status.pdf",
-        "MetroPulse.apk — installable release build",
+        "Pitch_Deck.pptx / .pdf — twenty slides",
+        "Technical_Architecture.pdf — system design and the realtime seam",
+        "OTD_Data_Integration.pdf — datasets loaded, and what they omit",
+        "Commuter_Validation.pdf — automated coverage and the rider trial",
+        "Crowd_Management.pdf — data to one passenger instruction",
+        "Realtime_Data_Request.pdf — what is asked of DMRC, and the evidence",
+        "Pilot_Proposal.pdf — ninety days, five stages, and the KPIs",
+        "Risk_and_Mitigation.pdf — every foreseeable risk and what handles it",
+        "Founder_Profile.pdf — self-reported background, kept separate",
+        "Roadmap.pdf — ordered by dependency, not by date",
+        "Document_Status.pdf — index and honest completion status",
+        "Demo/ — the release APK, screenshots, and a walkthrough",
     ]))
     a(("h2", "B. Contact"))
     a(("ul", [f("founder"), f("contact_phone"), f("contact_email")]))
@@ -440,7 +637,45 @@ def _content() -> list[tuple]:
         f"Journey completion, retention and crash-free rate — {DATA_REQUIRED}. "
         "All three need the consent-gated analytics build in riders' hands.",
     ]))
+    a(("h2", "D. Public VehiclePositions feed — measurement record"))
+    a(("p",
+       "A capture of the public OTD VehiclePositions endpoint (2026-07-05) "
+       "was analysed rather than assumed. This record is why MetroPulse "
+       "ships with realtime ingestion disabled."))
+    a(("table", ([
+        ["Measurement", "Result"],
+        ["Vehicles reporting", f("feed_vehicles") + " in " + f("feed_window")],
+        ["Identifiers matching a road number-plate pattern",
+         f("feed_plate_ids")],
+        ["Vehicles resolving to a Metro route", f("feed_resolved")],
+        ["Median distance to the nearest Metro station",
+         f("feed_median_dist")],
+        ["Within 50 m of any Metro station", f("feed_near_station")],
+        ["Furthest vehicle from the network", f("feed_max_dist")],
+        ["Distinct route identifiers (the Metro GTFS has 36)",
+         f("feed_routes")],
+    ], [CONTENT_W - 40 * mm, 40 * mm])))
+    _renumber(C)
     return C
+
+
+def _renumber(content: list[tuple]) -> None:
+    """Number the h1 sections in order.
+
+    The numbers used to be written into each heading by hand, so inserting a
+    section meant editing every heading after it — and the appendix
+    cross-references drifted the first time that was missed.
+    """
+    n = 0
+    for i, (kind, payload) in enumerate(content):
+        if kind != "h1" or not isinstance(payload, str):
+            continue
+        title = re.sub(r"^\d+\.\s*", "", payload)
+        if title.startswith("Appendices"):
+            content[i] = (kind, title)
+            continue
+        n += 1
+        content[i] = (kind, f"{n}. {title}")
 
 
 # ------------------------------------------------------------------- docx
