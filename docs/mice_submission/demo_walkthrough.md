@@ -5,7 +5,9 @@ the screenshots are captured from it running against the deployed backend.
 
 ## Run it yourself
 
-1. Install `MetroPulse.apk` on any Android 8.0 or newer device.
+1. Install `MetroPulse.apk` on any Android 8.0 or newer device — from this
+   folder, or downloaded directly from the signed release:
+   <https://github.com/Beware2707/Metropulse/releases/download/v1.0.0-mice/MetroPulse.apk>
 2. Open it. No account, no sign-up, no permission is required to start.
 
 The app talks to the deployed backend over the internet. Nothing else is
@@ -48,7 +50,8 @@ labelled as such.
 ## Source
 
 The implementation lives at `github.com/Beware2707/Metropulse` — architecture,
-tests and both applications, open for technical review.
+tests and both applications, open for technical review. The installable build
+is published there as release `v1.0.0-mice`.
 
 ## Screenshots
 

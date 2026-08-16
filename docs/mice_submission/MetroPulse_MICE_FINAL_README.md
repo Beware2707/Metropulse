@@ -107,7 +107,8 @@ Founder Profile keeps it in its own section under a heading that says so.
 
 The QR codes on the closing slide and in the Technical Architecture document
 point to `github.com/Beware2707/Metropulse`, which is public and was verified
-reachable at build time.
+reachable at build time. The signed APK is also published there as release
+`v1.0.0-mice`, so a reviewer who scans the QR is one click from installing.
 
 ## Contact
 
