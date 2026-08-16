@@ -136,9 +136,8 @@ FACTS: dict[str, tuple[str, str]] = {
     "contact_phone": ("+91 91037 52190", "provided by the founder"),
     "contact_email": ("riddlesforeverbiz@gmail.com", "provided by the founder"),
     "repo_url": ("github.com/Beware2707/Metropulse",
-                 "git remote of the working repository — private at the time "
-                 "of writing; must be made public or shared before the QR "
-                 "codes resolve for a reviewer"),
+                 "git remote of the working repository — public, verified "
+                 "reachable (HTTP 200) on 2026-08-15"),
 }
 
 

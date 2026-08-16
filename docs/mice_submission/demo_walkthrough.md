@@ -48,8 +48,7 @@ labelled as such.
 ## Source
 
 The implementation lives at `github.com/Beware2707/Metropulse` — architecture,
-tests and both applications. (Private at the time of writing; it will be made
-public or shared for the review.)
+tests and both applications, open for technical review.
 
 ## Screenshots
 

@@ -105,11 +105,9 @@ purpose of the commuter-pilot stage.
 Founder background is self-reported, unlike everything else here, and the
 Founder Profile keeps it in its own section under a heading that says so.
 
-**One action before sending:** the QR codes on the closing slide and in the
-Technical Architecture document point to `github.com/Beware2707/Metropulse`,
-which is **private at the time of writing**. Make the repository public (or
-grant DMRC access) before submitting, or the QR resolves to a 404 for the
-reviewer.
+The QR codes on the closing slide and in the Technical Architecture document
+point to `github.com/Beware2707/Metropulse`, which is public and was verified
+reachable at build time.
 
 ## Contact
 

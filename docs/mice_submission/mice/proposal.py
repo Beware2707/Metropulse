@@ -51,8 +51,8 @@ def _content() -> list[tuple]:
          "Integrate → validate → controlled pilot → measure passenger "
          "impact."],
         ["Ask",
-         "Realtime data, operational data, passenger-flow data, technical "
-         "collaboration, and a controlled ninety-day pilot."],
+         "Realtime data, operational data, aggregated passenger-flow data, "
+         "technical collaboration, and a controlled ninety-day pilot."],
     ], [32 * mm, CONTENT_W - 32 * mm])))
     a(("callout", ("No funding or exclusivity is requested at this stage",
                    "This page is the whole proposal in one screen: a working "
@@ -72,7 +72,7 @@ def _content() -> list[tuple]:
        "first slide of the accompanying deck."))
     a(("p",
        "The submission asks DMRC for five things: realtime Metro data, "
-       "operational station data, passenger-flow data, technical "
+       "operational station data, aggregated passenger-flow data, technical "
        "collaboration on feed formats and identifiers, and a controlled "
        "ninety-day pilot. It does not ask for funding, exclusivity, or any "
        "operational role."))
@@ -202,13 +202,15 @@ def _content() -> list[tuple]:
        "The same screens answer differently once real positions arrive. "
        "Nothing on the right needs a new application; each row is a different "
        "value behind the same interface, carrying a different provenance "
-       "label."))
+       "label. One distinction matters: with a feed, the train position "
+       "becomes LIVE, but a computed arrival time is still labelled "
+       "PREDICTED — a calculation never borrows its input's label."))
     a(("table", ([
         ["", "Today — schedule only", "With a DMRC realtime feed"],
         ["Train position", "Interpolated from the timetable",
-         "Actual position from the feed"],
+         "Actual position from the feed — labelled LIVE"],
         ["Arrival time", "Scheduled, labelled SCHEDULE",
-         "Predicted, labelled LIVE"],
+         "Predicted from LIVE vehicle position — labelled PREDICTED"],
         ["Disruption", "Rider reports only",
          "Detected from the feed within seconds"],
         ["Journey tracking", "GPS above ground, stop-count below",
@@ -569,11 +571,23 @@ def _content() -> list[tuple]:
     a(("h1", "19. Requested collaboration"))
     a(("table", ([
         ["Priority", "Request"],
-        ["1", "Metro train positions or arrival predictions"],
-        ["2", "Station occupancy or gate throughput, and escalator inventory"],
-        ["3", "Technical guidance on feed format, identifiers and cadence"],
-        ["4", "A named technical contact and agreed evaluation criteria"],
-    ], [22 * mm, CONTENT_W - 22 * mm])))
+        ["1 · Realtime Metro data",
+         "Vehicle positions or train movement, ETA or trip updates, and "
+         "service alerts — in a test environment first."],
+        ["2 · Operational station data",
+         "Facility operational status, gate closures, accessibility changes, "
+         "and escalator inventory and status."],
+        ["3 · Aggregated passenger-flow data",
+         "Station occupancy, gate throughput or other aggregated, "
+         "non-personal crowd indicators — whichever DMRC can share."],
+        ["4 · Technical collaboration",
+         "Feed specification, identifier mapping, refresh expectations, and "
+         "a named pilot technical contact."],
+        ["5 · Pilot",
+         "A controlled ninety-day pilot on selected stations and routes, "
+         "evaluated against the KPIs in this proposal."],
+    ], [44 * mm, CONTENT_W - 44 * mm])))
+    a(("p", "No funding or exclusivity is requested at this stage."))
 
     a(("h1", "20. Risks and mitigations"))
     a(("table", ([

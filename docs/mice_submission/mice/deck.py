@@ -273,9 +273,9 @@ def build(out_path: str) -> str:
              "One missing input, six different answers", "07")
     compare = [
         ("Train position", "Interpolated from the timetable",
-         "Actual position from the feed"),
+         "Actual position from the feed — labelled LIVE"),
         ("Arrival time", "Scheduled, labelled SCHEDULE",
-         "Predicted, and labelled LIVE"),
+         "Predicted from LIVE vehicle position — labelled PREDICTED"),
         ("Disruption", "Rider reports only",
          "Detected from the feed within seconds"),
         ("Journey tracking", "GPS above ground, stop-count below",
@@ -305,8 +305,9 @@ def build(out_path: str) -> str:
            "Nothing on the right needs a new application. Each one is a "
            "different value on the same screen.",
            size=11.5, colour=T.INK, anchor=MIDDLE)
-    d.foot(s, "The interface does not change when the feed arrives — the "
-              "provenance label and the number behind it do.")
+    d.foot(s, "With a feed, positions are labelled LIVE; computed arrival "
+              "times are labelled PREDICTED — a calculation never borrows its "
+              "input's label.")
 
     # ------------------------------------------------ 08 realtime architecture
     s = d.slide()
@@ -779,9 +780,9 @@ def build(out_path: str) -> str:
         ("2", "Operational station data", T.VIOLET,
          "Facility operational status, gate closures, accessibility changes, "
          "and escalator inventory and status."),
-        ("3", "Passenger-flow data", T.VIOLET,
-         "Station occupancy, gate throughput, or aggregated crowd "
-         "indicators — whichever DMRC can share."),
+        ("3", "Aggregated passenger-flow data", T.VIOLET,
+         "Station occupancy, gate throughput or other aggregated, "
+         "non-personal crowd indicators — whichever DMRC can share."),
         ("4", "Technical collaboration", T.PRIMARY,
          "Feed specification, identifier mapping, refresh expectations, and "
          "a named pilot technical contact."),
@@ -806,19 +807,20 @@ def build(out_path: str) -> str:
 
     # ----------------------------------------------------------- 20 close
     s = d.slide(dark=True)
-    d.text(s, M, 1.9, 9.2, 2.0, "MetroPulse is ready\nfor the next stage.",
-           size=44, bold=True, colour="FFFFFF", font=T.HEAD, spacing=1.2)
-    ready = [
-        ("The product exists", "and runs against a deployed backend today"),
-        ("The data is official", "approved OTD, loaded and matched"),
-        ("The pilot is scoped", "ninety days, an exit check at each stage"),
-    ]
-    for i, (a, b) in enumerate(ready):
-        x = M + i * 3.05
-        d.rect(s, x, 4.15, 2.85, 1.12, T.INK_SOFT, radius=True)
-        d.text(s, x + 0.24, 4.3, 2.4, 0.3, a, size=12, bold=True,
-               colour="7FE3D2", font=T.HEAD)
-        d.text(s, x + 0.24, 4.62, 2.4, 0.6, b, size=10, colour="9DB4DC")
+    d.text(s, M, 1.9, 9.2, 2.0,
+           "MetroPulse is ready for\na controlled DMRC pilot.",
+           size=40, bold=True, colour="FFFFFF", font=T.HEAD, spacing=1.2)
+    chain = ["Working\nproduct", "Approved OTD\ndata integrated",
+             "Realtime-ready\narchitecture", "90-day\npilot"]
+    cw2 = 2.02
+    for i, lab in enumerate(chain):
+        x = M + i * (cw2 + 0.36)
+        d.rect(s, x, 4.15, cw2, 0.86, T.INK_SOFT, radius=True)
+        d.text(s, x, 4.15, cw2, 0.86, lab, size=11, bold=True,
+               colour="7FE3D2", font=T.HEAD, align=CENTER, anchor=MIDDLE)
+        if i < len(chain) - 1:
+            d.text(s, x + cw2, 4.15, 0.36, 0.86, "→", size=15,
+                   colour="9DB4DC", align=CENTER, anchor=MIDDLE)
     d.rect(s, 10.15, 1.6, 2.5, 2.5, "FFFFFF", radius=True)
     d.img(s, "qr_repo.png", 10.37, 1.82, h=2.06)
     d.text(s, 10.15, 4.2, 2.5, 0.3, "Try MetroPulse", size=13, bold=True,

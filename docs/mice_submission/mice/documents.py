@@ -597,9 +597,9 @@ def realtime_request(path: str) -> str:
             ["2 · Operational station data",
              "Facility operational status, gate closures, accessibility "
              "changes, and escalator inventory and status."],
-            ["3 · Passenger-flow data",
-             "Station occupancy, gate throughput, or aggregated crowd "
-             "indicators — whichever DMRC can share."],
+            ["3 · Aggregated passenger-flow data",
+             "Station occupancy, gate throughput or other aggregated, "
+             "non-personal crowd indicators — whichever DMRC can share."],
             ["4 · Technical collaboration",
              "Feed specification, identifier mapping, data refresh "
              "expectations, and a named pilot technical contact."],

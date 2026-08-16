@@ -33,6 +33,8 @@ BANNED = [
     "live delhi metro data",
     "official realtime data from dmrc",
     "realtime metro feed integrated",
+    "predicted, and labelled live",
+    "predicted, labelled live",
     "dmrc has approved",
     "in partnership with dmrc",
     "registered company",
